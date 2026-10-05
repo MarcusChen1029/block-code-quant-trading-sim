@@ -1,9 +1,10 @@
 import * as Blockly from 'blockly';
 import { defaultWorkspace } from '../blocks/defaultWorkspace';
-import { defineBlocks } from '../blocks/definitions';
+import { defineBlocks, defineMissingIndicatorBlocks } from '../blocks/definitions';
 import type { CompileIssue } from '../blocks/generator';
 import { quantTheme } from '../blocks/theme';
 import { buildToolbox } from '../blocks/toolbox';
+import { fixupIndicatorBlocks } from '../blocks/workspaceFixup';
 import { loadJson, saveJson } from './storage';
 
 export const WORKSPACE_STORAGE_KEY = 'quant-sim.blocks.workspace.v1';
@@ -19,6 +20,11 @@ export interface BlockEditor {
   resize(): void;
   /** Replaces the workspace with the SMA-cross example. */
   resetToExample(): void;
+  /**
+   * Indicator registrations changed (Pine scripts saved / deleted): redefines blocks, rebuilds the toolbox and
+   * reloads the current workspace so blocks pick up new shapes; then recompiles (onChange) even if unchanged.
+   */
+  refreshIndicators(): void;
   /** How the workspace was restored on startup. */
   readonly restored: 'storage' | 'default' | 'default-after-error';
 }
@@ -52,15 +58,18 @@ export function createBlockEditor(container: HTMLElement, onChange: (json: unkno
     ws.scrollBoundsIntoView(new Blockly.utils.Rect(box.top, box.top + 40, box.left, box.left + 120), 16);
   };
 
-  const load = (state: unknown) => {
+  const load = (state: unknown, keepView = false) => {
+    // Indicator blocks may have changed shape (edited Pine script) or lost their definition (deleted one).
+    const { workspace, missingTypes } = fixupIndicatorBlocks(state);
+    defineMissingIndicatorBlocks(missingTypes);
     loading = true;
     try {
       ws.clear();
-      Blockly.serialization.workspaces.load(state as Record<string, unknown>, ws);
+      Blockly.serialization.workspaces.load(workspace as Record<string, unknown>, ws);
     } finally {
       loading = false;
     }
-    requestAnimationFrame(showTopLeft);
+    if (!keepView) requestAnimationFrame(showTopLeft);
   };
 
   const emit = () => {
@@ -118,6 +127,22 @@ export function createBlockEditor(container: HTMLElement, onChange: (json: unkno
     resize: () => Blockly.svgResize(ws),
     resetToExample() {
       load(defaultWorkspace());
+      emit();
+    },
+    refreshIndicators() {
+      const json = Blockly.serialization.workspaces.save(ws);
+      const { scrollX, scrollY } = ws;
+      defineBlocks();
+      ws.updateToolbox(buildToolbox() as unknown as Blockly.utils.toolbox.ToolboxDefinition);
+      try {
+        load(json, true);
+      } catch (err) {
+        // Should not happen (fixup keeps it loadable); keep the stored copy rather than saving a partial one.
+        console.error('could not reload the block workspace after indicator changes', err);
+        return;
+      }
+      ws.scroll(scrollX, scrollY);
+      lastJson = '';
       emit();
     },
   };

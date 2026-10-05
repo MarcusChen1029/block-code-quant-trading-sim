@@ -9,7 +9,10 @@ import { createBlockEditor } from './ui/blockEditor';
 import { blockIndicatorOverlays } from './ui/blockOverlays';
 import { ChartPanel } from './ui/chart';
 import { h } from './ui/dom';
-import { createProblemsView, createStrategyPicker, setupLayout } from './ui/layout';
+import { createProblemsView, createStrategyPicker, setupLayout, type LeftTab } from './ui/layout';
+import { syncPineIndicators } from './pine/library';
+import { createPineEditor } from './ui/pineEditor';
+import { loadPineRecords } from './ui/pineStore';
 import { fillsToMarkers } from './ui/markers';
 import { renderOverlayPicker } from './ui/overlayPicker';
 import { OVERLAYS, smaOverlay, type OverlayDef } from './ui/overlays';
@@ -22,6 +25,11 @@ import type { StrategySpec } from './worker/protocol';
 
 type StrategyChoice = 'blocks' | 'smaCross';
 const STRATEGY_STORAGE_KEY = 'quant-sim.strategy';
+const LEFT_TAB_STORAGE_KEY = 'quant-sim.left-tab';
+
+// Pine indicators must be registered before the block editor loads a workspace that uses them.
+let pineRecords = loadPineRecords();
+const pineStartup = syncPineIndicators(pineRecords).filter((r) => !r.ok);
 
 /** The hard-coded strategy's own lines, drawn while it is selected. */
 const SMA_CROSS_OVERLAYS: OverlayDef[] = [
@@ -79,9 +87,26 @@ function onWorkspaceChange(json: unknown): void {
 
 const editor = createBlockEditor(document.getElementById('blockly')!, onWorkspaceChange);
 if (editor.restored === 'default-after-error') setStatus('The saved block workspace could not be loaded; the SMA cross example was restored.', true);
+if (pineStartup.length > 0) setStatus(`${pineStartup.length} saved Pine script${pineStartup.length > 1 ? 's do' : ' does'} not compile; open the Pine tab to fix ${pineStartup.length > 1 ? 'them' : 'it'}.`, true);
 
+const pineEditor = createPineEditor(document.getElementById('pine')!, {
+  records: pineRecords,
+  onChange(records) {
+    pineRecords = records;
+    const results = syncPineIndicators(records);
+    blockOverlayKey = ''; // same parameters may now mean different code: redraw
+    editor.refreshIndicators();
+    return results;
+  },
+});
+
+const initialTab: LeftTab = loadText(LEFT_TAB_STORAGE_KEY) === 'pine' ? 'pine' : 'blocks';
 setupLayout(document.getElementById('pane-switch')!, document.getElementById('left-tabs')!, (pane) => {
   if (pane === 'left') editor.resize();
+}, initialTab, (tab) => {
+  saveText(LEFT_TAB_STORAGE_KEY, tab);
+  if (tab === 'blocks') editor.resize();
+  else pineEditor.refresh();
 });
 new ResizeObserver(() => editor.resize()).observe(document.getElementById('blockly')!);
 const resetButton = h('button', { type: 'button', class: 'reset-blocks', title: 'Replace the workspace with the SMA cross example' }, 'Reset to example');
@@ -126,7 +151,7 @@ function strategySpec(): StrategySpec | null {
     setStatus(`Cannot run: ${result.errors.length} block problem${result.errors.length > 1 ? 's' : ''}: ${result.errors[0].message}`, true);
     return null;
   }
-  return { id: 'blocks', workspace };
+  return { id: 'blocks', workspace, pineScripts: pineRecords };
 }
 
 async function run(): Promise<void> {

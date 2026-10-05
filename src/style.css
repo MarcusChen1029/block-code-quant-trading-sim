@@ -42,6 +42,25 @@ button.run:disabled { opacity: 0.6; cursor: progress; }
 .problem.clickable:hover { text-decoration: underline; }
 .pane-switch { display: none; }
 
+/* Left pane tabs: Blocks | Pine. */
+body[data-left-tab='pine'] #blockly, body[data-left-tab='pine'] #problems, body[data-left-tab='pine'] .reset-blocks { display: none; }
+body:not([data-left-tab='pine']) #pine { display: none; }
+.pine-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pine-toolbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; border-bottom: 1px solid #2a2e39; }
+.pine-toolbar .pine-scripts { flex: 1 1 140px; min-width: 0; }
+.pine-toolbar button { cursor: pointer; }
+.pine-toolbar button:disabled { opacity: 0.45; cursor: not-allowed; }
+.pine-editor { flex: 1; min-height: 160px; display: flex; overflow: hidden; background: #0f121a; }
+.pine-gutter, .pine-code { font: 12px/18px ui-monospace, SFMono-Regular, Consolas, monospace; margin: 0; padding: 6px 6px; }
+.pine-gutter { width: 3.2em; text-align: right; color: #50535e; overflow: hidden; user-select: none; border-right: 1px solid #2a2e39; flex: none; white-space: pre; }
+.pine-code { flex: 1; min-width: 0; resize: none; border: none; border-radius: 0; background: transparent; color: #d1d4dc; outline: none; white-space: pre; overflow: auto; tab-size: 4; }
+.pine-status { padding: 4px 8px; font-size: 12px; border-top: 1px solid #2a2e39; }
+.pine-status-ok { color: #26a69a; }
+.pine-status-error { color: #ef5350; }
+.pine-status-info { color: #787b86; }
+.pine-problems { max-height: 140px; font-family: ui-monospace, Consolas, monospace; }
+.pine-note { padding: 4px 8px 6px; font-size: 11px; color: #787b86; border-top: 1px solid #2a2e39; }
+
 @media (max-width: 899px) {
   .pane-switch { display: flex; gap: 4px; padding: 4px 10px; border-bottom: 1px solid #2a2e39; }
   .pane-switch button { flex: 1; cursor: pointer; }
