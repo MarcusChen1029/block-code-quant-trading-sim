@@ -5,6 +5,7 @@ import type { CompileIssue } from '../blocks/generator';
 import { quantTheme } from '../blocks/theme';
 import { buildToolbox } from '../blocks/toolbox';
 import { fixupIndicatorBlocks } from '../blocks/workspaceFixup';
+import { loadWorkspaceSafely, type LoadResult } from '../blocks/workspaceLoad';
 import { loadJson, saveJson } from './storage';
 
 export const WORKSPACE_STORAGE_KEY = 'quant-sim.blocks.workspace.v1';
@@ -27,14 +28,23 @@ export interface BlockEditor {
   refreshIndicators(): void;
   /** How the workspace was restored on startup. */
   readonly restored: 'storage' | 'default' | 'default-after-error';
+  /** Why the saved workspace could not be loaded (with restored = 'default-after-error'). */
+  readonly loadError?: string;
 }
+
+/** Copy of a saved workspace that failed to load; never overwritten by edits. */
+export const WORKSPACE_BACKUP_KEY = 'quant-sim.blocks.workspace.unloadable';
 
 /**
  * Injects the Blockly workspace into `container`, restores the saved workspace (falling back to the example),
  * and calls `onChange(json)` (debounced) after every real edit and once after loading. Edits are persisted to
  * localStorage; a failed write only means it is not remembered.
  */
-export function createBlockEditor(container: HTMLElement, onChange: (json: unknown) => void): BlockEditor {
+export function createBlockEditor(
+  container: HTMLElement,
+  onChange: (json: unknown) => void,
+  onLoadError: (message: string) => void = () => {},
+): BlockEditor {
   defineBlocks();
   const ws = Blockly.inject(container, {
     toolbox: buildToolbox() as unknown as Blockly.utils.toolbox.ToolboxDefinition,
@@ -49,6 +59,8 @@ export function createBlockEditor(container: HTMLElement, onChange: (json: unkno
 
   let loading = false;
   let lastJson = '';
+  /** False while the editor shows something other than the saved workspace that failed to load. */
+  let persist = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   /** Scrolls so the top-left corner of the script is visible (not hidden under the toolbox). */
@@ -58,18 +70,22 @@ export function createBlockEditor(container: HTMLElement, onChange: (json: unkno
     ws.scrollBoundsIntoView(new Blockly.utils.Rect(box.top, box.top + 40, box.left, box.left + 120), 16);
   };
 
-  const load = (state: unknown, keepView = false) => {
-    // Indicator blocks may have changed shape (edited Pine script) or lost their definition (deleted one).
-    const { workspace, missingTypes } = fixupIndicatorBlocks(state);
-    defineMissingIndicatorBlocks(missingTypes);
+  /** Loads `state`; on failure the workspace is left untouched and the error returned. */
+  const load = (state: unknown, keepView = false): LoadResult => {
+    let result: LoadResult;
     loading = true;
     try {
-      ws.clear();
-      Blockly.serialization.workspaces.load(workspace as Record<string, unknown>, ws);
+      // Indicator blocks may have changed shape (edited Pine script) or lost their definition (deleted one).
+      const { workspace, missingTypes } = fixupIndicatorBlocks(state);
+      defineMissingIndicatorBlocks(missingTypes);
+      result = loadWorkspaceSafely(ws, workspace);
+    } catch (err) {
+      result = { ok: false, error: err instanceof Error ? err.message : String(err) };
     } finally {
       loading = false;
     }
-    if (!keepView) requestAnimationFrame(showTopLeft);
+    if (result.ok && !keepView) requestAnimationFrame(showTopLeft);
+    return result;
   };
 
   const emit = () => {
@@ -78,21 +94,25 @@ export function createBlockEditor(container: HTMLElement, onChange: (json: unkno
     if (text === lastJson) return;
     lastJson = text;
     ws.highlightBlock(null);
-    saveJson(WORKSPACE_STORAGE_KEY, json);
+    if (persist) saveJson(WORKSPACE_STORAGE_KEY, json);
     onChange(json);
   };
 
   let restored: BlockEditor['restored'] = 'storage';
+  let loadError: string | undefined;
   const saved = loadJson(WORKSPACE_STORAGE_KEY);
   if (saved === undefined) {
     load(defaultWorkspace());
     restored = 'default';
   } else {
-    try {
-      load(saved);
-    } catch {
+    const result = load(saved);
+    if (!result.ok) {
+      // Keep the saved copy untouched (and backed up); show the example without persisting it.
+      saveJson(WORKSPACE_BACKUP_KEY, saved);
+      persist = false;
       load(defaultWorkspace());
       restored = 'default-after-error';
+      loadError = result.error;
     }
   }
 
@@ -106,6 +126,7 @@ export function createBlockEditor(container: HTMLElement, onChange: (json: unkno
 
   return {
     restored,
+    loadError,
     save: () => Blockly.serialization.workspaces.save(ws),
     showIssues(issues) {
       const byBlock = new Map<string, string[]>();
@@ -126,7 +147,8 @@ export function createBlockEditor(container: HTMLElement, onChange: (json: unkno
     },
     resize: () => Blockly.svgResize(ws),
     resetToExample() {
-      load(defaultWorkspace());
+      if (!load(defaultWorkspace()).ok) return;
+      persist = true;
       emit();
     },
     refreshIndicators() {
@@ -134,11 +156,10 @@ export function createBlockEditor(container: HTMLElement, onChange: (json: unkno
       const { scrollX, scrollY } = ws;
       defineBlocks();
       ws.updateToolbox(buildToolbox() as unknown as Blockly.utils.toolbox.ToolboxDefinition);
-      try {
-        load(json, true);
-      } catch (err) {
-        // Should not happen (fixup keeps it loadable); keep the stored copy rather than saving a partial one.
-        console.error('could not reload the block workspace after indicator changes', err);
+      const result = load(json, true);
+      if (!result.ok) {
+        // The workspace still shows (and storage still holds) the previous blocks.
+        onLoadError(`The blocks could not be updated for the changed Pine scripts: ${result.error}`);
         return;
       }
       ws.scroll(scrollX, scrollY);

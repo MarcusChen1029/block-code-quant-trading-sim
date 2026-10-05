@@ -93,8 +93,11 @@ function onWorkspaceChange(json: unknown): void {
   }
 }
 
-const editor = createBlockEditor(document.getElementById('blockly')!, onWorkspaceChange);
-if (editor.restored === 'default-after-error') setStatus('The saved block workspace could not be loaded; the SMA cross example was restored.', true);
+const editor = createBlockEditor(document.getElementById('blockly')!, onWorkspaceChange, (message) => setStatus(message, true));
+if (editor.restored === 'default-after-error') {
+  setStatus(`The saved block workspace could not be loaded (${editor.loadError}). It is kept unchanged in browser storage; ` +
+    "the SMA cross example is shown and edits are not saved until you press 'Reset to example'.", true);
+}
 if (pineStartup.length > 0) setStatus(`${pineStartup.length} saved Pine script${pineStartup.length > 1 ? 's do' : ' does'} not compile; open the Pine tab to fix ${pineStartup.length > 1 ? 'them' : 'it'}.`, true);
 
 const pineEditor = createPineEditor(document.getElementById('pine')!, {

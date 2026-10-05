@@ -66,24 +66,42 @@ const CUSTOM_BLOCKS: Json[] = [
   command(BT.log, 'log %1', 'Writes a line to the run log.', [{ type: 'input_value', name: 'MSG' }]),
 ];
 
-/** Blockly JSON definition for a registered indicator. */
+/**
+ * Text for Blockly message / label / tooltip strings. Blockly interpolates `%1` (argument), `%{BKY_X}` (message
+ * table) and newlines in them, so user text (Pine titles) must have `%` doubled (`%%` renders as `%`, verified
+ * against blockly 13 tokenizeInterpolation) and line breaks flattened.
+ */
+export function blocklyText(text: string): string {
+  return text.replace(/[\r\n\u2028\u2029]+/g, ' ').replace(/%/g, '%%');
+}
+
+/**
+ * Blockly JSON definition for a registered indicator. Labels (which can be user text from Pine titles) are
+ * field_label arguments rather than message text: Blockly interpolates message text twice (block message, then
+ * the label field) but a label argument's text only once, so blocklyText() escaping is exact.
+ */
 export function indicatorBlockJson(def: IndicatorBlockDef): Json {
   const parts: string[] = [];
   const args: unknown[] = [];
-  const add = (text: string, arg: unknown) => {
-    args.push(arg);
-    parts.push(text.replace('%', `%${args.length}`));
+  const arg = (value: unknown) => {
+    args.push(value);
+    parts.push(`%${args.length}`);
   };
-  parts.push(def.label);
-  if (def.outputs.length > 1) add('%', dropdown('OUT', def.outputs.map((o) => [o.label, o.key] as const)));
-  if (def.source) add('of %', { type: 'input_value', name: 'SOURCE', check: 'Number' });
+  const label = (text: string) => arg({ type: 'field_label', text: blocklyText(text) });
+  label(def.label);
+  if (def.outputs.length > 1) arg(dropdown('OUT', def.outputs.map((o) => [blocklyText(o.label), o.key] as const)));
+  if (def.source) {
+    label('of');
+    arg({ type: 'input_value', name: 'SOURCE', check: 'Number' });
+  }
   for (const p of def.params) {
-    add(`${p.label} %`, { type: 'field_number', name: paramFieldName(p), value: p.default, min: p.min, max: p.max, precision: p.integer ? 1 : undefined });
+    label(p.label);
+    arg({ type: 'field_number', name: paramFieldName(p), value: p.default, min: p.min, max: p.max, precision: p.integer ? 1 : undefined });
   }
   return {
     type: indicatorBlockType(def.id), style: 'indicator_blocks', message0: parts.join(' '), args0: args,
     output: 'Number', inputsInline: true,
-    tooltip: `${def.tooltip} Updates on every bar, even inside an if that is not taken. Early bars return na while it warms up.`,
+    tooltip: blocklyText(`${def.tooltip} Updates on every bar, even inside an if that is not taken. Early bars return na while it warms up.`),
   };
 }
 
