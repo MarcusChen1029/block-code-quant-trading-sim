@@ -59,6 +59,7 @@ export function createPineEditor(container: HTMLElement, options: PineEditorOpti
     h('div', { class: 'pine-note' }, 'Pine v5 subset: indicator(), inputs, ta.*, math.*, var, if/for, functions, plot(). Each plot is an output of the block (toolbox › Pine). Warm-up bars may differ slightly from TradingView.'),
   );
 
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const savedSource = () => records.find((r) => r.id === currentId)?.source ?? null;
   const dirty = () => textarea.value !== savedSource();
 
@@ -125,6 +126,7 @@ export function createPineEditor(container: HTMLElement, options: PineEditorOpti
   const confirmDiscard = () => !dirty() || window.confirm('Discard the unsaved changes in the editor?');
 
   const save = () => {
+    clearTimeout(timer); // a pending live check would overwrite the save status
     const result = check();
     if (!result.ok) {
       setStatus(`Not saved: fix the ${result.errors.length} error${result.errors.length === 1 ? '' : 's'} below first (click one to jump to it).`, 'error');
@@ -163,7 +165,6 @@ export function createPineEditor(container: HTMLElement, options: PineEditorOpti
     setStatus(`Deleted "${title}".`, 'info');
   };
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
   textarea.addEventListener('input', () => {
     renderGutter();
     clearTimeout(timer);
