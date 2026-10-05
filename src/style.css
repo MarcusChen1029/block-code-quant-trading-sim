@@ -1,6 +1,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body {
+  color-scheme: dark;
   background: #131722;
   color: #d1d4dc;
   font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif;

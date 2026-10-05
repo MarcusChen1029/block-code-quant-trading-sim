@@ -1,5 +1,6 @@
 import './style.css';
 import { compileBlocks } from './blocks/compiler';
+import { getIndicator } from './blocks/registry';
 import type { CompileIssue, IndicatorUse } from './blocks/generator';
 import type { CandleSubscription } from './data/adapter';
 import { BinanceFuturesAdapter } from './data/binance';
@@ -73,6 +74,13 @@ function onWorkspaceChange(json: unknown): void {
   problems.show(compileState.errors, compileState.warnings);
   editor.showIssues([...compileState.errors, ...compileState.warnings]);
   if (!result.ok) {
+    // Keep drawing the last good indicators, except ones whose definition is gone (a deleted Pine script).
+    const still = blockIndicators.filter((use) => getIndicator(use.indicatorId) !== undefined);
+    if (still.length !== blockIndicators.length) {
+      blockIndicators = still;
+      blockOverlayKey = '';
+      if (strategyChoice === 'blocks') applyOverlays();
+    }
     setStatus(`Blocks: ${result.errors.length} problem${result.errors.length > 1 ? 's' : ''}: ${result.errors[0].message}`, true);
     return;
   }
