@@ -34,7 +34,7 @@ export class StatsPanel {
   }
 
   clear(): void {
-    this.cards.replaceChildren(h('div', { class: 'hint' }, 'Press Run to backtest the SMA 10/30 cross strategy.'));
+    this.cards.replaceChildren(h('div', { class: 'hint' }, 'Press Run to backtest the selected strategy (blocks on the left, or the built-in example).'));
     this.equitySeries.setData([]);
     this.trades.replaceChildren();
     this.log.replaceChildren();

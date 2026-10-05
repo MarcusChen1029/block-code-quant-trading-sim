@@ -227,7 +227,7 @@ describe('block compiler: compile errors', () => {
   it('reports empty inputs against the block that has them', () => {
     const empty = { type: 'logic_compare', id: 'half-compare', fields: { OP: 'GT' }, inputs: { A: slot(price()) } };
     const errors = compileErrors(workspace({ onBar: [ifThen(empty, log(text('x')))] }));
-    expect(errors).toEqual([{ message: "'logic compare': the right slot is empty", blockId: 'half-compare' }]);
+    expect(errors).toEqual([{ message: "'compare': the right slot is empty", blockId: 'half-compare' }]);
     expect(() => createBlockStrategy(workspace({ onBar: [ifThen(empty)] }))).toThrow(CompileError);
   });
 

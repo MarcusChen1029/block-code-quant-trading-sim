@@ -45,6 +45,13 @@ export function createBlockEditor(container: HTMLElement, onChange: (json: unkno
   let lastJson = '';
   let timer: ReturnType<typeof setTimeout> | undefined;
 
+  /** Scrolls so the top-left corner of the script is visible (not hidden under the toolbox). */
+  const showTopLeft = () => {
+    if (ws.getTopBlocks(false).length === 0) return;
+    const box = ws.getBlocksBoundingBox();
+    ws.scrollBoundsIntoView(new Blockly.utils.Rect(box.top, box.top + 40, box.left, box.left + 120), 16);
+  };
+
   const load = (state: unknown) => {
     loading = true;
     try {
@@ -53,6 +60,7 @@ export function createBlockEditor(container: HTMLElement, onChange: (json: unkno
     } finally {
       loading = false;
     }
+    requestAnimationFrame(showTopLeft);
   };
 
   const emit = () => {

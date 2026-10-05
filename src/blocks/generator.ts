@@ -52,6 +52,17 @@ export function jsNumber(value: number): string {
 }
 
 const HAT_LABEL: Record<string, string> = { [BT.start]: "'when strategy starts'", [BT.bar]: "'when a bar closes'" };
+/** Names users see in messages (the text on the block), for blocks whose type name reads badly. */
+const BLOCK_LABEL: Record<string, string> = {
+  controls_if: 'if', controls_ifelse: 'if else', controls_repeat_ext: 'repeat', controls_repeat: 'repeat',
+  logic_compare: 'compare', logic_operation: 'and / or', logic_negate: 'not', math_arithmetic: 'arithmetic',
+  math_single: 'math function', math_round: 'round', math_change: 'change variable', variables_set: 'set variable',
+  variables_get: 'variable', text_join: 'join', procedures_callnoreturn: 'call function', procedures_callreturn: 'call function',
+  procedures_defnoreturn: 'function', procedures_defreturn: 'function', procedures_ifreturn: 'if return',
+  [BT.minMax]: 'min / max', [BT.price]: 'price', [BT.volume]: 'volume', [BT.positionIs]: 'position is',
+  [BT.marketOrder]: 'market order', [BT.limitOrder]: 'limit order', [BT.setExit]: 'set stop-loss / take-profit',
+  [BT.clearExit]: 'remove stop-loss / take-profit', [BT.log]: 'log',
+};
 const PROC_DEFS = new Set(['procedures_defnoreturn', 'procedures_defreturn']);
 const ARITHMETIC: Record<string, string> = { ADD: '+', MINUS: '-', MULTIPLY: '*', DIVIDE: '/', POWER: '**' };
 const COMPARE: Record<string, string> = { EQ: '===', NEQ: '!==', LT: '<', LTE: '<=', GT: '>', GTE: '>=' };
@@ -209,8 +220,9 @@ class Generator {
 
   private describe(block: BlockState): string {
     if (HAT_LABEL[block.type]) return HAT_LABEL[block.type];
+    if (block.type === BT.crosses) return block.fields?.OP === 'under' ? "'crosses under'" : "'crosses over'";
     const ind = block.type.startsWith(INDICATOR_BLOCK_PREFIX) ? getIndicator(block.type.slice(INDICATOR_BLOCK_PREFIX.length)) : undefined;
-    return `'${ind ? ind.label : block.type.replace(/_/g, ' ')}'`;
+    return `'${ind ? ind.label : BLOCK_LABEL[block.type] ?? block.type.replace(/_/g, ' ')}'`;
   }
 
   // ---- procedures --------------------------------------------------------------------------------
