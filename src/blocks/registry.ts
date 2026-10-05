@@ -62,6 +62,14 @@ export function registerIndicator(def: IndicatorBlockDef): void {
   registry.set(def.id, def);
 }
 
+/** Removes a registered indicator (used when a Pine script is edited or deleted). Returns whether it existed. */
+export function unregisterIndicator(id: string): boolean {
+  return registry.delete(id);
+}
+
+/** Registry ids of Pine-compiled indicators start with this. */
+export const PINE_ID_PREFIX = 'pine_';
+
 export function getIndicator(id: string): IndicatorBlockDef | undefined {
   return registry.get(id);
 }

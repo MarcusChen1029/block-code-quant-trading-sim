@@ -3,12 +3,16 @@ import type { Candle } from '../data/types';
 import { runBacktest, type BacktestResult, type EngineConfig } from '../engine/engine';
 import { createSmaCross, type SmaCrossParams } from '../engine/strategies/smaCross';
 import { StrategyError, type Strategy } from '../engine/strategy';
+import { syncPineIndicators, type PineSourceRecord } from '../pine/library';
 
 /**
  * Which strategy the worker should build. Block strategies travel as the saved workspace JSON and are compiled
- * inside the worker, so generated code only ever runs there. Pine strategies will be added as a new member.
+ * inside the worker, so generated code only ever runs there. Pine indicator SOURCES travel with them (functions
+ * cannot be posted): the worker compiles and registers them itself before compiling the blocks.
  */
-export type StrategySpec = { id: 'smaCross'; params: SmaCrossParams } | { id: 'blocks'; workspace: unknown };
+export type StrategySpec =
+  | { id: 'smaCross'; params: SmaCrossParams }
+  | { id: 'blocks'; workspace: unknown; pineScripts?: PineSourceRecord[] };
 
 export interface RunRequest {
   type: 'run';
@@ -27,6 +31,7 @@ export function buildStrategy(spec: StrategySpec): Strategy {
     case 'smaCross':
       return createSmaCross(spec.params);
     case 'blocks':
+      syncPineIndicators(spec.pineScripts ?? []);
       return createBlockStrategy(spec.workspace);
   }
 }

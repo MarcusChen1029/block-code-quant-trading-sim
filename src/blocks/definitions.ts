@@ -3,7 +3,7 @@ import {
   BT, CROSS_OPTIONS, EXIT_OPTIONS, MAX_PRICE_OFFSET, MIN_MAX_OPTIONS, POSITION_SIDE_OPTIONS, PRICE_FIELD_OPTIONS,
   SIDE_OPTIONS, SIZE_UNIT_OPTIONS, type Options,
 } from './blockTypes';
-import { indicatorBlockType, listIndicators, paramFieldName, type IndicatorBlockDef } from './registry';
+import { getIndicator, INDICATOR_BLOCK_PREFIX, indicatorBlockType, listIndicators, paramFieldName, type IndicatorBlockDef } from './registry';
 
 type Json = Record<string, unknown>;
 
@@ -87,11 +87,43 @@ export function indicatorBlockJson(def: IndicatorBlockDef): Json {
   };
 }
 
-const defined = new Set<string>();
+/** Block type -> the JSON it was defined with (Pine blocks are redefined when their script changes). */
+const defined = new Map<string, string>();
+
+function define(jsons: Json[]): void {
+  const fresh = jsons.filter((b) => defined.get(b.type as string) !== JSON.stringify(b));
+  for (const b of fresh) {
+    const type = b.type as string;
+    // Redefinition (an edited Pine script): drop the old one first so Blockly does not warn about overwriting.
+    if (defined.has(type)) delete (Blockly.Blocks as Record<string, unknown>)[type];
+    defined.set(type, JSON.stringify(b));
+  }
+  if (fresh.length > 0) Blockly.common.defineBlocksWithJsonArray(fresh);
+}
 
 /** Registers all custom blocks plus one block per registered indicator (idempotent; call again after registering more). */
 export function defineBlocks(): void {
-  const fresh = [...CUSTOM_BLOCKS, ...listIndicators().map(indicatorBlockJson)].filter((b) => !defined.has(b.type as string));
-  for (const b of fresh) defined.add(b.type as string);
-  if (fresh.length > 0) Blockly.common.defineBlocksWithJsonArray(fresh);
+  define([...CUSTOM_BLOCKS, ...listIndicators().map(indicatorBlockJson)]);
+}
+
+/**
+ * Placeholder for an indicator block whose definition is gone (a deleted Pine script) so a saved workspace that
+ * still uses it loads. It keeps a SOURCE input; the generator reports it as a missing script.
+ */
+export function missingIndicatorBlockJson(type: string): Json {
+  const name = type.slice(INDICATOR_BLOCK_PREFIX.length).replace(/^pine_/, '');
+  return {
+    type, style: 'indicator_blocks', message0: `⚠ missing Pine script "${name}" %1`, inputsInline: true, output: 'Number',
+    args0: [{ type: 'input_value', name: 'SOURCE', check: 'Number' }],
+    tooltip: 'This Pine script was deleted or no longer compiles. Re-create it in the Pine tab or remove this block.',
+  };
+}
+
+/** Only well-formed Pine block types get a placeholder (the type text comes from saved, untrusted JSON). */
+const MISSING_PINE_TYPE = /^ind_pine_[a-z0-9_]{1,35}$/;
+
+/** Defines placeholders for the given indicator block types that have no registered indicator. */
+export function defineMissingIndicatorBlocks(types: Iterable<string>): void {
+  const missing = [...new Set(types)].filter((t) => MISSING_PINE_TYPE.test(t) && !getIndicator(t.slice(INDICATOR_BLOCK_PREFIX.length)));
+  define(missing.map(missingIndicatorBlockJson));
 }

@@ -54,7 +54,7 @@ describe('Blockly definitions (headless Blockly 13)', () => {
     const unsupported: string[] = [];
     for (const category of buildToolbox().contents) {
       for (const item of category.contents ?? []) {
-        if (item.type === BT.start || item.type === BT.bar) continue;
+        if (item.kind !== 'block' || item.type === BT.start || item.type === BT.bar) continue;
         const { kind: _kind, ...state } = item;
         const block = Blockly.serialization.blocks.append(state as Blockly.serialization.blocks.State, ws);
         const saved = Blockly.serialization.blocks.save(block) as BlockState;

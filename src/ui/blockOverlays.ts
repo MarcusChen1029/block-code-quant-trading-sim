@@ -28,8 +28,23 @@ export function blockIndicatorOverlays(uses: readonly IndicatorUse[]): OverlayDe
       pane: def.pane,
       lines: def.outputs.map((o) => ({ key: o.key, color: COLORS[colorCursor++ % COLORS.length] })),
       create() {
-        const instance = def.create(use.params);
-        return (candle) => instance.step(source ? priceOf(candle, source) : NaN, candle);
+        // A Pine script can throw (bad parameter, loop budget): the chart then shows gaps instead of breaking.
+        const gap = () => Object.fromEntries(def.outputs.map((o) => [o.key, NaN]));
+        let instance: ReturnType<typeof def.create> | null = null;
+        try {
+          instance = def.create(use.params);
+        } catch {
+          return gap;
+        }
+        return (candle) => {
+          if (!instance) return gap();
+          try {
+            return instance.step(source ? priceOf(candle, source) : NaN, candle);
+          } catch {
+            instance = null;
+            return gap();
+          }
+        };
       },
     });
   }

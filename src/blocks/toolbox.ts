@@ -1,6 +1,6 @@
 import { BT } from './blockTypes';
 import { PALETTE, type BlockStyleName } from './palette';
-import { indicatorBlockType, listIndicators } from './registry';
+import { indicatorBlockType, listIndicators, PINE_ID_PREFIX, type IndicatorBlockDef } from './registry';
 import type { BlockState, ConnectionState } from './workspaceState';
 
 /** Toolbox in Blockly's JSON format (kept as plain data so tests can check it without a DOM). */
@@ -12,11 +12,17 @@ export interface ToolboxBlock {
   inputs?: Record<string, ConnectionState>;
 }
 
+/** A text line in a flyout (used to explain an empty Pine category). */
+export interface ToolboxLabel {
+  kind: 'label';
+  text: string;
+}
+
 export interface ToolboxCategory {
   kind: 'category';
   name: string;
   colour: string;
-  contents?: ToolboxBlock[];
+  contents?: Array<ToolboxBlock | ToolboxLabel>;
   /** Blockly's dynamic categories: 'VARIABLE' (my variables) and 'PROCEDURE' (functions). */
   custom?: 'VARIABLE' | 'PROCEDURE';
 }
@@ -31,12 +37,17 @@ const number = (value: number) => shadow('math_number', { NUM: value });
 const priceShadow = (field: string) => shadow(BT.price, { FIELD: field, OFFSET: 0 });
 
 const block = (type: string, extra: Partial<ToolboxBlock> = {}): ToolboxBlock => ({ kind: 'block', type, ...extra });
-const category = (name: string, style: BlockStyleName, contents: ToolboxBlock[]): ToolboxCategory => ({
+const category = (name: string, style: BlockStyleName, contents: Array<ToolboxBlock | ToolboxLabel>): ToolboxCategory => ({
   kind: 'category', name, colour: PALETTE[style][0], contents,
 });
 
-/** Builds the toolbox; indicator blocks come from the registry, so registered Pine blocks appear automatically. */
+const indicatorBlock = (def: IndicatorBlockDef): ToolboxBlock =>
+  block(indicatorBlockType(def.id), def.source ? { inputs: { SOURCE: priceShadow(def.source) } } : {});
+
+/** Builds the toolbox; indicator blocks come from the registry, Pine-compiled ones in their own category. */
 export function buildToolbox(): Toolbox {
+  const all = listIndicators();
+  const pine = all.filter((d) => d.id.startsWith(PINE_ID_PREFIX));
   return {
     kind: 'categoryToolbox',
     contents: [
@@ -55,8 +66,10 @@ export function buildToolbox(): Toolbox {
         block(BT.balance), block(BT.equity), block(BT.positionIs), block(BT.positionSide), block(BT.positionSize),
         block(BT.entryPrice), block(BT.unrealizedPnl), block(BT.openOrders),
       ]),
-      category('Indicators', 'indicator_blocks', listIndicators().map((def) =>
-        block(indicatorBlockType(def.id), def.source ? { inputs: { SOURCE: priceShadow(def.source) } } : {}))),
+      category('Indicators', 'indicator_blocks', all.filter((d) => !d.id.startsWith(PINE_ID_PREFIX)).map(indicatorBlock)),
+      category('Pine', 'indicator_blocks', pine.length > 0
+        ? pine.map(indicatorBlock)
+        : [{ kind: 'label', text: 'Compile a script in the Pine tab to get a block here.' }]),
       category('Logic', 'logic_blocks', [
         block('controls_if'),
         block('controls_if', { extraState: { hasElse: true } }),
