@@ -1,7 +1,7 @@
 import type { Candle, Timeframe } from '../data/types';
 import { Broker } from './broker';
 import { computeStats, type EquityPoint, type Stats } from './stats';
-import type { EntryRequest, PriceField, Strategy, StrategyContext } from './strategy';
+import { StrategyError, type EntryRequest, type PriceField, type Strategy, type StrategyContext } from './strategy';
 import type { BrokerConfig, Fill, LogEntry, PositionView, Side, Trade } from './types';
 
 export interface EngineConfig {
@@ -74,7 +74,8 @@ export class Engine {
       this.strategy.onBar(ctx);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`strategy error on bar ${bar}: ${message}`);
+      const blockId = err instanceof StrategyError ? err.blockId : undefined;
+      throw new StrategyError(`strategy error on bar ${bar}: ${message}`, blockId, bar);
     }
     return true;
   }

@@ -44,6 +44,17 @@ export interface StrategyContext {
   log(message: string): void;
 }
 
+/**
+ * An error raised while a strategy runs. `blockId` names the Blockly block that was executing (block strategies
+ * only) so the UI can highlight it; `bar` is the bar index when known.
+ */
+export class StrategyError extends Error {
+  constructor(message: string, readonly blockId?: string, readonly bar?: number) {
+    super(message);
+    this.name = 'StrategyError';
+  }
+}
+
 export interface Strategy {
   /** Once, on the first bar, before onBar ("when strategy starts"). */
   init?(ctx: StrategyContext): void;
