@@ -1,25 +1,21 @@
 import { compilePine } from '../pine/compile';
 import type { PineDiagnostic } from '../pine/diagnostics';
-import { pineIdFor, type PineSourceRecord, type PineSyncResult } from '../pine/library';
+import { newPineScriptId, retirePineScript, scriptTitle, type PineRetired, type PineSourceRecord, type PineSyncResult } from '../pine/library';
 import { PINE_TEMPLATES } from '../pine/templates';
 import { h } from './dom';
-import { loadPineDraft, savePineDraft, savePineRecords } from './pineStore';
+import { loadPineDraft, savePineDraft, savePineRecords, savePineRetired } from './pineStore';
 
 export interface PineEditorOptions {
   records: PineSourceRecord[];
+  /** Tombstones of deleted scripts. */
+  retired: PineRetired[];
   /** Saved scripts changed: register them and refresh the blocks; returns per-script results. */
-  onChange(records: PineSourceRecord[]): PineSyncResult[];
+  onChange(records: PineSourceRecord[], retired: PineRetired[]): PineSyncResult[];
 }
 
 export interface PineEditor {
   /** Re-measures the line-number gutter (call when the pane becomes visible). */
   refresh(): void;
-}
-
-/** Title from `indicator("...")` for the script list, without compiling. */
-export function scriptTitle(source: string, fallback: string): string {
-  const m = /indicator\s*\(\s*(?:title\s*=\s*)?(["'])((?:(?!\1)[^\\\n]|\\.)*)\1/.exec(source);
-  return m && m[2].trim() !== '' ? m[2].trim() : fallback;
 }
 
 /** Character offset of line:col (1-based) in `text`. */
@@ -42,6 +38,7 @@ const NEW_ID = '__new__';
  */
 export function createPineEditor(container: HTMLElement, options: PineEditorOptions): PineEditor {
   let records = [...options.records];
+  let retired = [...options.retired];
   let currentId: string | null = null;
 
   const scriptSelect = h('select', { class: 'pine-scripts', title: 'Saved Pine scripts', 'aria-label': 'Saved Pine scripts' });
@@ -136,12 +133,12 @@ export function createPineEditor(container: HTMLElement, options: PineEditorOpti
       return;
     }
     const isNew = currentId === null;
-    const id = currentId ?? pineIdFor(result.script.title, records.map((r) => r.id));
+    const id = currentId ?? newPineScriptId(result.script.title, records, retired);
     const record = { id, source: textarea.value };
     records = isNew ? [...records, record] : records.map((r) => (r.id === id ? record : r));
     const stored = savePineRecords(records);
     currentId = id;
-    const synced = options.onChange(records).find((r) => r.id === id);
+    const synced = options.onChange(records, retired).find((r) => r.id === id);
     renderList();
     savePineDraft({ id, source: textarea.value });
     check();
@@ -156,9 +153,10 @@ export function createPineEditor(container: HTMLElement, options: PineEditorOpti
     if (currentId === null) return;
     const title = scriptTitle(savedSource() ?? '', currentId);
     if (!window.confirm(`Delete the Pine script "${title}"? Strategies that use its block will show an error until you remove the block.`)) return;
-    records = records.filter((r) => r.id !== currentId);
+    ({ records, retired } = retirePineScript(records, retired, currentId));
     savePineRecords(records);
-    options.onChange(records);
+    savePineRetired(retired);
+    options.onChange(records, retired);
     const next = records[0];
     if (next) open(next.id, next.source);
     else open(null, PINE_TEMPLATES[0].source);

@@ -3,7 +3,9 @@ import {
   BT, CROSS_OPTIONS, EXIT_OPTIONS, MAX_PRICE_OFFSET, MIN_MAX_OPTIONS, POSITION_SIDE_OPTIONS, PRICE_FIELD_OPTIONS,
   SIDE_OPTIONS, SIZE_UNIT_OPTIONS, type Options,
 } from './blockTypes';
-import { getIndicator, INDICATOR_BLOCK_PREFIX, indicatorBlockType, listIndicators, paramFieldName, type IndicatorBlockDef } from './registry';
+import {
+  getIndicator, INDICATOR_BLOCK_PREFIX, indicatorBlockType, listIndicators, missingIndicatorTitle, paramFieldName, type IndicatorBlockDef,
+} from './registry';
 
 type Json = Record<string, unknown>;
 
@@ -129,11 +131,12 @@ export function defineBlocks(): void {
  * still uses it loads. It keeps a SOURCE input; the generator reports it as a missing script.
  */
 export function missingIndicatorBlockJson(type: string): Json {
-  const name = type.slice(INDICATOR_BLOCK_PREFIX.length).replace(/^pine_/, '');
+  const id = type.slice(INDICATOR_BLOCK_PREFIX.length);
+  const name = missingIndicatorTitle(id) ?? id.replace(/^pine_/, '');
   return {
-    type, style: 'indicator_blocks', message0: `⚠ missing Pine script "${name}" %1`, inputsInline: true, output: 'Number',
-    args0: [{ type: 'input_value', name: 'SOURCE', check: 'Number' }],
-    tooltip: 'This Pine script was deleted or no longer compiles. Re-create it in the Pine tab or remove this block.',
+    type, style: 'indicator_blocks', message0: '%1 %2', inputsInline: true, output: 'Number',
+    args0: [{ type: 'field_label', text: blocklyText(`⚠ missing Pine script "${name}"`) }, { type: 'input_value', name: 'SOURCE', check: 'Number' }],
+    tooltip: 'This Pine script was deleted or no longer compiles. Fix it in the Pine tab, or replace this block with one from the Pine toolbox category (a re-created script gets a new block).',
   };
 }
 

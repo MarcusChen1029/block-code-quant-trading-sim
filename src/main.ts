@@ -13,7 +13,7 @@ import { h } from './ui/dom';
 import { createProblemsView, createStrategyPicker, setupLayout, type LeftTab } from './ui/layout';
 import { syncPineIndicators } from './pine/library';
 import { createPineEditor } from './ui/pineEditor';
-import { loadPineRecords } from './ui/pineStore';
+import { loadPineRecords, loadPineRetired } from './ui/pineStore';
 import { fillsToMarkers } from './ui/markers';
 import { renderOverlayPicker } from './ui/overlayPicker';
 import { OVERLAYS, smaOverlay, type OverlayDef } from './ui/overlays';
@@ -30,7 +30,8 @@ const LEFT_TAB_STORAGE_KEY = 'quant-sim.left-tab';
 
 // Pine indicators must be registered before the block editor loads a workspace that uses them.
 let pineRecords = loadPineRecords();
-const pineStartup = syncPineIndicators(pineRecords).filter((r) => !r.ok);
+let pineRetired = loadPineRetired();
+const pineStartup = syncPineIndicators(pineRecords, pineRetired).filter((r) => !r.ok);
 
 /** The hard-coded strategy's own lines, drawn while it is selected. */
 const SMA_CROSS_OVERLAYS: OverlayDef[] = [
@@ -102,9 +103,11 @@ if (pineStartup.length > 0) setStatus(`${pineStartup.length} saved Pine script${
 
 const pineEditor = createPineEditor(document.getElementById('pine')!, {
   records: pineRecords,
-  onChange(records) {
+  retired: pineRetired,
+  onChange(records, retired) {
     pineRecords = records;
-    const results = syncPineIndicators(records);
+    pineRetired = retired;
+    const results = syncPineIndicators(records, retired);
     blockOverlayKey = ''; // same parameters may now mean different code: redraw
     editor.refreshIndicators();
     return results;
@@ -162,7 +165,7 @@ function strategySpec(): StrategySpec | null {
     setStatus(`Cannot run: ${result.errors.length} block problem${result.errors.length > 1 ? 's' : ''}: ${result.errors[0].message}`, true);
     return null;
   }
-  return { id: 'blocks', workspace, pineScripts: pineRecords };
+  return { id: 'blocks', workspace, pineScripts: pineRecords, pineRetired };
 }
 
 async function run(): Promise<void> {

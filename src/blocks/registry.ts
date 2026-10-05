@@ -67,6 +67,21 @@ export function unregisterIndicator(id: string): boolean {
   return registry.delete(id);
 }
 
+const missingTitles = new Map<string, string>();
+
+/**
+ * Last known titles of indicators that are not registered (deleted Pine scripts, scripts that no longer
+ * compile), so errors and placeholder blocks can name them. Replaces the previous set.
+ */
+export function setMissingIndicatorTitles(titles: Iterable<readonly [string, string]>): void {
+  missingTitles.clear();
+  for (const [id, title] of titles) missingTitles.set(id, title);
+}
+
+export function missingIndicatorTitle(id: string): string | undefined {
+  return missingTitles.get(id);
+}
+
 /** Registry ids of Pine-compiled indicators start with this. */
 export const PINE_ID_PREFIX = 'pine_';
 

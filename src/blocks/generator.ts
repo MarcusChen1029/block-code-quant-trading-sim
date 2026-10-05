@@ -3,7 +3,9 @@ import {
   SIDE_OPTIONS, SIZE_UNIT_OPTIONS, hasOption,
 } from './blockTypes';
 import type { PriceSource } from './priceSource';
-import { getIndicator, INDICATOR_BLOCK_PREFIX, paramFieldName, PINE_ID_PREFIX, type IndicatorBlockDef } from './registry';
+import {
+  getIndicator, INDICATOR_BLOCK_PREFIX, missingIndicatorTitle, paramFieldName, PINE_ID_PREFIX, type IndicatorBlockDef,
+} from './registry';
 import { connected, isEnabled, type BlockState, type ConnectionState, type WorkspaceState } from './workspaceState';
 
 export interface CompileIssue {
@@ -457,7 +459,8 @@ class Generator {
         const def = block.type.startsWith(INDICATOR_BLOCK_PREFIX) ? getIndicator(block.type.slice(INDICATOR_BLOCK_PREFIX.length)) : undefined;
         if (def) return this.indicator(block, k, def);
         if (block.type.startsWith(INDICATOR_BLOCK_PREFIX + PINE_ID_PREFIX)) {
-          const name = block.type.slice((INDICATOR_BLOCK_PREFIX + PINE_ID_PREFIX).length);
+          const id = block.type.slice(INDICATOR_BLOCK_PREFIX.length);
+          const name = missingIndicatorTitle(id) ?? id.slice(PINE_ID_PREFIX.length);
           this.error(`Pine script "${name}" is missing: it was deleted or no longer compiles. Fix it in the Pine tab, or remove this block`, block);
           return 'NaN';
         }

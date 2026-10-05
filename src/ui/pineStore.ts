@@ -1,8 +1,18 @@
-import { isPineId, parsePineRecords, type PineSourceRecord } from '../pine/library';
+import { isPineId, parsePineRecords, parsePineRetired, type PineRetired, type PineSourceRecord } from '../pine/library';
 import { loadJson, saveJson } from './storage';
 
 export const PINE_SCRIPTS_KEY = 'quant-sim.pine.scripts.v1';
 export const PINE_DRAFT_KEY = 'quant-sim.pine.draft.v1';
+export const PINE_RETIRED_KEY = 'quant-sim.pine.retired.v1';
+
+/** Tombstones of deleted scripts (their ids are never reused). */
+export function loadPineRetired(): PineRetired[] {
+  return parsePineRetired(loadJson(PINE_RETIRED_KEY));
+}
+
+export function savePineRetired(retired: readonly PineRetired[]): boolean {
+  return saveJson(PINE_RETIRED_KEY, retired);
+}
 
 /** Saved (successfully compiled) Pine scripts; malformed storage just means none. */
 export function loadPineRecords(): PineSourceRecord[] {

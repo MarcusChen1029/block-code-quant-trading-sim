@@ -1,6 +1,6 @@
 import { isPriceSource } from '../blocks/priceSource';
 import {
-  getIndicator, listIndicators, PINE_ID_PREFIX, registerIndicator, unregisterIndicator, type IndicatorBlockDef,
+  getIndicator, listIndicators, PINE_ID_PREFIX, registerIndicator, setMissingIndicatorTitles, unregisterIndicator, type IndicatorBlockDef,
 } from '../blocks/registry';
 import { compilePine, slugIdentifier, type PineScript } from './compile';
 import type { PineDiagnostic } from './diagnostics';
@@ -9,6 +9,12 @@ import type { PineDiagnostic } from './diagnostics';
 export interface PineSourceRecord {
   id: string;
   source: string;
+}
+
+/** A deleted script: its id is never given to a new script, and its title names it in errors. */
+export interface PineRetired {
+  id: string;
+  title: string;
 }
 
 export interface PineSyncResult {
@@ -23,6 +29,45 @@ const PINE_ID = /^pine_[a-z0-9_]{1,35}$/;
 
 export function isPineId(id: unknown): id is string {
   return typeof id === 'string' && PINE_ID.test(id);
+}
+
+/** Title from `indicator("...")` without compiling (script lists, tombstones). */
+export function scriptTitle(source: string, fallback: string): string {
+  const m = /indicator\s*\(\s*(?:title\s*=\s*)?(["'])((?:(?!\1)[^\\\n]|\\.)*)\1/.exec(source);
+  return m && m[2].trim() !== '' ? m[2].trim().slice(0, 200) : fallback;
+}
+
+/**
+ * Id for a new script titled `title`: never one in use and never one of a deleted script, so blocks that used
+ * a deleted script stay "missing" instead of silently switching to an unrelated new script.
+ */
+export function newPineScriptId(title: string, records: readonly PineSourceRecord[], retired: readonly PineRetired[]): string {
+  return pineIdFor(title, [...records.map((r) => r.id), ...retired.map((r) => r.id)]);
+}
+
+/** Deletes script `id` and records its tombstone (id + last title). */
+export function retirePineScript(
+  records: readonly PineSourceRecord[],
+  retired: readonly PineRetired[],
+  id: string,
+): { records: PineSourceRecord[]; retired: PineRetired[] } {
+  const gone = records.find((r) => r.id === id);
+  if (!gone) return { records: [...records], retired: [...retired] };
+  return {
+    records: records.filter((r) => r.id !== id),
+    retired: [...retired.filter((r) => r.id !== id), { id, title: scriptTitle(gone.source, id.slice(PINE_ID_PREFIX.length)) }],
+  };
+}
+
+/** Tombstones from untrusted JSON. */
+export function parsePineRetired(raw: unknown): PineRetired[] {
+  if (!Array.isArray(raw)) return [];
+  const out = new Map<string, PineRetired>();
+  for (const r of raw) {
+    const { id, title } = (typeof r === 'object' && r !== null ? r : {}) as Record<string, unknown>;
+    if (isPineId(id) && typeof title === 'string') out.set(id, { id, title: title.slice(0, 200) });
+  }
+  return [...out.values()];
 }
 
 /** A registry id for a new script: `pine_<slug of title>`, deduplicated against `existing`. */
@@ -78,8 +123,10 @@ const registered = new Map<string, string>();
  * Makes this realm's registry hold exactly the given scripts: compiles new or changed sources, unregisters
  * deleted, changed and failing ones. Main thread (toolbox, overlays) and worker (runs) each call it.
  */
-export function syncPineIndicators(records: readonly PineSourceRecord[]): PineSyncResult[] {
+export function syncPineIndicators(records: readonly PineSourceRecord[], retired: readonly PineRetired[] = []): PineSyncResult[] {
   const wanted = new Map(parsePineRecords(records).map((r) => [r.id, r.source]));
+  // Titles for blocks whose script is gone (deleted) or not registered (does not compile).
+  const missing = new Map<string, string>(parsePineRetired(retired).map((r) => [r.id, r.title]));
   for (const def of listIndicators()) {
     if (def.id.startsWith(PINE_ID_PREFIX) && wanted.get(def.id) !== registered.get(def.id)) {
       unregisterIndicator(def.id);
@@ -105,5 +152,7 @@ export function syncPineIndicators(records: readonly PineSourceRecord[]): PineSy
       results.push({ id, ok: false, errors: [{ line: 1, col: 1, message }], warnings: [] });
     }
   }
+  for (const r of results) if (!r.ok) missing.set(r.id, scriptTitle(wanted.get(r.id) ?? '', r.id.slice(PINE_ID_PREFIX.length)));
+  setMissingIndicatorTitles(missing);
   return results;
 }

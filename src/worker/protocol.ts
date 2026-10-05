@@ -3,7 +3,7 @@ import type { Candle } from '../data/types';
 import { runBacktest, type BacktestResult, type EngineConfig } from '../engine/engine';
 import { createSmaCross, type SmaCrossParams } from '../engine/strategies/smaCross';
 import { StrategyError, type Strategy } from '../engine/strategy';
-import { syncPineIndicators, type PineSourceRecord } from '../pine/library';
+import { syncPineIndicators, type PineRetired, type PineSourceRecord } from '../pine/library';
 
 /**
  * Which strategy the worker should build. Block strategies travel as the saved workspace JSON and are compiled
@@ -12,7 +12,7 @@ import { syncPineIndicators, type PineSourceRecord } from '../pine/library';
  */
 export type StrategySpec =
   | { id: 'smaCross'; params: SmaCrossParams }
-  | { id: 'blocks'; workspace: unknown; pineScripts?: PineSourceRecord[] };
+  | { id: 'blocks'; workspace: unknown; pineScripts?: PineSourceRecord[]; pineRetired?: PineRetired[] };
 
 export interface RunRequest {
   type: 'run';
@@ -31,7 +31,7 @@ export function buildStrategy(spec: StrategySpec): Strategy {
     case 'smaCross':
       return createSmaCross(spec.params);
     case 'blocks':
-      syncPineIndicators(spec.pineScripts ?? []);
+      syncPineIndicators(spec.pineScripts ?? [], spec.pineRetired ?? []);
       return createBlockStrategy(spec.workspace);
   }
 }
