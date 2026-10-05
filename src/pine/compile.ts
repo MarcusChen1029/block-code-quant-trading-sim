@@ -7,7 +7,7 @@ import { generate, type InputBinding } from './codegen';
 import { byPosition, type PineDiagnostic, PineRuntimeError, PineSyntaxError } from './diagnostics';
 import { pineVersion } from './lexer';
 import { parse } from './parser';
-import { PineRuntime } from './runtime';
+import { MAX_TA_LENGTH, PineRuntime } from './runtime';
 import { forbiddenReferences, SHADOWED_GLOBALS } from './safety';
 
 /** A block parameter made from input.int / input.float / input.bool (bool -> 0/1). */
@@ -129,6 +129,13 @@ function compileUnguarded(source: string): PineCompileResult {
   const plotIndex = new Map<CallExpr, number>(analysis.plots.map((p, i) => [p.call, i]));
 
   const gen = generate({ program, inputs: bindings, plotIndex, reassigned: analysis.reassigned });
+  // An input used as a ta.* length can only be 1..MAX_TA_LENGTH: make that the block field's range, so a bad
+  // value is a block compile error rather than a failure when the run starts.
+  for (const input of inputs) {
+    if (!gen.lengthInputs.has(input.varName)) continue;
+    input.min = Math.max(input.min ?? 1, 1);
+    input.max = Math.min(input.max ?? MAX_TA_LENGTH, MAX_TA_LENGTH);
+  }
   warnings.push(...gen.warnings);
   const errors = [...analysis.errors, ...gen.errors];
   if (errors.length > 0) return fail(errors, warnings);

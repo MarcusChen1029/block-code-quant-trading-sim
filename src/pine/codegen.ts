@@ -28,6 +28,8 @@ export interface CodegenResult {
   js: string;
   /** Largest offset of a built-in series (sizes the candle history). */
   maxBarsBack: number;
+  /** Inputs (Pine variable names) passed directly as a ta.* length: their valid range is 1..MAX_TA_LENGTH. */
+  lengthInputs: Set<string>;
   errors: Issue[];
   warnings: Issue[];
 }
@@ -91,6 +93,7 @@ class Codegen {
   private readonly scopes: Map<string, VarSym>[] = [new Map()];
   private readonly funcs = new Map<string, FuncSym>();
   private readonly historySyms: VarSym[] = [];
+  private readonly lengthInputs = new Set<string>();
   private ids = 0;
   private maxBarsBack = 0;
   private func: FuncSym | null = null;
@@ -119,7 +122,7 @@ class Codegen {
       '},',
       '};',
     ].join('\n');
-    return { js, maxBarsBack: this.maxBarsBack, errors: this.errors, warnings: this.warnings };
+    return { js, maxBarsBack: this.maxBarsBack, lengthInputs: this.lengthInputs, errors: this.errors, warnings: this.warnings };
   }
 
   // ---- bookkeeping ---------------------------------------------------------------------------------
@@ -567,6 +570,8 @@ class Codegen {
     const simple = (i: number): string => {
       const a = args[i];
       if (!a) return 'undefined';
+      const isLength = !(info.kind === 'bb' && i === 2); // every constant ta.* argument is a length except bb's mult
+      if (isLength && a.k === 'ident' && this.lookup(a.name)?.constInput) this.lengthInputs.add(a.name);
       const code = this.simple(a);
       if (code === null) {
         this.error(a, `ta.${fn} ${info.sig.params[i]} must be a constant: a number, an input, or arithmetic on them`);

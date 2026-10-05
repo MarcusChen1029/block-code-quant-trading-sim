@@ -528,7 +528,8 @@ class Generator {
       else if (out !== undefined) this.error(`${def.label}: unknown output "${String(out)}"`, block);
     }
     const inst = this.instances.length;
-    this.instances.push(`rt.indicator(${jsString(def.id)}, { ${def.params.map((p) => `${p.name}: ${jsNumber(params[p.name])}`).join(', ')} })`);
+    // `rt.at(k)` first, so an error while creating the instance (e.g. a bad length) names this block.
+    this.instances.push(`(rt.at(${k}), rt.indicator(${jsString(def.id)}, { ${def.params.map((p) => `${p.name}: ${jsNumber(params[p.name])}`).join(', ')} }))`);
     const slot = this.cacheSlots++;
     this.hoisted.push(`rt.at(${k}); C[${slot}] = I[${inst}].step(${source}, ctx.candle);`);
     this.uses.push({

@@ -46,7 +46,12 @@ interface CompiledProgram {
 export function strategyFromProgram(program: GeneratedProgram, limits: RuntimeLimits = DEFAULT_LIMITS): Strategy {
   const factory = new Function('rt', ...SHADOWED_GLOBALS, program.source) as (rt: BlockRuntime) => CompiledProgram;
   const rt = new BlockRuntime(program.blockIds, program.maxOffset, limits);
-  const compiled = factory(rt);
+  let compiled: CompiledProgram;
+  try {
+    compiled = factory(rt); // creates the indicator instances: errors name the block being created
+  } catch (err) {
+    throw rt.toError(err);
+  }
   return {
     init(ctx) {
       try {
