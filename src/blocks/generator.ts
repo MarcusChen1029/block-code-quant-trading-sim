@@ -85,6 +85,10 @@ const CONTEXT_VALUES: Record<string, string> = {
   [BT.unrealizedPnl]: 'ctx.unrealizedPnl',
   [BT.openOrders]: 'ctx.openOrderCount',
 };
+// Block types and dropdown values come from user-loadable JSON: tables must not resolve `constructor`, `toString`, etc.
+for (const table of [HAT_LABEL, BLOCK_LABEL, ARITHMETIC, COMPARE, SINGLE, ROUND, CONTEXT_VALUES]) {
+  Object.setPrototypeOf(table, null);
+}
 
 interface ProcInfo {
   index: number;
@@ -145,7 +149,7 @@ class Generator {
     const enabled = top.filter(isEnabled);
     for (const block of enabled.filter((b) => PROC_DEFS.has(b.type))) this.registerProc(block);
 
-    const hats: Record<string, BlockState | undefined> = {};
+    const hats: Record<string, BlockState | undefined> = Object.create(null);
     for (const block of enabled) {
       if (block.type === BT.start || block.type === BT.bar) {
         if (hats[block.type]) this.error(`Only one ${HAT_LABEL[block.type]} block is allowed`, block);

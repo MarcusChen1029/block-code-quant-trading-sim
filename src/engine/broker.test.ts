@@ -19,6 +19,16 @@ function withPosition(qty: number, config: BrokerConfig = NO_COSTS): Broker {
   return b;
 }
 
+describe('log', () => {
+  it('is capped so a runaway strategy cannot exhaust memory, ending with one truncation warning', () => {
+    const b = new Broker(NO_COSTS);
+    for (let i = 0; i < 20_000; i++) b.addLog(0, 0, 'info', `line ${i}`);
+    expect(b.log).toHaveLength(5001);
+    expect(b.log[4999].message).toBe('line 4999');
+    expect(b.log[5000]).toMatchObject({ level: 'warn', message: 'log truncated after 5000 entries' });
+  });
+});
+
 describe('market orders', () => {
   it('never fill on the bar they were placed; fill at the next open', () => {
     const b = new Broker(NO_COSTS);

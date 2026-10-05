@@ -245,6 +245,18 @@ describe('block compiler: compile errors', () => {
     ]);
   });
 
+  it('treats Object.prototype names as unknown, never as table hits (hostile workspace JSON)', () => {
+    for (const hostile of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) {
+      const errors = compileErrors(workspace({ onBar: [log(value(hostile))] }));
+      expect(errors[0]?.message, hostile).toBe(`Unknown or unsupported block "${hostile}"`);
+
+      const arithmetic = { type: 'math_arithmetic', id: 'bad-op', fields: { OP: hostile }, inputs: { A: slot(price()), B: slot(price()) } };
+      const result = compileBlocks(workspace({ onBar: [log(arithmetic)] }));
+      // either a compile error, or source that is syntactically valid — never "ok" with a broken function body
+      if (result.ok) expect(() => new Function('rt', result.program.source), hostile).not.toThrow();
+    }
+  });
+
   it('function inputs and calls are refused inside indicator inputs', () => {
     const def = {
       type: 'procedures_defnoreturn', id: 'def-p', extraState: { params: [{ name: 'p', id: 'vp' }] }, fields: { NAME: 'f' },

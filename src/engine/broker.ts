@@ -11,6 +11,9 @@ import type {
   Trade,
 } from './types';
 
+/** Hard cap so a strategy that logs inside a loop cannot exhaust memory before the worker timeout. */
+const MAX_LOG_ENTRIES = 5000;
+
 /**
  * Simulated futures account with ONE net position (opposite fills reduce or flip it).
  * Orders placed on bar t are only processed from bar t+1 on. Per bar, processBar runs:
@@ -67,6 +70,11 @@ export class Broker {
   }
 
   addLog(bar: number, time: number, level: LogEntry['level'], message: string): void {
+    if (this.log.length > MAX_LOG_ENTRIES) return;
+    if (this.log.length === MAX_LOG_ENTRIES) {
+      this.log.push({ bar, time, level: 'warn', message: `log truncated after ${MAX_LOG_ENTRIES} entries` });
+      return;
+    }
     this.log.push({ bar, time, level, message });
   }
 
