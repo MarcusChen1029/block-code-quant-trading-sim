@@ -1,4 +1,5 @@
 import type { PriceSource } from '../blocks/priceSource';
+import type { RuntimeLimits } from '../blocks/runtime';
 import type { Candle } from '../data/types';
 import type { CallExpr, Stmt } from './ast';
 import { analyze, type InputKind } from './analyze';
@@ -51,8 +52,11 @@ export interface PineScript {
   warnings: PineDiagnostic[];
   /** The generated JS (for inspection and tests). */
   js: string;
-  /** New instance; `params` are keyed by PineInput.name (missing -> default). Throws on out-of-range values. */
-  create(params?: Record<string, number>): PineInstance;
+  /**
+   * New instance; `params` are keyed by PineInput.name (missing -> default). Throws on out-of-range values.
+   * `limits` overrides the per-bar loop / time budget (tests inject a clock).
+   */
+  create(params?: Record<string, number>, limits?: RuntimeLimits): PineInstance;
 }
 
 export type PineCompileResult =
@@ -149,7 +153,7 @@ function compileUnguarded(source: string): PineCompileResult {
     plots,
     warnings: [...warnings].sort(byPosition),
     js: gen.js,
-    create(values = {}) {
+    create(values = {}, limits) {
       const P = inputs.map((input) => {
         const given = Object.prototype.hasOwnProperty.call(values, input.name) ? values[input.name] : input.default;
         const v = Number(given);
@@ -160,7 +164,7 @@ function compileUnguarded(source: string): PineCompileResult {
         }
         return v;
       });
-      const rt = new PineRuntime(header.title, gen.maxBarsBack, plots.length, sourceDefault);
+      const rt = new PineRuntime(header.title, gen.maxBarsBack, plots.length, sourceDefault, limits);
       const program = factory(rt, P);
       return {
         step(src, candle) {

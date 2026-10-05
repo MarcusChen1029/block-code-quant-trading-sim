@@ -1,4 +1,4 @@
-import { MAX_LOOP_ITERATIONS_PER_BAR } from '../blocks/blockTypes';
+import { DEFAULT_LIMITS, type RuntimeLimits } from '../blocks/runtime';
 import { priceOf, type PriceSource } from '../blocks/priceSource';
 import type { Candle } from '../data/types';
 import { Ema, Rma, Sma, Wma } from '../indicators/averages';
@@ -15,7 +15,7 @@ export const MAX_HISTORY = 5000;
 /** Largest ta.* length. */
 export const MAX_TA_LENGTH = 5000;
 /** for-loop iterations allowed per bar (same budget as block loops). */
-export const MAX_PINE_ITERATIONS = MAX_LOOP_ITERATIONS_PER_BAR;
+export const MAX_PINE_ITERATIONS = DEFAULT_LIMITS.maxIterationsPerBar;
 
 /** Last `capacity` values of any kind; get(0) is the newest. */
 export class History {
@@ -73,12 +73,15 @@ export class PineRuntime {
   readonly out: number[];
   private readonly candles: History;
   private iterations = 0;
+  private barStart = 0;
 
   constructor(
     private readonly title: string,
     maxBarsBack: number,
     plotCount: number,
     private readonly defaultSource: PriceSource,
+    /** Same per-bar iteration and wall-clock budget as block strategies (src/blocks/runtime.ts). */
+    private readonly limits: RuntimeLimits = DEFAULT_LIMITS,
   ) {
     this.candles = new History(maxBarsBack + 1);
     this.out = new Array<number>(plotCount).fill(NaN);
@@ -91,6 +94,7 @@ export class PineRuntime {
     this.candles.push(candle);
     this.src = source === undefined ? priceOf(candle, this.defaultSource) : source;
     this.iterations = 0;
+    this.barStart = this.limits.now();
     this.out.fill(NaN);
   }
 
@@ -163,8 +167,11 @@ export class PineRuntime {
   // ---- loops ---------------------------------------------------------------------------------------
 
   loop(line: number, col: number): void {
-    if (++this.iterations > MAX_PINE_ITERATIONS) {
-      this.fail(line, col, `more than ${MAX_PINE_ITERATIONS.toLocaleString('en-US')} loop iterations in one bar`);
+    const max = this.limits.maxIterationsPerBar;
+    if (++this.iterations > max) this.fail(line, col, `more than ${max.toLocaleString('en-US')} loop iterations in one bar`);
+    // The clock is read every 256 iterations, as in the block runtime.
+    if ((this.iterations & 255) === 0 && this.limits.now() - this.barStart > this.limits.maxBarMs) {
+      this.fail(line, col, `one bar took longer than ${this.limits.maxBarMs} ms`);
     }
   }
 
