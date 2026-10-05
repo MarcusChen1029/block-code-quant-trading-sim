@@ -606,7 +606,7 @@ class Codegen {
     const b = this.bounds(e.index);
     const literal = e.index.k === 'num' ? e.index.value : null;
     let ok = true;
-    if (literal !== null && (!Number.isInteger(literal) || literal < 0)) {
+    if ((literal !== null && (!Number.isInteger(literal) || literal < 0)) || b.hi < 0) {
       this.error(e.index, 'history offset must be a whole number ≥ 0');
       ok = false;
     } else if (!Number.isFinite(b.hi)) {

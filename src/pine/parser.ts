@@ -5,6 +5,7 @@ import { lex, type Token } from './lexer';
 const QUALIFIERS = new Set(['const', 'simple', 'series']);
 const TYPE_NAMES = new Set(['int', 'float', 'bool', 'string', 'color']);
 const COLLECTION_TYPES = new Set(['array', 'matrix', 'map']);
+const PLURAL: Record<string, string> = { array: 'arrays', matrix: 'matrices', map: 'maps' };
 const DRAWING_TYPES = new Set(['label', 'line', 'box', 'table', 'linefill', 'polyline']);
 const ASSIGN_OPS = new Set([':=', '+=', '-=', '*=', '/=', '%=']);
 const COMPARISON = new Set(['<', '<=', '>', '>=']);
@@ -203,7 +204,7 @@ class Parser {
   }
 
   private rejectCollectionType(t: Token): void {
-    if (t.kind === 'ident' && COLLECTION_TYPES.has(t.value)) this.fail(t, `${t.value}s are not supported in v1`);
+    if (t.kind === 'ident' && COLLECTION_TYPES.has(t.value)) this.fail(t, `${PLURAL[t.value]} are not supported in v1`);
   }
 
   private declaration(name: Token, mode: 'plain' | 'var', start: Token): Stmt {
@@ -407,9 +408,8 @@ class Parser {
     let e = this.primary();
     for (;;) {
       if (this.isOp('(')) {
-        const t = this.next();
+        this.next();
         e = { k: 'call', callee: e, args: this.args(), line: e.line, col: e.col };
-        void t;
       } else if (this.isOp('[')) {
         const t = this.next();
         const index = this.expression();
@@ -420,7 +420,8 @@ class Parser {
         const t = this.peek();
         if (t.kind !== 'ident' && t.kind !== 'kw') this.fail(t, `expected a name after ".", found ${this.describe(t)}`);
         this.next();
-        e = { k: 'member', object: e, name: t.value, ...pos(t) };
+        if (this.isOp('<') && e.k === 'ident' && COLLECTION_TYPES.has(e.name)) this.fail(e, `${PLURAL[e.name]} are not supported in v1`);
+        e = { k: 'member', object: e, name: t.value, line: e.line, col: e.col };
       } else {
         return e;
       }
