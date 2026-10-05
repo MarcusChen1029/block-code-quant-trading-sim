@@ -7,10 +7,18 @@
   </head>
   <body>
     <header id="topbar"></header>
-    <main id="main">
-      <div id="chart"></div>
-      <section id="stats"></section>
-    </main>
+    <nav id="pane-switch" class="pane-switch"></nav>
+    <div id="layout">
+      <section id="left" class="pane">
+        <div id="left-tabs" class="tabs"></div>
+        <div id="blockly"></div>
+        <ul id="problems" class="problems" hidden></ul>
+      </section>
+      <main id="main" class="pane">
+        <div id="chart"></div>
+        <section id="stats"></section>
+      </main>
+    </div>
     <footer id="status">Loading…</footer>
     <script type="module" src="/src/main.ts"></script>
   </body>

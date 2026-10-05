@@ -24,7 +24,35 @@ button.run:disabled { opacity: 0.6; cursor: progress; }
 .extras { margin-top: 6px; }
 .overlay-picker label { margin-right: 10px; white-space: nowrap; cursor: pointer; }
 
-#main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.strategy-picker { margin-right: 14px; color: #787b86; font-size: 11px; }
+
+/* Two panes: block editor left, chart + stats right; one at a time below 900px. */
+#layout { flex: 1; display: flex; min-height: 0; }
+#left { width: 44%; min-width: 360px; display: flex; flex-direction: column; border-right: 1px solid #2a2e39; min-height: 0; }
+.tabs { display: flex; gap: 2px; padding: 4px 6px 0; border-bottom: 1px solid #2a2e39; }
+.tabs button { border-radius: 4px 4px 0 0; border-bottom: none; padding: 4px 12px; cursor: pointer; }
+.tabs button.active { background: #2a2e39; color: #fff; }
+.tabs button:disabled { opacity: 0.45; cursor: not-allowed; }
+.tabs .reset-blocks { margin-left: auto; font-size: 11px; color: #787b86; }
+#blockly { flex: 1; min-height: 0; position: relative; }
+.problems { margin: 0; padding: 4px 8px; list-style: none; max-height: 120px; overflow: auto; border-top: 1px solid #2a2e39; font-size: 12px; }
+.problem-error { color: #ef5350; }
+.problem-warn { color: #ffb74d; }
+.problem.clickable { cursor: pointer; }
+.problem.clickable:hover { text-decoration: underline; }
+.pane-switch { display: none; }
+
+@media (max-width: 899px) {
+  .pane-switch { display: flex; gap: 4px; padding: 4px 10px; border-bottom: 1px solid #2a2e39; }
+  .pane-switch button { flex: 1; cursor: pointer; }
+  .pane-switch button.active { background: #2962ff; border-color: #2962ff; color: #fff; }
+  #left { width: 100%; min-width: 0; border-right: none; }
+  body[data-pane='left'] #main, body[data-pane='right'] #left { display: none; }
+  #stats { flex-direction: column; height: auto; }
+  .stats-right { width: 100%; border-left: none; }
+}
+
+#main { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 #chart { flex: 1; min-height: 300px; }
 
 #stats { border-top: 1px solid #2a2e39; display: flex; height: 260px; }
