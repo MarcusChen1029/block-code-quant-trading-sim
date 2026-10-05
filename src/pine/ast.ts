@@ -51,6 +51,40 @@ export function dottedName(e: Expr): string | null {
   return null;
 }
 
+/** Direct sub-expressions of `e`. */
+export function exprChildren(e: Expr): Expr[] {
+  switch (e.k) {
+    case 'member':
+      return [e.object];
+    case 'call':
+      return [e.callee, ...e.args.map((a) => a.value)];
+    case 'index':
+      return [e.object, e.index];
+    case 'unary':
+      return [e.operand];
+    case 'binary':
+      return [e.left, e.right];
+    case 'ternary':
+      return [e.cond, e.then, e.else];
+    case 'tuple':
+      return e.items;
+    default:
+      return [];
+  }
+}
+
+/** Nesting depth of an expression tree (1 = a leaf), computed without recursion. */
+export function exprDepth(root: Expr): number {
+  let max = 0;
+  const stack: Array<[Expr, number]> = [[root, 1]];
+  while (stack.length > 0) {
+    const [e, d] = stack.pop()!;
+    if (d > max) max = d;
+    for (const c of exprChildren(e)) stack.push([c, d + 1]);
+  }
+  return max;
+}
+
 /** Calls `visit` on every expression in `e` (pre-order). */
 export function walkExpr(e: Expr, visit: (e: Expr) => void): void {
   visit(e);

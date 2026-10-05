@@ -91,7 +91,7 @@ plot(s, "s")
       // Every identifier token is a fixed runtime name, a keyword, or a mangled user name.
       const tokens = result.script.js.replace(/"(?:[^"\\]|\\.)*"/g, '""').match(/[A-Za-z_$][\w$]*/g) ?? [];
       for (const tok of tokens) {
-        expect(/^(?:[ufzTHabs]\d+(?:_\w+)?|rt|P|NaN|true|false|const|let|if|else|for|return|function|step|use|strict|update|push|bar|open|high|low|close|volume|time|out|num|px|bi|hist|history|na|nz|and|or|color|loop|forStep|src|barIndex|m_\w+|sma|ema|rma|wma|rsi|stdev|change|highest|lowest|atr|macd|bb|stoch|crossover|crossunder|tr|break|continue|undefined)$/.test(tok), `${t.id}: unexpected token ${tok}`).toBe(true);
+        expect(/^(?:[ufzTHabsk]\d+(?:_\w+)?|rt|P|NaN|true|false|const|let|if|else|for|return|function|step|use|strict|update|push|bar|open|high|low|close|volume|time|out|num|px|bi|hist|history|na|nz|and|or|color|loop|forStep|src|barIndex|m_\w+|sma|ema|rma|wma|rsi|stdev|change|highest|lowest|atr|macd|bb|stoch|crossover|crossunder|tr|break|continue|undefined)$/.test(tok), `${t.id}: unexpected token ${tok}`).toBe(true);
       }
     }
   });

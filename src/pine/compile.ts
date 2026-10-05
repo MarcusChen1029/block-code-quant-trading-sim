@@ -78,6 +78,18 @@ const fail = (errors: PineDiagnostic[], warnings: PineDiagnostic[]): PineCompile
 
 /** Pine v5 (subset) source -> a runnable indicator, or errors with line:col. Never throws. */
 export function compilePine(source: string): PineCompileResult {
+  try {
+    return compileUnguarded(source);
+  } catch (err) {
+    // The parser bounds nesting, so this is a last resort (e.g. an engine with a very small stack).
+    const message = err instanceof RangeError
+      ? 'the script is too large or too deeply nested to compile'
+      : `internal compiler error: ${err instanceof Error ? err.message : String(err)}`;
+    return { ok: false, errors: [{ line: 1, col: 1, message }], warnings: [] };
+  }
+}
+
+function compileUnguarded(source: string): PineCompileResult {
   const warnings: PineDiagnostic[] = [];
   const version = pineVersion(source);
   if (version === null) warnings.push({ line: 1, col: 1, message: 'no //@version=5 line: compiled as Pine v5' });
@@ -88,7 +100,6 @@ export function compilePine(source: string): PineCompileResult {
     program = parse(source);
   } catch (err) {
     if (err instanceof PineSyntaxError) return fail([err.diagnostic], warnings);
-    if (err instanceof RangeError) return fail([{ line: 1, col: 1, message: 'the script is nested too deeply' }], warnings);
     throw err;
   }
 

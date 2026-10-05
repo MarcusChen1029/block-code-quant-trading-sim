@@ -88,16 +88,22 @@ export function syncPineIndicators(records: readonly PineSourceRecord[]): PineSy
   }
   const results: PineSyncResult[] = [];
   for (const [id, source] of wanted) {
-    const result = compilePine(source);
-    if (!result.ok) {
-      results.push({ id, ok: false, errors: result.errors, warnings: result.warnings });
-      continue;
+    // Each stored script is isolated: a bad (or hostile) one is reported and skipped, never breaks the others.
+    try {
+      const result = compilePine(source);
+      if (!result.ok) {
+        results.push({ id, ok: false, errors: result.errors, warnings: result.warnings });
+        continue;
+      }
+      if (!getIndicator(id)) {
+        registerIndicator(pineIndicatorDef(id, result.script));
+        registered.set(id, source);
+      }
+      results.push({ id, ok: true, title: result.script.title, errors: [], warnings: result.warnings });
+    } catch (err) {
+      const message = `could not load this script: ${err instanceof Error ? err.message : String(err)}`;
+      results.push({ id, ok: false, errors: [{ line: 1, col: 1, message }], warnings: [] });
     }
-    if (!getIndicator(id)) {
-      registerIndicator(pineIndicatorDef(id, result.script));
-      registered.set(id, source);
-    }
-    results.push({ id, ok: true, title: result.script.title, errors: [], warnings: result.warnings });
   }
   return results;
 }

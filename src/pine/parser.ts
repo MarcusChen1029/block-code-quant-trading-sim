@@ -1,4 +1,4 @@
-import type { Arg, Expr, Name, Pos, Stmt } from './ast';
+import { exprDepth, type Arg, type Expr, type Name, type Pos, type Stmt } from './ast';
 import { PineSyntaxError } from './diagnostics';
 import { lex, type Token } from './lexer';
 
@@ -23,9 +23,15 @@ Object.setPrototypeOf(UNSUPPORTED_KEYWORDS, null);
 
 const pos = (t: Pos): Pos => ({ line: t.line, col: t.col });
 
+/** Deepest expression tree accepted (`a + b + c ...` counts one level per operator). Keeps later passes' recursion bounded. */
+export const MAX_EXPRESSION_DEPTH = 256;
+/** Deepest nesting of if / for / function bodies. */
+export const MAX_BLOCK_DEPTH = 32;
+
 class Parser {
   private i = 0;
   private depth = 0;
+  private blockDepth = 0;
 
   constructor(private readonly tokens: Token[]) {}
 
@@ -101,6 +107,16 @@ class Parser {
 
   /** NEWLINE INDENT statement+ DEDENT */
   private block(owner: string): Stmt[] {
+    if (this.blockDepth >= MAX_BLOCK_DEPTH) this.fail(this.peek(), `blocks are nested too deeply (limit ${MAX_BLOCK_DEPTH} levels)`);
+    this.blockDepth++;
+    try {
+      return this.blockBody(owner);
+    } finally {
+      this.blockDepth--;
+    }
+  }
+
+  private blockBody(owner: string): Stmt[] {
     if (!this.at('newline')) this.fail(this.peek(), `expected a new line after ${owner}`);
     this.i++;
     if (!this.at('indent')) this.fail(this.peek(), `the body of ${owner} must be indented by 4 spaces`);
@@ -319,9 +335,14 @@ class Parser {
   // ---- expressions ---------------------------------------------------------------------------------
 
   expression(): Expr {
-    if (++this.depth > 200) this.fail(this.peek(), 'expression is nested too deeply');
+    if (++this.depth > MAX_EXPRESSION_DEPTH) this.fail(this.peek(), `expression is nested too deeply (limit ${MAX_EXPRESSION_DEPTH} levels)`);
     try {
-      return this.ternary();
+      const e = this.ternary();
+      // Operator / postfix chains are parsed iteratively but build deep trees: bound them here, once per expression.
+      if (this.depth === 1 && exprDepth(e) > MAX_EXPRESSION_DEPTH) {
+        this.fail(e, `expression is nested too deeply (limit ${MAX_EXPRESSION_DEPTH} levels): split it into several variables`);
+      }
+      return e;
     } finally {
       this.depth--;
     }
@@ -394,7 +415,7 @@ class Parser {
   private unary(): Expr {
     if (this.isOp('-') || this.isOp('+') || this.at('kw', 'not')) {
       const t = this.next();
-      if (++this.depth > 200) this.fail(t, 'expression is nested too deeply');
+      if (++this.depth > MAX_EXPRESSION_DEPTH) this.fail(t, `expression is nested too deeply (limit ${MAX_EXPRESSION_DEPTH} levels)`);
       try {
         return { k: 'unary', op: t.value as '-' | '+' | 'not', operand: this.unary(), ...pos(t) };
       } finally {

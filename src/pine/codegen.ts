@@ -252,7 +252,13 @@ class Codegen {
       if (persistent) this.cond--;
     }
     const isSimple = this.topLevel && !persistent && !this.input.reassigned.has(s.name);
-    const simpleJs = isSimple ? this.simple(s.init) ?? undefined : undefined;
+    let simpleJs = isSimple ? this.simple(s.init) ?? undefined : undefined;
+    if (simpleJs !== undefined) {
+      // Bind the constant once at factory level so chains of constants never re-inline (and grow) each other.
+      const k = `k${this.id()}`;
+      this.prologue.push(`const ${k} = ${simpleJs};`);
+      simpleJs = k;
+    }
     const bounds = isSimple ? this.bounds(s.init) : UNBOUNDED;
     const sym = this.declare(s.name, s, { simpleJs, bounds });
     if (persistent) {
@@ -658,7 +664,7 @@ class Codegen {
       case 'ident': {
         if (e.name === 'na') return 'NaN';
         const sym = this.lookup(e.name);
-        return sym?.simpleJs !== undefined ? (sym.constInput ? sym.simpleJs : `(${sym.simpleJs})`) : null;
+        return sym?.simpleJs ?? null;
       }
       case 'member':
         return e.object.k === 'ident' && e.object.name === 'math' && MATH_CONSTANTS.has(e.name) ? jsNum(MATH_CONSTANTS.get(e.name)!) : null;
