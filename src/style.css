@@ -110,6 +110,7 @@ body[data-mode='live'] .backtest-only { display: none; }
 body:not([data-mode='live']) #live { display: none; }
 
 /* Live strip: honesty label, start form + badge, notices, session list. */
+.live-panel [hidden] { display: none !important; } /* beats .run-form label { display: flex } */
 .live-panel { padding: 4px 10px 6px; border-bottom: 1px solid #2a2e39; background: #0f121a; }
 .live-row { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: flex-end; }
 .live-honesty { font-size: 11px; color: #ffb74d; padding-bottom: 4px; }

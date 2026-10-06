@@ -114,6 +114,7 @@ export class LiveMode {
     this.renderList();
     if (running.length > 0) {
       this.openView(running[0], 'live');
+      this.deps.setStatus(`Resumed live session "${running[0].name}": replaying its bars from ${running[0].symbol} history, then following the live stream.`);
       return true;
     }
     return false;
