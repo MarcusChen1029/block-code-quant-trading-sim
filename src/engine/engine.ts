@@ -25,7 +25,7 @@ export interface BacktestResult {
 }
 
 /**
- * Bar-by-bar driver shared by backtest and (later) live mode. For each CLOSED candle:
+ * Bar-by-bar driver shared by backtest and live mode. For each CLOSED candle:
  * 1. broker fills orders queued on earlier bars against it;
  * 2. equity is marked at the close; equity <= 0 force-closes, logs "account wiped" and stops;
  * 3. the strategy runs and may queue orders for the next bar.
@@ -37,6 +37,9 @@ export class Engine {
   private barsInPosition = 0;
   private started = false;
   private isWiped = false;
+  /** Set by the first pushCandle; warm-up bars are refused afterwards. */
+  private trading = false;
+  private warmupSuppressed = 0;
 
   constructor(private readonly strategy: Strategy, readonly config: EngineConfig) {
     this.broker = new Broker(config.broker);
@@ -46,9 +49,24 @@ export class Engine {
     return this.isWiped;
   }
 
+  /**
+   * Feeds one closed WARM-UP candle (live sessions: bars before the session start). The strategy runs and keeps
+   * its state, so indicators are warm when trading starts, but every order request, SL/TP change, order cancel
+   * and log message is dropped; no fills happen, and the bar adds no equity point and no exposure, so stats
+   * only cover the bars fed with pushCandle. The first dropped request is noted once at debug level.
+   * Warm-up bars must all come before the first pushCandle.
+   */
+  pushWarmupCandle(candle: Candle): void {
+    if (this.trading) throw new Error('warm-up bars must come before the first trading bar');
+    const bar = this.candles.length;
+    this.candles.push(candle);
+    this.runStrategy(this.context(bar, candle, true), bar);
+  }
+
   /** Feeds one closed candle. Returns false once the account is wiped; later candles are ignored. */
   pushCandle(candle: Candle): boolean {
     if (this.isWiped) return false;
+    this.trading = true;
     const bar = this.candles.length;
     this.candles.push(candle);
     this.broker.processBar(candle, bar);
@@ -65,7 +83,11 @@ export class Engine {
     if (this.broker.position.qty !== 0) this.barsInPosition++;
     this.equityCurve.push({ time: candle.time, equity });
 
-    const ctx = this.context(bar, candle);
+    this.runStrategy(this.context(bar, candle, false), bar);
+    return true;
+  }
+
+  private runStrategy(ctx: StrategyContext, bar: number): void {
     try {
       if (!this.started) {
         this.started = true;
@@ -77,7 +99,47 @@ export class Engine {
       const blockId = err instanceof StrategyError ? err.blockId : undefined;
       throw new StrategyError(`strategy error on bar ${bar}: ${message}`, blockId, bar);
     }
-    return true;
+  }
+
+  /** Read-only views for incremental consumers (live mode). Do not mutate; they grow as bars are pushed. */
+  get trades(): readonly Trade[] {
+    return this.broker.trades;
+  }
+
+  get fills(): readonly Fill[] {
+    return this.broker.fills;
+  }
+
+  get log(): readonly LogEntry[] {
+    return this.broker.log;
+  }
+
+  get equityPoints(): readonly EquityPoint[] {
+    return this.equityCurve;
+  }
+
+  get position(): PositionView {
+    return this.broker.position;
+  }
+
+  /** Bars fed so far, warm-up included. */
+  get barsProcessed(): number {
+    return this.candles.length;
+  }
+
+  /** Equity marked at an arbitrary price (live readout per tick); never recorded anywhere. */
+  markEquity(price: number): number {
+    return this.broker.equity(price);
+  }
+
+  stats(): Stats {
+    return computeStats({
+      initialEquity: this.config.broker.initialBalance,
+      equityCurve: this.equityCurve,
+      trades: this.broker.trades,
+      barsInPosition: this.barsInPosition,
+      timeframe: this.config.timeframe,
+    });
   }
 
   result(): BacktestResult {
@@ -87,22 +149,22 @@ export class Engine {
       fills: [...this.broker.fills],
       equityCurve: [...this.equityCurve],
       log: [...this.broker.log],
-      stats: computeStats({
-        initialEquity: this.config.broker.initialBalance,
-        equityCurve: this.equityCurve,
-        trades: this.broker.trades,
-        barsInPosition: this.barsInPosition,
-        timeframe: this.config.timeframe,
-      }),
+      stats: this.stats(),
       wiped: this.isWiped,
       barsProcessed: this.candles.length,
       finalPosition: this.broker.position,
     };
   }
 
-  private context(bar: number, candle: Candle): StrategyContext {
+  private context(bar: number, candle: Candle, warmup: boolean): StrategyContext {
     const broker = this.broker;
     const candles = this.candles;
+    const suppressed = <T>(value: T) => (): T => {
+      if (this.warmupSuppressed++ === 0) {
+        broker.addLog(bar, candle.time, 'debug', 'warm-up: order requests before the session start are ignored');
+      }
+      return value;
+    };
     const order = (side: Side, req: EntryRequest) =>
       broker.placeOrder(
         { side, type: req.type ?? 'market', size: req.size, unit: req.unit ?? 'percentEquity', price: req.price },
@@ -123,9 +185,10 @@ export class Engine {
       get unrealizedPnl() { return broker.unrealizedPnl(candle.close); },
       get position() { return broker.position; },
       get openOrderCount() { return broker.openOrders.length; },
-      buy: (req) => order('buy', req),
-      sell: (req) => order('sell', req),
-      closePosition(): number | null {
+      // Warm-up: the same view of the market and account, but every action is dropped (-1 / null: no order).
+      buy: warmup ? suppressed(-1) : (req) => order('buy', req),
+      sell: warmup ? suppressed(-1) : (req) => order('sell', req),
+      closePosition: warmup ? suppressed(null) : (): number | null => {
         const qty = broker.position.qty;
         if (qty === 0) return null;
         return broker.placeOrder(
@@ -134,10 +197,10 @@ export class Engine {
           candle.time,
         );
       },
-      cancelOrders: () => broker.cancelAll(),
-      setStopLoss: (price) => broker.setStopLoss(price),
-      setTakeProfit: (price) => broker.setTakeProfit(price),
-      log: (message) => broker.addLog(bar, candle.time, 'info', message),
+      cancelOrders: warmup ? suppressed(undefined) : () => broker.cancelAll(),
+      setStopLoss: warmup ? suppressed(undefined) : (price) => broker.setStopLoss(price),
+      setTakeProfit: warmup ? suppressed(undefined) : (price) => broker.setTakeProfit(price),
+      log: warmup ? () => {} : (message) => broker.addLog(bar, candle.time, 'info', message),
     };
   }
 }

@@ -71,7 +71,8 @@ export interface PositionView {
 export interface LogEntry {
   bar: number;
   time: number;
-  level: 'info' | 'warn' | 'error';
+  /** 'debug': engine notes (e.g. live warm-up suppressing orders), shown dimmed. */
+  level: 'debug' | 'info' | 'warn' | 'error';
   message: string;
 }
 
