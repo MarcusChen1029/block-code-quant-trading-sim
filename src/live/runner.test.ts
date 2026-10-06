@@ -66,7 +66,7 @@ describe('LiveRunner determinism', () => {
     expect(seen).toEqual(BARS.slice(80));
     expect(b.rec.ticks.some((t) => t.candle.close === 999_999)).toBe(true);
     // live bars came from the socket, not REST
-    expect(inc.fetchCalls.every(([, end]) => end < 250 * MINUTE)).toBe(true);
+    expect(inc.fetchCalls.every(([, end]) => end <= 250 * MINUTE)).toBe(true); // catch-up asks one bar past its target
 
     // the deltas add up to the full state
     expect(b.rec.deltas.flatMap((d) => d.fills)).toEqual(oneGo.fills);
@@ -127,7 +127,7 @@ describe('LiveRunner gap-fill and dedup', () => {
     const restCallsBefore = market.fetchCalls.length;
     market.formingTick(105); // reconnected: the forming bar proves 102..104 are closed
     await runner.idle();
-    expect(market.fetchCalls.slice(restCallsBefore)).toEqual([[102 * MINUTE, 104 * MINUTE]]);
+    expect(market.fetchCalls.slice(restCallsBefore)).toEqual([[102 * MINUTE, 105 * MINUTE]]); // 102..104 (+1 to confirm 104 closed)
     market.closeBar(105);
     market.closeBar(105); // duplicate delivery
     market.closeBar(101); // stale replay of an old bar

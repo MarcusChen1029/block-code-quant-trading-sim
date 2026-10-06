@@ -27,11 +27,13 @@ const RECORDED_WS_MESSAGE = JSON.stringify({
 const HOUR = 3_600_000;
 
 /** Fake /fapi/v1/klines: one 1h bar per hour from `firstOpen`, `count` bars total, honours startTime/endTime/limit. */
-function fakeKlinesServer(firstOpen: number, count: number) {
+/** `serverNow` answers /fapi/v1/time (default: well after the last bar, so every bar is closed). */
+function fakeKlinesServer(firstOpen: number, count: number, serverNow = () => firstOpen + (count + 10) * HOUR) {
   const calls: string[] = [];
   const fetchFn = vi.fn(async (input: string) => {
     calls.push(input);
     const url = new URL(input);
+    if (url.pathname === '/fapi/v1/time') return new Response(JSON.stringify({ serverTime: serverNow() }), { status: 200 });
     const start = Number(url.searchParams.get('startTime'));
     const end = Number(url.searchParams.get('endTime'));
     const limit = Number(url.searchParams.get('limit'));
@@ -79,7 +81,8 @@ describe('BinanceFuturesAdapter.fetchCandles', () => {
     const { fetchFn, calls } = fakeKlinesServer(0, 2);
     const adapter = new BinanceFuturesAdapter({ fetchFn, now: () => 10 * HOUR });
     await adapter.fetchCandles('BTCUSDT', '1h', 0, HOUR);
-    expect(calls[0]).toBe(
+    expect(calls[0]).toBe('https://fapi.binance.com/fapi/v1/time'); // server clock first: it decides what is closed
+    expect(calls[1]).toBe(
       `https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1h&startTime=0&endTime=${HOUR}&limit=${BINANCE_MAX_LIMIT}`,
     );
   });
@@ -89,15 +92,15 @@ describe('BinanceFuturesAdapter.fetchCandles', () => {
     const { fetchFn } = fakeKlinesServer(0, total);
     const adapter = new BinanceFuturesAdapter({ fetchFn, now: () => (total + 10) * HOUR });
     const candles = await adapter.fetchCandles('BTCUSDT', '1h', 0, (total - 1) * HOUR);
-    expect(fetchFn).toHaveBeenCalledTimes(3);
+    expect(fetchFn).toHaveBeenCalledTimes(4); // /time + 3 kline pages
     expect(candles).toHaveLength(total);
     for (let i = 0; i < total; i++) expect(candles[i].time).toBe(i * HOUR);
   });
 
   it('drops the still-forming last candle', async () => {
-    const { fetchFn } = fakeKlinesServer(0, 5);
-    // now is inside bar 4 (opened at 4h, closes at 5h - 1)
-    const adapter = new BinanceFuturesAdapter({ fetchFn, now: () => 4 * HOUR + 1000 });
+    // SERVER time is inside bar 4 (opened at 4h, closes at 5h - 1); the local clock is 2 h fast and must not matter
+    const { fetchFn } = fakeKlinesServer(0, 5, () => 4 * HOUR + 1000);
+    const adapter = new BinanceFuturesAdapter({ fetchFn, now: () => 6 * HOUR + 1000 });
     const candles = await adapter.fetchCandles('BTCUSDT', '1h', 0, 10 * HOUR);
     expect(candles.map((c) => c.time)).toEqual([0, HOUR, 2 * HOUR, 3 * HOUR]);
   });

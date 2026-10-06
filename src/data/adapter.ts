@@ -26,6 +26,10 @@ export interface MarketDataAdapter {
     onError?: (error: Error) => void,
     onStatus?: (state: ConnectionState) => void,
   ): CandleSubscription;
+  /** Exchange time now, when the adapter knows it (null = only the local clock is known; do not trust it). */
+  serverNow?(): number | null;
+  /** Measures the exchange clock; false when that is not possible right now. */
+  syncClock?(): Promise<boolean>;
 }
 
 export type ConnectionState = 'connecting' | 'open' | 'reconnecting';

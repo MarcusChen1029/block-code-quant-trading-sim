@@ -29,7 +29,14 @@ export interface BinanceAdapterOptions {
    * one is opened. Kline streams push several updates per second, so silence means a broken connection.
    */
   staleAfterMs?: number;
+  /** How long a measured server-clock offset is trusted before it is measured again. */
+  clockRefreshMs?: number;
 }
+
+/** A bar this close to its close by the server clock is still treated as possibly forming (offset error margin). */
+const CLOSE_GUARD_MS = 2000;
+/** After a failed /time request, do not ask again for this long. */
+const CLOCK_RETRY_MS = 30_000;
 
 export function parseKlineRow(row: BinanceKlineRow): Candle {
   return {
@@ -83,6 +90,10 @@ export class BinanceFuturesAdapter implements MarketDataAdapter {
   private readonly now: () => number;
   private readonly reconnectDelayMs: number;
   private readonly staleAfterMs: number;
+  private readonly clockRefreshMs: number;
+  /** serverTime - localTime, measured at the RTT midpoint; null until /fapi/v1/time answered once. */
+  private clock: { offset: number; measuredAt: number } | null = null;
+  private lastClockAttempt = -Infinity;
 
   constructor(options: BinanceAdapterOptions = {}) {
     this.restBase = options.restBase ?? 'https://fapi.binance.com';
@@ -92,9 +103,51 @@ export class BinanceFuturesAdapter implements MarketDataAdapter {
     this.now = options.now ?? (() => Date.now());
     this.reconnectDelayMs = options.reconnectDelayMs ?? 3000;
     this.staleAfterMs = options.staleAfterMs ?? 30_000;
+    this.clockRefreshMs = options.clockRefreshMs ?? 5 * 60_000;
   }
 
+  /** Binance server time now (local clock + measured offset), or null when it was never measured. */
+  serverNow(): number | null {
+    return this.clock === null ? null : this.now() + this.clock.offset;
+  }
+
+  /**
+   * Measures the server clock offset from the public /fapi/v1/time (offset taken at the midpoint of the round
+   * trip). Returns false when the endpoint is unreachable; a previous measurement is then kept.
+   */
+  async syncClock(): Promise<boolean> {
+    this.lastClockAttempt = this.now();
+    try {
+      const t0 = this.now();
+      const res = await this.fetchFn(`${this.restBase}/fapi/v1/time`);
+      const t1 = this.now();
+      if (!res.ok) return false;
+      const body = (await res.json()) as { serverTime?: unknown };
+      if (typeof body?.serverTime !== 'number' || !Number.isFinite(body.serverTime)) return false;
+      this.clock = { offset: body.serverTime - (t0 + t1) / 2, measuredAt: t1 };
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Measures the clock when never done or stale (failed attempts are not repeated more than every 30 s). */
+  private async ensureClock(): Promise<void> {
+    const t = this.now();
+    if (this.clock !== null && t - this.clock.measuredAt < this.clockRefreshMs) return;
+    if (t - this.lastClockAttempt < CLOCK_RETRY_MS) return;
+    await this.syncClock();
+  }
+
+  /**
+   * Closed candles only. "Closed" is decided by the SERVER clock (local clocks drift): a row whose close time is
+   * not before server-now is the forming bar. Without a server time (endpoint down) the rule is conservative:
+   * the newest row the server returned is never accepted, because it may be the forming bar; it is picked up
+   * once a later bar exists (or the websocket confirms it). A wrong local clock can only delay bars, never
+   * let a forming one through.
+   */
   async fetchCandles(symbol: string, tf: Timeframe, startMs: number, endMs: number): Promise<Candle[]> {
+    await this.ensureClock();
     const step = timeframeToMs(tf);
     const out: Candle[] = [];
     let cursor = startMs;
@@ -106,9 +159,12 @@ export class BinanceFuturesAdapter implements MarketDataAdapter {
       if (!res.ok) throw new Error(`Binance HTTP ${res.status}: ${await res.text()}`);
       const rows = (await res.json()) as BinanceKlineRow[];
       if (rows.length === 0) break;
-      const nowMs = this.now();
-      for (const row of rows) {
-        if (row[6] >= nowMs) continue; // bar not closed yet
+      const serverNow = this.serverNow();
+      const lastPage = rows.length < BINANCE_MAX_LIMIT;
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const newest = lastPage && i === rows.length - 1; // the latest bar the server has in range: maybe forming
+        if (serverNow !== null ? row[6] >= serverNow - (newest ? CLOSE_GUARD_MS : 0) : newest) continue;
         if (out.length > 0 && row[0] <= out[out.length - 1].time) continue;
         out.push(parseKlineRow(row));
       }

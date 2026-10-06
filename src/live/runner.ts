@@ -111,6 +111,8 @@ export class LiveRunner {
   private ws: ConnectionState | 'none' = 'none';
   private lastWsAt = -Infinity;
   private retryTimer: unknown = null;
+  private retryKind: 'lag' | 'error' = 'lag';
+  private clockChecked = false;
   private heartbeat: unknown = null;
   private retryAttempt = 0;
   private error: { message: string; retryInMs: number } | null = null;
@@ -166,7 +168,7 @@ export class LiveRunner {
         },
       );
       this.heartbeat = this.timers.setInterval(() => this.resync(), this.opt.heartbeatMs);
-      this.raiseTarget(this.clockTarget());
+      // The first target comes from the SERVER clock, measured before the first catch-up (see kick).
     }
     this.emitStatus();
     this.kick();
@@ -207,9 +209,15 @@ export class LiveRunner {
     this.kick();
   }
 
-  /** Latest bar that closed at least closeMarginMs ago by the local clock. */
+  /**
+   * Latest bar that closed at least closeMarginMs ago, by the exchange clock when the adapter measured it
+   * (local clock otherwise). This only bounds what is REQUESTED: whether a returned bar is closed is decided
+   * by the adapter (server time, or the conservative newest-row rule), so a wrong clock can delay bars but
+   * never feed a forming one.
+   */
   private clockTarget(): number {
-    return Math.floor((this.now() - this.opt.closeMarginMs) / this.step) * this.step - this.step;
+    const now = this.adapter.serverNow?.() ?? this.now();
+    return Math.floor((now - this.opt.closeMarginMs) / this.step) * this.step - this.step;
   }
 
   private raiseTarget(time: number): void {
@@ -229,10 +237,20 @@ export class LiveRunner {
       this.again = true;
       return;
     }
-    if (this.retryTimer !== null) return; // a scheduled retry will resume
+    if (this.retryTimer !== null) {
+      // An error backoff always waits; a "REST is lagging" wait gives way when the socket delivered the next bar.
+      if (this.retryKind !== 'lag' || !this.pending.has(Math.max(this.cursor, this.session.nextBarTime))) return;
+      this.timers.clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
     this.busy = true;
     this.current = (async () => {
       try {
+        if (this.opt.mode === 'live' && !this.clockChecked) {
+          this.clockChecked = true;
+          await this.adapter.syncClock?.();
+          this.raiseTarget(this.clockTarget());
+        }
         do {
           this.again = false;
           await this.catchUp();
@@ -260,12 +278,14 @@ export class LiveRunner {
       this.emitStatus();
       let bars: Candle[];
       try {
-        bars = await this.adapter.fetchCandles(this.opt.symbol, this.opt.timeframe, from, to);
+        // One bar past `to`: then `to` is not the newest row, so the adapter can accept it without a server clock.
+        bars = await this.adapter.fetchCandles(this.opt.symbol, this.opt.timeframe, from, to + this.step);
       } catch (err) {
         this.scheduleRetry(err instanceof Error ? err.message : String(err));
         return;
       }
       if (this.stopped) return;
+      if (this.opt.mode === 'live') this.raiseTarget(this.clockTarget()); // the clock may be known (or better) now
       if (this.error) {
         this.error = null;
         this.retryAttempt = 0;
@@ -314,6 +334,7 @@ export class LiveRunner {
   /** `message` null = not an error, just REST lagging behind the socket. */
   private scheduleRetry(message: string | null): void {
     let delay = this.opt.restLagRetryMs;
+    this.retryKind = message === null ? 'lag' : 'error';
     if (message !== null) {
       const delays = this.opt.retryDelaysMs;
       delay = delays[Math.min(this.retryAttempt, delays.length - 1)];
