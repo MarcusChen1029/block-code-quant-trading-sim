@@ -262,6 +262,9 @@ export class LiveRunner {
           this.again = false;
           await this.catchUp();
         } while (this.again && !this.stopped && this.retryTimer === null);
+      } catch (err) {
+        // A bug or a malformed answer: stop visibly instead of leaving an unhandled rejection and a stuck session.
+        this.finish('error', `live runner failed: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
         this.busy = false;
         this.emitStatus();

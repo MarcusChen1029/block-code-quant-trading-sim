@@ -15,6 +15,7 @@ import { blockIndicatorOverlays } from './blockOverlays';
 import type { ChartPanel } from './chart';
 import { fmtNum } from './format';
 import { liveBadge, parseUtcDateTime, sessionRow } from './liveFormat';
+import { exclusive } from './exclusive';
 import { createLivePanel, type LiveForm, type LivePanel } from './livePanel';
 import { fillsToMarkers, sessionStartMarker } from './markers';
 import { smaOverlay, type OverlayDef } from './overlays';
@@ -84,6 +85,8 @@ export class LiveMode {
   private renderQueued = false;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly panel: LivePanel;
+  /** Start is guarded synchronously: a double submit never starts two sessions (two workers). */
+  private readonly startOnce = exclusive((form: LiveForm) => this.start(form));
   private readonly locks = browserLocks();
   /** Sessions this tab runs, with their lock ('unsupported' = no Web Locks: merge-on-write only). */
   private readonly owned = new Map<string, SessionLock | 'unsupported'>();
@@ -93,7 +96,7 @@ export class LiveMode {
 
   constructor(container: HTMLElement, private readonly deps: LiveModeDeps) {
     this.panel = createLivePanel(container, {
-      onStart: (form) => void this.start(form),
+      onStart: (form) => void this.startOnce(form),
       onOpen: (id) => this.open(id),
       onStop: (id) => void this.stop(id),
       onDelete: (id) => void this.remove(id),
