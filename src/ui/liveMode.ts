@@ -1,0 +1,486 @@
+import type { IndicatorUse } from '../blocks/generator';
+import { getIndicator, PINE_ID_PREFIX, type IndicatorBlockDef } from '../blocks/registry';
+import { timeframeToMs, type Candle, type Timeframe } from '../data/types';
+import type { EquityPoint, Stats } from '../engine/stats';
+import type { BrokerConfig, Fill, LogEntry, Trade } from '../engine/types';
+import { LiveWorkerClient } from '../live/client';
+import type { LiveEvent } from '../live/host';
+import type { HaltInfo, LiveStatus } from '../live/runner';
+import { MAX_WARMUP_BARS, newSessionRecord, type LiveSessionRecord, type StrategySnapshot } from '../live/session';
+import { openSessionStore, type SessionStore } from '../live/store';
+import { compilePine } from '../pine/compile';
+import { pineIndicatorDef } from '../pine/library';
+import { blockIndicatorOverlays } from './blockOverlays';
+import type { ChartPanel } from './chart';
+import { fmtNum } from './format';
+import { liveBadge, parseUtcDateTime, sessionRow } from './liveFormat';
+import { createLivePanel, type LiveForm, type LivePanel } from './livePanel';
+import { fillsToMarkers, sessionStartMarker } from './markers';
+import { smaOverlay, type OverlayDef } from './overlays';
+import { MAX_BARS } from './settings';
+import type { StatsPanel } from './statsPanel';
+
+export type SessionBase =
+  | { ok: true; symbol: string; timeframe: Timeframe; brokerConfig: BrokerConfig; strategy: StrategySnapshot }
+  | { ok: false; error: string };
+
+export interface LiveModeDeps {
+  chart: ChartPanel;
+  stats: StatsPanel;
+  setStatus(text: string, isError?: boolean): void;
+  highlightBlock(blockId: string, message: string): void;
+  /** Top-bar product/timeframe/account and a snapshot of the selected strategy (or why there is none). */
+  sessionBase(): SessionBase;
+  /** Overlays the user picked in the top bar. */
+  extraOverlays(): OverlayDef[];
+  confirm(message: string): boolean;
+  now(): number;
+}
+
+/** Page-side state of one session shown or running (its worker is the source of truth). */
+interface SessionView {
+  record: LiveSessionRecord;
+  mode: 'live' | 'replay';
+  client: LiveWorkerClient | null;
+  candles: Candle[];
+  fills: Fill[];
+  trades: Trade[];
+  equity: EquityPoint[];
+  log: LogEntry[];
+  stats: Stats | null;
+  wiped: boolean;
+  status: LiveStatus | null;
+  forming: Candle | null;
+  markEquity: number | null;
+  indicators: IndicatorUse[] | null;
+  overlays: OverlayDef[] | null;
+  halt: HaltInfo | null;
+  stopWaiters: Array<() => void>;
+  /** What the chart/stats already show, for incremental drawing. */
+  drawn: { candles: number; fills: number; trades: number; equity: number; log: number; chartTime: number };
+  /** Bars whose FINAL (closed) websocket update is already on the chart. */
+  closedTicked: Set<number>;
+}
+
+const PERSIST_EVERY_MS = 2000;
+const STOP_TIMEOUT_MS = 3000;
+
+/**
+ * Live mode: starts, resumes, views, stops and deletes paper-trading sessions. One session runs at a time (its
+ * worker keeps going in Backtest mode too); one more can be viewed read-only (a stopped session replayed in
+ * its own worker).
+ */
+export class LiveMode {
+  private store: SessionStore | null = null;
+  private sessions: LiveSessionRecord[] = [];
+  private running: SessionView | null = null;
+  private viewed: SessionView | null = null;
+  private active = false;
+  private renderQueued = false;
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly panel: LivePanel;
+
+  constructor(container: HTMLElement, private readonly deps: LiveModeDeps) {
+    this.panel = createLivePanel(container, {
+      onStart: (form) => void this.start(form),
+      onOpen: (id) => this.open(id),
+      onStop: (id) => void this.stop(id),
+      onDelete: (id) => void this.remove(id),
+    }, deps.now());
+    const resync = () => this.running?.client?.resync();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') resync();
+    });
+    window.addEventListener('online', resync);
+  }
+
+  /** Opens the store and resumes a session left running. Returns whether one was resumed. */
+  async init(): Promise<boolean> {
+    const { store, notice } = await openSessionStore();
+    this.store = store;
+    this.panel.setNotice(notice ?? null);
+    try {
+      this.sessions = await store.list();
+    } catch (err) {
+      this.panel.setNotice(`Could not read saved sessions: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const running = this.sessions.filter((s) => s.status === 'running');
+    // v1 runs one session; should storage hold more (e.g. an old bug, two tabs), keep the newest.
+    for (const extra of running.slice(1)) {
+      extra.status = 'stopped';
+      extra.stoppedAt = this.deps.now();
+      await this.persist(extra);
+    }
+    this.renderList();
+    if (running.length > 0) {
+      this.openView(running[0], 'live');
+      return true;
+    }
+    return false;
+  }
+
+  get hasRunning(): boolean {
+    return this.running !== null;
+  }
+
+  activate(): void {
+    this.active = true;
+    this.fullRender();
+  }
+
+  deactivate(): void {
+    this.active = false;
+  }
+
+  /** Overlay choice or block indicators changed: redraw the session (its own overlays come from its snapshot). */
+  redrawOverlays(): void {
+    if (this.active && this.viewed) this.fullRender();
+  }
+
+  private async start(form: LiveForm): Promise<void> {
+    const base = this.deps.sessionBase();
+    if (!base.ok) {
+      this.deps.setStatus(base.error, true);
+      return;
+    }
+    const now = this.deps.now();
+    const warmupBars = form.warmupBars.trim() === '' ? NaN : Number(form.warmupBars);
+    if (!Number.isInteger(warmupBars) || warmupBars < 0 || warmupBars > MAX_WARMUP_BARS) {
+      this.deps.setStatus(`warm-up bars must be a whole number from 0 to ${MAX_WARMUP_BARS}`, true);
+      return;
+    }
+    let startMs = now;
+    if (form.startMode === 'past') {
+      startMs = parseUtcDateTime(form.pastStart);
+      if (!Number.isFinite(startMs)) return this.deps.setStatus('pick the past start date and time (UTC)', true);
+      if (startMs >= now) return this.deps.setStatus('the past start time must be before now', true);
+      const bars = Math.floor((now - startMs) / timeframeToMs(base.timeframe)) + warmupBars;
+      if (bars > MAX_BARS) return this.deps.setStatus(`replay too long: ${bars} bars (max ${MAX_BARS}); pick a later start or a larger timeframe`, true);
+    }
+    if (this.running) {
+      const name = this.running.record.name;
+      if (!this.deps.confirm(`"${name}" is running. Only one live session can run at a time.\n\nStop it and start the new session?`)) return;
+      this.panel.setBusy(true);
+      await this.stop(this.running.record.id);
+      this.panel.setBusy(false);
+    }
+    const record = newSessionRecord(
+      { name: form.name, symbol: base.symbol, timeframe: base.timeframe, startMs, warmupBars, brokerConfig: base.brokerConfig, strategy: base.strategy },
+      now,
+    );
+    this.sessions.unshift(record);
+    await this.persist(record);
+    this.openView(record, 'live');
+    this.deps.setStatus(`Live session "${record.name}" started (${record.symbol} ${record.timeframe}). Paper trading: no real orders are sent.`);
+  }
+
+  private open(id: string): void {
+    const record = this.sessions.find((s) => s.id === id);
+    if (!record) return;
+    if (this.running?.record.id === id) this.show(this.running);
+    else this.openView(record, record.status === 'running' ? 'live' : 'replay');
+  }
+
+  /** Stops the running session `id`; resolves once it is finalised (worker confirmed, or timed out). */
+  private stop(id: string): Promise<void> {
+    const view = this.running?.record.id === id ? this.running : null;
+    if (!view || !view.client) {
+      const record = this.sessions.find((s) => s.id === id);
+      if (record && record.status === 'running') {
+        record.status = 'stopped';
+        record.stoppedAt = this.deps.now();
+        void this.persist(record);
+        this.renderList();
+      }
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      view.stopWaiters.push(resolve);
+      view.client!.stop();
+      setTimeout(() => {
+        if (!view.halt) this.onHalt(view, { reason: 'stopped', lastBarTime: view.record.lastBarTime }); // worker unresponsive
+      }, STOP_TIMEOUT_MS);
+    });
+  }
+
+  private async remove(id: string): Promise<void> {
+    const record = this.sessions.find((s) => s.id === id);
+    if (!record || !this.deps.confirm(`Delete session "${record.name}"? Its definition is removed for good.`)) return;
+    for (const view of [this.running, this.viewed]) {
+      if (view?.record.id === id) {
+        view.client?.terminate();
+        view.client = null;
+      }
+    }
+    if (this.running?.record.id === id) this.running = null;
+    if (this.viewed?.record.id === id) {
+      this.viewed = null;
+      if (this.active) this.fullRender();
+    }
+    this.sessions = this.sessions.filter((s) => s.id !== id);
+    try {
+      await this.store?.delete(id);
+    } catch (err) {
+      this.panel.setNotice(`Could not delete the saved session: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    this.renderList();
+  }
+
+  private openView(record: LiveSessionRecord, mode: 'live' | 'replay'): void {
+    const view: SessionView = {
+      record, mode, client: null, candles: [], fills: [], trades: [], equity: [], log: [], stats: null, wiped: false,
+      status: null, forming: null, markEquity: null, indicators: null, overlays: null, halt: null, stopWaiters: [],
+      drawn: { candles: 0, fills: 0, trades: 0, equity: 0, log: 0, chartTime: -Infinity }, closedTicked: new Set(),
+    };
+    view.client = new LiveWorkerClient(record, mode, (event) => this.onEvent(view, event), (message) => {
+      this.deps.setStatus(`Live worker failed: ${message}. Reload the page to resume.`, true);
+      this.panel.setBadge({ text: 'WORKER ERROR', tone: 'error', detail: message });
+    });
+    if (mode === 'live') this.running = view;
+    this.show(view);
+  }
+
+  private show(view: SessionView): void {
+    const previous = this.viewed;
+    if (previous && previous !== view && previous !== this.running) {
+      previous.client?.terminate(); // a replay view is only kept while it is on screen
+      previous.client = null;
+    }
+    this.viewed = view;
+    if (this.active) this.fullRender();
+    this.renderList();
+  }
+
+  private onEvent(view: SessionView, event: LiveEvent): void {
+    switch (event.type) {
+      case 'program':
+        view.indicators = event.indicators;
+        view.overlays = null;
+        if (view === this.viewed && this.active) this.fullRender();
+        break;
+      case 'delta': {
+        const d = event.delta;
+        view.candles.push(...d.candles);
+        view.fills.push(...d.fills);
+        view.trades.push(...d.trades);
+        view.equity.push(...d.equity);
+        view.log.push(...d.log);
+        view.stats = d.stats;
+        view.wiped = d.wiped;
+        if (view.mode === 'live') {
+          view.record.lastBarTime = d.lastBarTime;
+          view.record.summary = { equity: d.stats.finalEquity, returnPct: d.stats.totalReturnPct, tradeCount: d.stats.tradeCount, bars: d.barsProcessed };
+          this.schedulePersist();
+        }
+        this.queueRender();
+        break;
+      }
+      case 'tick': {
+        const last = view.candles.length > 0 ? view.candles[view.candles.length - 1].time : -Infinity;
+        if (event.candle.time > last) view.forming = event.candle;
+        view.markEquity = event.markEquity;
+        if (view === this.viewed && this.active && event.candle.time >= view.drawn.chartTime) {
+          this.deps.chart.updateCandle(event.candle);
+          view.drawn.chartTime = event.candle.time;
+          // A final (closed) update on screen means the bar needs no redraw when its delta arrives.
+          if (event.closed) view.closedTicked.add(event.candle.time);
+          else view.closedTicked.delete(event.candle.time);
+        }
+        this.updateBadge();
+        break;
+      }
+      case 'status':
+        view.status = event.status;
+        if (view === this.viewed) this.updateBadge();
+        break;
+      case 'halt':
+        this.onHalt(view, event.halt);
+        break;
+    }
+  }
+
+  private onHalt(view: SessionView, halt: HaltInfo): void {
+    if (view.halt) return;
+    view.halt = halt;
+    view.client?.terminate();
+    view.client = null;
+    const record = view.record;
+    if (view.mode === 'live' && record.status === 'running') {
+      record.status = 'stopped';
+      record.stoppedAt = this.deps.now();
+      if (halt.lastBarTime !== null) record.lastBarTime = halt.lastBarTime;
+      if (halt.reason === 'error') {
+        record.stopReason = 'error';
+        record.error = halt.blockId !== undefined ? { message: halt.message ?? 'error', blockId: halt.blockId } : { message: halt.message ?? 'error' };
+      } else if (halt.reason === 'wiped') {
+        record.stopReason = 'wiped';
+      }
+      void this.persist(record);
+      if (this.running === view) this.running = null;
+      if (halt.reason === 'error') {
+        if (halt.blockId) this.deps.highlightBlock(halt.blockId, halt.message ?? 'error');
+        this.deps.setStatus(`Live session "${record.name}" halted by its strategy: ${halt.message}`, true);
+      } else if (halt.reason === 'wiped') {
+        this.deps.setStatus(`Live session "${record.name}": ACCOUNT WIPED (equity <= 0). The session is stopped.`, true);
+      } else {
+        this.deps.setStatus(`Live session "${record.name}" stopped. It is read-only history now (View replays it).`);
+      }
+    } else if (halt.reason === 'error' && view === this.viewed) {
+      this.deps.setStatus(`Session "${record.name}" stopped with an error: ${halt.message}`, true);
+    }
+    for (const done of view.stopWaiters.splice(0)) done();
+    if (view === this.viewed) {
+      this.queueRender();
+      this.updateBadge();
+    }
+    this.renderList();
+  }
+
+  private overlaysFor(view: SessionView): OverlayDef[] {
+    if (view.overlays) return view.overlays;
+    const strategy = view.record.strategy;
+    if (strategy.kind === 'builtin-sma-cross') {
+      view.overlays = [smaOverlay(strategy.params.fast, '#f5c542', 'strategy-fast'), smaOverlay(strategy.params.slow, '#42a5f5', 'strategy-slow')];
+    } else if (view.indicators) {
+      // The snapshot's own Pine code, compiled here without touching the editor's registry.
+      const pine = new Map<string, IndicatorBlockDef | undefined>();
+      const resolve = (id: string): IndicatorBlockDef | undefined => {
+        if (!id.startsWith(PINE_ID_PREFIX)) return getIndicator(id);
+        if (!pine.has(id)) {
+          const record = strategy.pineScripts.find((r) => r.id === id);
+          let def: IndicatorBlockDef | undefined;
+          try {
+            const compiled = record ? compilePine(record.source) : null;
+            def = compiled?.ok ? pineIndicatorDef(id, compiled.script) : undefined;
+          } catch {
+            def = undefined;
+          }
+          pine.set(id, def);
+        }
+        return pine.get(id);
+      };
+      view.overlays = blockIndicatorOverlays(view.indicators, resolve);
+    } else {
+      return [];
+    }
+    return view.overlays;
+  }
+
+  private markers(view: SessionView) {
+    const markers = fillsToMarkers(view.fills);
+    const firstBar = view.candles[0]?.time;
+    if (firstBar !== undefined && view.record.startTime >= firstBar && view.record.warmupBars > 0) markers.push(sessionStartMarker(view.record.startTime));
+    return markers.sort((a, b) => a.time - b.time);
+  }
+
+  private queueRender(): void {
+    if (this.renderQueued) return;
+    this.renderQueued = true;
+    requestAnimationFrame(() => {
+      this.renderQueued = false;
+      this.render();
+    });
+  }
+
+  /** Draws what changed since the last render; falls back to a full redraw when bars must be inserted. */
+  private render(): void {
+    const view = this.viewed;
+    if (!this.active || !view) return;
+    const d = view.drawn;
+    const fresh = view.candles.slice(d.candles);
+    if (fresh.length > 50 || fresh.some((c) => c.time < d.chartTime && !view.closedTicked.has(c.time))) {
+      this.fullRender();
+      return;
+    }
+    const { chart, stats } = this.deps;
+    for (const c of fresh) {
+      if (c.time >= d.chartTime) {
+        chart.updateCandle(c);
+        d.chartTime = c.time;
+      }
+      chart.updateOverlays(c);
+    }
+    d.candles = view.candles.length;
+    if (view.fills.length !== d.fills || fresh.length > 0) chart.setMarkers(this.markers(view));
+    d.fills = view.fills.length;
+    if (view.stats) stats.showStats(view.stats, view.wiped);
+    stats.appendEquity(view.equity.slice(d.equity));
+    d.equity = view.equity.length;
+    if (view.trades.length !== d.trades) stats.setTrades(view.trades);
+    d.trades = view.trades.length;
+    stats.appendLog(view.log.slice(d.log));
+    d.log = view.log.length;
+    const lastClosed = view.candles[view.candles.length - 1]?.time ?? -Infinity;
+    for (const t of view.closedTicked) if (t <= lastClosed) view.closedTicked.delete(t);
+    this.updateBadge();
+  }
+
+  private fullRender(): void {
+    if (!this.active) return;
+    const { chart, stats } = this.deps;
+    const view = this.viewed;
+    if (!view) {
+      chart.setCandles([]);
+      chart.setOverlays([], []);
+      chart.setMarkers([]);
+      stats.clear('Live mode: start a paper-trading session above, or open one from the list.');
+      this.panel.setBadge(null);
+      this.panel.setMark(null);
+      return;
+    }
+    chart.setCandles(view.candles);
+    let chartTime = view.candles[view.candles.length - 1]?.time ?? -Infinity;
+    if (view.forming && view.forming.time > chartTime) {
+      chart.updateCandle(view.forming);
+      chartTime = view.forming.time;
+    }
+    chart.setOverlays([...this.overlaysFor(view), ...this.deps.extraOverlays()], view.candles);
+    chart.setMarkers(this.markers(view));
+    stats.clear(view.stats ? '' : `Session "${view.record.name}": loading ${view.record.symbol} ${view.record.timeframe} bars…`);
+    if (view.stats) {
+      stats.showStats(view.stats, view.wiped);
+      stats.setEquity(view.equity);
+      stats.setTrades(view.trades);
+      stats.appendLog(view.log);
+    }
+    view.drawn = { candles: view.candles.length, fills: view.fills.length, trades: view.trades.length, equity: view.equity.length, log: view.log.length, chartTime };
+    view.closedTicked.clear();
+    this.updateBadge();
+  }
+
+  private updateBadge(): void {
+    const view = this.viewed;
+    if (!view) {
+      this.panel.setBadge(null);
+      this.panel.setMark(null);
+      return;
+    }
+    const status: LiveStatus = view.status ?? { state: view.mode === 'live' ? 'connecting' : 'catching-up', lastBarTime: null, barsProcessed: 0, behindBars: 0 };
+    const replay = view.mode === 'replay' || view.halt !== null;
+    const badge = liveBadge(view.halt && view.halt.reason !== 'complete' ? { ...status, state: 'stopped' } : status, replay);
+    this.panel.setBadge({ ...badge, detail: `${view.record.name} · ${view.record.symbol} ${view.record.timeframe} · ${badge.detail}` });
+    const showMark = view.mode === 'live' && !view.halt && view.markEquity !== null && status.state === 'live';
+    this.panel.setMark(showMark ? `Mark equity ${fmtNum(view.markEquity!)} (live price; stats use closed bars)` : null);
+  }
+
+  private renderList(): void {
+    this.panel.setSessions(this.sessions.map(sessionRow), this.viewed?.record.id ?? null);
+  }
+
+  private schedulePersist(): void {
+    if (this.persistTimer !== null) return;
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      if (this.running) void this.persist(this.running.record);
+      this.renderList();
+    }, PERSIST_EVERY_MS);
+  }
+
+  private async persist(record: LiveSessionRecord): Promise<void> {
+    try {
+      await this.store?.put(record);
+    } catch (err) {
+      this.panel.setNotice(`Could not save the session (${err instanceof Error ? err.message : String(err)}); it will not survive a reload.`);
+    }
+  }
+}

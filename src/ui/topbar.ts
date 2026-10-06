@@ -7,10 +7,20 @@ export interface TopBar {
   setRunning(running: boolean): void;
   /** Element where extra controls (the overlay picker) can be appended. */
   readonly extras: HTMLElement;
+  setMode(mode: AppMode): void;
 }
 
+/** Backtest: run over history. Live: paper-trade sessions on the live stream (start date and Run do not apply). */
+export type AppMode = 'backtest' | 'live';
+
 /** Builds the run form: product, timeframe, start date, balance, leverage, fees, slippage, Run. */
-export function createTopBar(container: HTMLElement, initial: RawSettings, onRun: () => void): TopBar {
+export function createTopBar(
+  container: HTMLElement,
+  initial: RawSettings,
+  onRun: () => void,
+  initialMode: AppMode = 'backtest',
+  onMode: (mode: AppMode) => void = () => {},
+): TopBar {
   const input = (name: keyof RawSettings, type: string, width: string, attrs: Record<string, string> = {}) => {
     const el = h('input', { name, type, style: `width:${width}`, ...attrs });
     el.value = initial[name];
@@ -26,14 +36,36 @@ export function createTopBar(container: HTMLElement, initial: RawSettings, onRun
   const takerFeePct = input('takerFeePct', 'number', '60px', { min: '0', step: '0.01' });
   const makerFeePct = input('makerFeePct', 'number', '60px', { min: '0', step: '0.01' });
   const slippageBps = input('slippageBps', 'number', '55px', { min: '0', step: '1' });
-  const run = h('button', { type: 'submit', class: 'run' }, 'Run');
+  const run = h('button', { type: 'submit', class: 'run backtest-only' }, 'Run');
 
-  const field = (label: string, el: HTMLElement) => h('label', {}, h('span', {}, label), el);
+  const modeButtons: Array<[AppMode, HTMLButtonElement]> = [
+    ['backtest', h('button', { type: 'button', title: 'Simulate the strategy over historical bars' }, 'Backtest')],
+    ['live', h('button', { type: 'button', title: 'Paper-trade on the live Binance stream (fake money)' }, 'Live')],
+  ];
+  const showMode = (mode: AppMode) => {
+    document.body.dataset.mode = mode;
+    for (const [id, b] of modeButtons) {
+      b.classList.toggle('active', id === mode);
+      b.setAttribute('aria-pressed', String(id === mode));
+    }
+  };
+  for (const [id, b] of modeButtons) {
+    b.addEventListener('click', () => {
+      if (document.body.dataset.mode === id) return;
+      showMode(id);
+      onMode(id);
+    });
+  }
+  const modeToggle = h('div', { class: 'mode-toggle', role: 'group', 'aria-label': 'Mode' }, ...modeButtons.map(([, b]) => b));
+  showMode(initialMode);
+
+  const field = (label: string, el: HTMLElement, cls?: string) => h('label', { class: cls }, h('span', {}, label), el);
   const form = h(
     'form', { class: 'run-form' },
+    h('div', { class: 'field' }, h('span', {}, 'Mode'), modeToggle),
     field('Product', symbol), symbols,
     field('TF', timeframe),
-    field('Start', startDate),
+    field('Start', startDate, 'backtest-only'),
     field('Balance', balance),
     field('Leverage', leverage),
     field('Taker %', takerFeePct),
@@ -50,6 +82,7 @@ export function createTopBar(container: HTMLElement, initial: RawSettings, onRun
 
   return {
     extras,
+    setMode: showMode,
     read: () => ({
       symbol: symbol.value,
       timeframe: timeframe.value,

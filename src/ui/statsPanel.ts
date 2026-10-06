@@ -1,5 +1,7 @@
 import { ColorType, LineSeries, createChart, type IChartApi, type ISeriesApi } from 'lightweight-charts';
 import type { BacktestResult } from '../engine/engine';
+import type { EquityPoint, Stats } from '../engine/stats';
+import type { LogEntry, Trade } from '../engine/types';
 import { toChartTime } from './chartData';
 import { h } from './dom';
 import { fmtNum, fmtTime, statsRows } from './format';
@@ -33,27 +35,53 @@ export class StatsPanel {
     this.clear();
   }
 
-  clear(): void {
-    this.cards.replaceChildren(h('div', { class: 'hint' }, 'Press Run to backtest the selected strategy (blocks on the left, or the built-in example).'));
+  clear(hint = 'Press Run to backtest the selected strategy (blocks on the left, or the built-in example).'): void {
+    this.cards.replaceChildren(h('div', { class: 'hint' }, hint));
     this.equitySeries.setData([]);
     this.trades.replaceChildren();
     this.log.replaceChildren();
   }
 
   render(result: BacktestResult): void {
+    this.showStats(result.stats, result.wiped);
+    this.setEquity(result.equityCurve);
+    this.setTrades(result.trades);
+    this.log.replaceChildren();
+    this.appendLog(result.log);
+  }
+
+  /** The stat cards (live sessions call this per update). */
+  showStats(stats: Stats, wiped: boolean): void {
     this.cards.replaceChildren(
-      ...statsRows(result.stats).map((row) =>
+      ...statsRows(stats).map((row) =>
         h('div', { class: `card ${row.tone}` }, h('div', { class: 'label' }, row.label), h('div', { class: 'value' }, row.value)),
       ),
     );
-    if (result.wiped) this.cards.append(h('div', { class: 'card neg wiped' }, 'ACCOUNT WIPED'));
+    if (wiped) this.cards.append(h('div', { class: 'card neg wiped' }, 'ACCOUNT WIPED'));
+  }
 
-    this.equitySeries.setData(result.equityCurve.map((p) => ({ time: toChartTime(p.time), value: p.equity })));
+  setEquity(points: readonly EquityPoint[]): void {
+    this.equitySeries.setData(points.map((p) => ({ time: toChartTime(p.time), value: p.equity })));
     requestAnimationFrame(() => this.equityChart.timeScale().fitContent());
+  }
 
+  /** Appends points newer than the last one drawn. */
+  appendEquity(points: readonly EquityPoint[]): void {
+    for (const p of points) this.equitySeries.update({ time: toChartTime(p.time), value: p.equity });
+  }
+
+  /** Appends log lines; keeps the view pinned to the bottom when it already was. */
+  appendLog(entries: readonly LogEntry[]): void {
+    if (entries.length === 0) return;
+    const pinned = this.log.scrollHeight - this.log.scrollTop - this.log.clientHeight < 4;
+    this.log.append(...entries.map((l) => h('div', { class: `log-${l.level}` }, `${fmtTime(l.time)}  ${l.message}`)));
+    if (pinned) this.log.scrollTop = this.log.scrollHeight;
+  }
+
+  setTrades(trades: readonly Trade[]): void {
     const header = h('tr', {}, ...['#', 'Side', 'Entry', 'Entry px', 'Exit', 'Exit px', 'Qty', 'Net PnL', 'Exit by'].map((t) => h('th', {}, t)));
-    const shown = result.trades.slice(-MAX_TRADE_ROWS);
-    const offset = result.trades.length - shown.length;
+    const shown = trades.slice(-MAX_TRADE_ROWS);
+    const offset = trades.length - shown.length;
     const rows = shown.map((t, i) =>
       h(
         'tr', {},
@@ -68,11 +96,7 @@ export class StatsPanel {
         h('td', {}, t.exitReason),
       ),
     );
-    const note = offset > 0 ? [h('div', { class: 'hint' }, `showing last ${MAX_TRADE_ROWS} of ${result.trades.length} trades`)] : [];
+    const note = offset > 0 ? [h('div', { class: 'hint' }, `showing last ${MAX_TRADE_ROWS} of ${trades.length} trades`)] : [];
     this.trades.replaceChildren(...note, h('table', {}, h('thead', {}, header), h('tbody', {}, ...rows)));
-
-    this.log.replaceChildren(
-      ...result.log.map((l) => h('div', { class: `log-${l.level}` }, `${fmtTime(l.time)}  ${l.message}`)),
-    );
   }
 }

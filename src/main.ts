@@ -17,16 +17,19 @@ import { loadPineRecords, loadPineRetired } from './ui/pineStore';
 import { fillsToMarkers } from './ui/markers';
 import { renderOverlayPicker } from './ui/overlayPicker';
 import { OVERLAYS, smaOverlay, type OverlayDef } from './ui/overlays';
-import { defaultRawSettings, parseSettings, type RunSettings } from './ui/settings';
+import { defaultRawSettings, defaultStartDate, parseSettings, type RunSettings } from './ui/settings';
+import { blocksSnapshot, smaCrossSnapshot } from './live/session';
+import { LiveMode, type SessionBase } from './ui/liveMode';
 import { StatsPanel } from './ui/statsPanel';
 import { loadText, saveText } from './ui/storage';
-import { createTopBar } from './ui/topbar';
+import { createTopBar, type AppMode } from './ui/topbar';
 import { BacktestError, runBacktestInWorker } from './worker/client';
 import type { StrategySpec } from './worker/protocol';
 
 type StrategyChoice = 'blocks' | 'smaCross';
 const STRATEGY_STORAGE_KEY = 'quant-sim.strategy';
 const LEFT_TAB_STORAGE_KEY = 'quant-sim.left-tab';
+const MODE_STORAGE_KEY = 'quant-sim.mode';
 
 // Pine indicators must be registered before the block editor loads a workspace that uses them.
 let pineRecords = loadPineRecords();
@@ -52,6 +55,9 @@ let candles: Candle[] = [];
 let live: CandleSubscription | null = null;
 let pickedOverlayIds: string[] = [];
 let strategyChoice: StrategyChoice = loadText(STRATEGY_STORAGE_KEY) === 'smaCross' ? 'smaCross' : 'blocks';
+let mode: AppMode = loadText(MODE_STORAGE_KEY) === 'live' ? 'live' : 'backtest';
+/** Created after the editor (whose first compile already redraws overlays). */
+let liveMode: LiveMode | null = null;
 /** Indicators used by the current block workspace (last successful compile), drawn automatically. */
 let blockIndicators: IndicatorUse[] = [];
 let blockOverlayKey = '';
@@ -62,6 +68,10 @@ function strategyOverlays(): OverlayDef[] {
 }
 
 function applyOverlays(): void {
+  if (mode === 'live') {
+    liveMode?.redrawOverlays(); // a live session draws its own snapshot's indicators
+    return;
+  }
   chart.setOverlays([...strategyOverlays(), ...OVERLAYS.filter((d) => pickedOverlayIds.includes(d.id))], candles);
 }
 
@@ -169,6 +179,7 @@ function strategySpec(): StrategySpec | null {
 }
 
 async function run(): Promise<void> {
+  if (mode !== 'backtest') return; // Enter in the top-bar form while in Live mode
   const parsed = parseSettings(topBar.read(), Date.now());
   if (!parsed.ok) {
     setStatus(parsed.error, true);
@@ -209,7 +220,55 @@ async function run(): Promise<void> {
   }
 }
 
-const topBar = createTopBar(document.getElementById('topbar')!, defaultRawSettings(Date.now()), () => void run());
+const topBar = createTopBar(document.getElementById('topbar')!, defaultRawSettings(Date.now()), () => void run(), mode, (m) => switchMode(m));
+
+/** Product/timeframe/account from the top bar plus a frozen copy of the selected strategy, for a new live session. */
+function sessionBase(): SessionBase {
+  const now = Date.now();
+  const parsed = parseSettings({ ...topBar.read(), startDate: defaultStartDate(now, 1) }, now); // the start date is backtest-only
+  if (!parsed.ok) return parsed;
+  const { symbol, timeframe, broker } = parsed.settings;
+  if (strategyChoice === 'smaCross') return { ok: true, symbol, timeframe, brokerConfig: broker, strategy: smaCrossSnapshot(DEFAULT_SMA_CROSS) };
+  const spec = strategySpec();
+  if (!spec || spec.id !== 'blocks') return { ok: false, error: 'Cannot start a live session: fix the block problems first (listed under the workspace).' };
+  return { ok: true, symbol, timeframe, brokerConfig: broker, strategy: blocksSnapshot(spec.workspace, spec.pineScripts ?? [], spec.pineRetired ?? []) };
+}
+
+const liveSessions = new LiveMode(document.getElementById('live')!, {
+  chart,
+  stats,
+  setStatus,
+  highlightBlock: (blockId, message) => editor.highlightError(blockId, message),
+  sessionBase,
+  extraOverlays: () => OVERLAYS.filter((d) => pickedOverlayIds.includes(d.id)),
+  confirm: (message) => window.confirm(message),
+  now: () => Date.now(),
+});
+liveMode = liveSessions;
+
+function switchMode(next: AppMode): void {
+  mode = next;
+  topBar.setMode(next);
+  saveText(MODE_STORAGE_KEY, next);
+  if (next === 'live') {
+    live?.close(); // the backtest chart's own stream
+    live = null;
+    liveSessions.activate();
+    if (!liveSessions.hasRunning) setStatus('Live mode: paper trading on real Binance prices. No real orders are ever sent.');
+    return;
+  }
+  liveSessions.deactivate();
+  stats.clear();
+  const parsed = parseSettings(topBar.read(), Date.now());
+  if (!parsed.ok) {
+    setStatus(parsed.error, true);
+    return;
+  }
+  loadMarket(parsed.settings)
+    .then(() => setStatus(`${parsed.settings.symbol} ${parsed.settings.timeframe}: ${candles.length} bars. Press Run to backtest.` +
+      (liveSessions.hasRunning ? ' A live session keeps running in the background.' : '')))
+    .catch((err: unknown) => setStatus(err instanceof Error ? err.message : String(err), true));
+}
 createStrategyPicker(topBar.extras, strategyChoice, (id) => {
   strategyChoice = id === 'smaCross' ? 'smaCross' : 'blocks';
   saveText(STRATEGY_STORAGE_KEY, strategyChoice);
@@ -220,8 +279,16 @@ renderOverlayPicker(topBar.extras, OVERLAYS, pickedOverlayIds, (ids) => {
   applyOverlays();
 });
 
+liveSessions
+  .init()
+  .then((resumed) => {
+    if (resumed && mode !== 'live') switchMode('live'); // a session left running: show it
+  })
+  .catch((err: unknown) => setStatus(`Live sessions unavailable: ${err instanceof Error ? err.message : String(err)}`, true));
+if (mode === 'live') liveSessions.activate();
+
 const initial = parseSettings(topBar.read(), Date.now());
-if (initial.ok) {
+if (initial.ok && mode === 'backtest') {
   loadMarket(initial.settings)
     .then(() => {
       if (compileState.errors.length === 0) {

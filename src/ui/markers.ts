@@ -11,6 +11,11 @@ const LABEL: Record<FillReason, string> = {
   wiped: 'WIPED',
 };
 
+/** Live sessions: where trading starts (warm-up bars are to its left). */
+export function sessionStartMarker(timeMs: number): SeriesMarker<UTCTimestamp> {
+  return { time: toChartTime(timeMs), position: 'aboveBar', shape: 'square', color: '#2962ff', text: 'Session start' };
+}
+
 /** One chart marker per fill: buys below the bar (green up arrow), sells above (red down arrow). */
 export function fillsToMarkers(fills: readonly Fill[]): SeriesMarker<UTCTimestamp>[] {
   return fills.map((f) => {

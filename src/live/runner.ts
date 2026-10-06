@@ -40,7 +40,7 @@ export interface HaltInfo {
 export interface RunnerHooks {
   delta(delta: SessionDelta): void;
   /** Every websocket update (forming or closed) for the chart and the mark-to-market readout; never fed to the strategy. */
-  tick(candle: Candle, markEquity: number): void;
+  tick(candle: Candle, markEquity: number, closed: boolean): void;
   status(status: LiveStatus): void;
   halt(info: HaltInfo): void;
 }
@@ -195,7 +195,7 @@ export class LiveRunner {
   private onCandle(candle: Candle, closed: boolean): void {
     if (this.stopped) return;
     this.lastWsAt = this.now();
-    this.hooks.tick(candle, this.session.markEquity(candle.close));
+    this.hooks.tick(candle, this.session.markEquity(candle.close), closed);
     if (closed) {
       const last = this.session.lastBarTime;
       if (last === null || candle.time > last) this.pending.set(candle.time, candle);

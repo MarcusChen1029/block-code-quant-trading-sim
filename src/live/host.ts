@@ -21,7 +21,7 @@ export type LiveEvent =
   /** Indicators used by the session's own block snapshot (chart overlays). */
   | { type: 'program'; indicators: IndicatorUse[] }
   | { type: 'delta'; delta: SessionDelta }
-  | { type: 'tick'; candle: Candle; markEquity: number }
+  | { type: 'tick'; candle: Candle; markEquity: number; closed: boolean }
   | { type: 'status'; status: LiveStatus }
   | { type: 'halt'; halt: HaltInfo };
 
@@ -64,7 +64,7 @@ export function createLiveHost(post: (event: LiveEvent) => void, adapter: Market
       adapter,
       {
         delta: (delta) => post({ type: 'delta', delta }),
-        tick: (candle, markEquity) => post({ type: 'tick', candle, markEquity }),
+        tick: (candle, markEquity, closed) => post({ type: 'tick', candle, markEquity, closed }),
         status: (status) => post({ type: 'status', status }),
         halt: (halt) => post({ type: 'halt', halt }),
       },

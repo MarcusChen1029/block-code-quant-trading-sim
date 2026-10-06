@@ -104,11 +104,11 @@ export class ManualTimers implements Timers {
 /** Records everything a runner reports. */
 export class Recorder implements RunnerHooks {
   readonly deltas: SessionDelta[] = [];
-  readonly ticks: Array<{ candle: Candle; markEquity: number }> = [];
+  readonly ticks: Array<{ candle: Candle; markEquity: number; closed: boolean }> = [];
   readonly statuses: LiveStatus[] = [];
   readonly halts: HaltInfo[] = [];
   delta(d: SessionDelta): void { this.deltas.push(d); }
-  tick(candle: Candle, markEquity: number): void { this.ticks.push({ candle, markEquity }); }
+  tick(candle: Candle, markEquity: number, closed: boolean): void { this.ticks.push({ candle, markEquity, closed }); }
   status(s: LiveStatus): void { this.statuses.push(s); }
   halt(h: HaltInfo): void { this.halts.push(h); }
   get processedTimes(): number[] {
