@@ -174,6 +174,14 @@ export class BinanceFuturesAdapter implements MarketDataAdapter {
     return out;
   }
 
+  async firstBarAtOrAfter(symbol: string, tf: Timeframe, fromMs: number): Promise<number | null> {
+    const url = `${this.restBase}/fapi/v1/klines?symbol=${encodeURIComponent(symbol)}&interval=${tf}&startTime=${fromMs}&limit=1`;
+    const res = await this.fetchFn(url);
+    if (!res.ok) throw new Error(`Binance HTTP ${res.status}: ${await res.text()}`);
+    const rows = (await res.json()) as BinanceKlineRow[];
+    return rows.length > 0 && rows[0][0] >= fromMs ? rows[0][0] : null;
+  }
+
   subscribeCandles(
     symbol: string,
     tf: Timeframe,

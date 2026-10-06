@@ -293,8 +293,22 @@ export class LiveRunner {
       const fresh = bars.filter((b) => b.time >= from && b.time <= to).sort((a, b) => a.time - b.time);
       if (fresh.length === 0) {
         if (to < this.target!) {
-          this.cursor = to + this.step; // the exchange has no bars here (before listing, maintenance): skip the hole
-          continue;
+          // Empty although later bars are known to exist: a real hole (before listing, maintenance) only if the
+          // exchange shows the first bar after it. A glitchy empty answer must never make us skip bars.
+          let next: number | null = null;
+          try {
+            next = (await this.adapter.firstBarAtOrAfter?.(this.opt.symbol, this.opt.timeframe, from)) ?? null;
+          } catch (err) {
+            this.scheduleRetry(err instanceof Error ? err.message : String(err));
+            return;
+          }
+          if (this.stopped) return;
+          if (next !== null && next > from) {
+            this.cursor = Math.floor((next - from) / this.step) * this.step + from; // jump to the first existing bar
+            continue;
+          }
+          this.scheduleRetry('Binance returned no bars for a range that should have some; retrying');
+          return;
         }
         // Closed per the socket/clock but not served by REST yet: wait a moment, keep everything as is.
         this.scheduleRetry(null);

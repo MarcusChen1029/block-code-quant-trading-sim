@@ -36,6 +36,11 @@ export class FakeMarket implements MarketDataAdapter {
     return this.bars.filter((c) => c.time >= startMs && c.time <= endMs && c.time + this.step <= this.now).map((c) => ({ ...c }));
   }
 
+  async firstBarAtOrAfter(_symbol: string, _tf: Timeframe, fromMs: number): Promise<number | null> {
+    await Promise.resolve();
+    return this.bars.find((c) => c.time >= fromMs)?.time ?? null;
+  }
+
   subscribeCandles(
     _symbol: string,
     _tf: Timeframe,

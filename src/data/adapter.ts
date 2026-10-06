@@ -30,6 +30,11 @@ export interface MarketDataAdapter {
   serverNow?(): number | null;
   /** Measures the exchange clock; false when that is not possible right now. */
   syncClock?(): Promise<boolean>;
+  /**
+   * Open time of the first bar (closed or forming) at or after `fromMs`, or null when the exchange has none.
+   * Used to confirm a hole in the history before skipping it.
+   */
+  firstBarAtOrAfter?(symbol: string, tf: Timeframe, fromMs: number): Promise<number | null>;
 }
 
 export type ConnectionState = 'connecting' | 'open' | 'reconnecting';
