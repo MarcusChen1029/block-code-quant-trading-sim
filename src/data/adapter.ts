@@ -15,12 +15,17 @@ export interface MarketDataAdapter {
   fetchCandles(symbol: string, tf: Timeframe, startMs: number, endMs: number): Promise<Candle[]>;
   /**
    * Streams the forming candle. `closed` is true exactly once per bar, on its final update.
-   * The adapter reconnects on its own until close() is called.
+   * The adapter reconnects on its own until close() is called; it does NOT replay bars missed while
+   * disconnected (callers that must not skip bars backfill them with fetchCandles). `onStatus` reports
+   * the connection state ('connecting' first, 'open' when data flows, 'reconnecting' after a drop).
    */
   subscribeCandles(
     symbol: string,
     tf: Timeframe,
     onCandle: (candle: Candle, closed: boolean) => void,
     onError?: (error: Error) => void,
+    onStatus?: (state: ConnectionState) => void,
   ): CandleSubscription;
 }
+
+export type ConnectionState = 'connecting' | 'open' | 'reconnecting';

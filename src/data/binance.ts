@@ -1,4 +1,4 @@
-import type { CandleSubscription, MarketDataAdapter } from './adapter';
+import type { CandleSubscription, ConnectionState, MarketDataAdapter } from './adapter';
 import { timeframeToMs, type Candle, type Timeframe } from './types';
 
 /** Max rows per /fapi/v1/klines request. */
@@ -12,6 +12,8 @@ export interface WebSocketLike {
   onmessage: ((ev: { data: unknown }) => void) | null;
   onclose: (() => void) | null;
   onerror: (() => void) | null;
+  /** Optional: sockets without it are reported open on their first message. */
+  onopen?: (() => void) | null;
   close(): void;
 }
 
@@ -22,6 +24,11 @@ export interface BinanceAdapterOptions {
   wsFactory?: (url: string) => WebSocketLike;
   now?: () => number;
   reconnectDelayMs?: number;
+  /**
+   * A socket silent for this long is treated as dead (sleeping laptop, half-open TCP): it is dropped and a new
+   * one is opened. Kline streams push several updates per second, so silence means a broken connection.
+   */
+  staleAfterMs?: number;
 }
 
 export function parseKlineRow(row: BinanceKlineRow): Candle {
@@ -58,10 +65,11 @@ export function parseKlineMessage(data: string): { candle: Candle; closed: boole
 
 function browserSocket(url: string): WebSocketLike {
   const ws = new WebSocket(url);
-  const like: WebSocketLike = { onmessage: null, onclose: null, onerror: null, close: () => ws.close() };
+  const like: WebSocketLike = { onmessage: null, onclose: null, onerror: null, onopen: null, close: () => ws.close() };
   ws.onmessage = (ev) => like.onmessage?.({ data: ev.data });
   ws.onclose = () => like.onclose?.();
   ws.onerror = () => like.onerror?.();
+  ws.onopen = () => like.onopen?.();
   return like;
 }
 
@@ -74,6 +82,7 @@ export class BinanceFuturesAdapter implements MarketDataAdapter {
   private readonly wsFactory: (url: string) => WebSocketLike;
   private readonly now: () => number;
   private readonly reconnectDelayMs: number;
+  private readonly staleAfterMs: number;
 
   constructor(options: BinanceAdapterOptions = {}) {
     this.restBase = options.restBase ?? 'https://fapi.binance.com';
@@ -82,6 +91,7 @@ export class BinanceFuturesAdapter implements MarketDataAdapter {
     this.wsFactory = options.wsFactory ?? browserSocket;
     this.now = options.now ?? (() => Date.now());
     this.reconnectDelayMs = options.reconnectDelayMs ?? 3000;
+    this.staleAfterMs = options.staleAfterMs ?? 30_000;
   }
 
   async fetchCandles(symbol: string, tf: Timeframe, startMs: number, endMs: number): Promise<Candle[]> {
@@ -113,28 +123,60 @@ export class BinanceFuturesAdapter implements MarketDataAdapter {
     tf: Timeframe,
     onCandle: (candle: Candle, closed: boolean) => void,
     onError?: (error: Error) => void,
+    onStatus?: (state: ConnectionState) => void,
   ): CandleSubscription {
     const url = `${this.wsBase}/${symbol.toLowerCase()}@kline_${tf}`;
     let stopped = false;
     let socket: WebSocketLike | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let open = false;
+    let lastMessageAt = this.now();
 
+    const scheduleReconnect = () => {
+      open = false;
+      onStatus?.('reconnecting');
+      timer = setTimeout(connect, this.reconnectDelayMs);
+    };
+    const markOpen = () => {
+      if (open) return;
+      open = true;
+      onStatus?.('open');
+    };
     const connect = () => {
-      socket = this.wsFactory(url);
-      socket.onmessage = (ev) => {
+      timer = null;
+      lastMessageAt = this.now();
+      const s = this.wsFactory(url);
+      socket = s;
+      s.onopen = markOpen;
+      s.onmessage = (ev) => {
+        lastMessageAt = this.now();
+        markOpen();
         const parsed = typeof ev.data === 'string' ? parseKlineMessage(ev.data) : null;
         if (parsed) onCandle(parsed.candle, parsed.closed);
       };
-      socket.onerror = () => onError?.(new Error(`WebSocket error on ${url}`));
-      socket.onclose = () => {
-        if (!stopped) timer = setTimeout(connect, this.reconnectDelayMs);
+      s.onerror = () => onError?.(new Error(`WebSocket error on ${url}`));
+      s.onclose = () => {
+        if (!stopped && socket === s) scheduleReconnect();
       };
     };
+    // A dead connection may never fire onclose (closing handshake on a half-open socket can hang): drop it ourselves.
+    const watchdog = setInterval(() => {
+      if (stopped || timer !== null || socket === null) return;
+      if (this.now() - lastMessageAt < this.staleAfterMs) return;
+      const dead = socket;
+      socket = null;
+      dead.onmessage = dead.onclose = dead.onerror = null;
+      dead.onopen = null;
+      dead.close();
+      scheduleReconnect();
+    }, Math.max(1000, Math.floor(this.staleAfterMs / 3)));
+    onStatus?.('connecting');
     connect();
 
     return {
       close: () => {
         stopped = true;
+        clearInterval(watchdog);
         if (timer !== null) clearTimeout(timer);
         socket?.close();
       },

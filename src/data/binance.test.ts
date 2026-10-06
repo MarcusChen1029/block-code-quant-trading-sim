@@ -126,10 +126,11 @@ describe('BinanceFuturesAdapter.subscribeCandles', () => {
     const sockets: FakeSocket[] = [];
     const adapter = new BinanceFuturesAdapter({ wsFactory: (url) => { const s = new FakeSocket(url); sockets.push(s); return s; } });
     const received: Array<[number, boolean]> = [];
-    adapter.subscribeCandles('BTCUSDT', '1h', (c, closed) => received.push([c.close, closed]));
+    const sub = adapter.subscribeCandles('BTCUSDT', '1h', (c, closed) => received.push([c.close, closed]));
     expect(sockets[0].url).toBe('wss://fstream.binance.com/market/ws/btcusdt@kline_1h');
     sockets[0].onmessage?.({ data: RECORDED_WS_MESSAGE });
     expect(received).toEqual([[85734.1, false]]);
+    sub.close(); // also stops the stale-socket watchdog timer
   });
 
   it('reconnects after an unexpected close but not after close()', () => {
@@ -147,6 +148,60 @@ describe('BinanceFuturesAdapter.subscribeCandles', () => {
       sub.close();
       expect(sockets[1].closed).toBe(true);
       vi.advanceTimersByTime(5000);
+      expect(sockets).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports connecting -> open -> reconnecting -> open across a drop', () => {
+    vi.useFakeTimers();
+    try {
+      const sockets: FakeSocket[] = [];
+      const adapter = new BinanceFuturesAdapter({
+        reconnectDelayMs: 1000,
+        wsFactory: (url) => { const s = new FakeSocket(url); sockets.push(s); return s; },
+      });
+      const states: string[] = [];
+      const sub = adapter.subscribeCandles('BTCUSDT', '1m', () => {}, undefined, (s) => states.push(s));
+      expect(states).toEqual(['connecting']);
+      sockets[0].onmessage?.({ data: RECORDED_WS_MESSAGE }); // no onopen support: the first message counts
+      sockets[0].onmessage?.({ data: RECORDED_WS_MESSAGE });
+      sockets[0].onclose?.();
+      vi.advanceTimersByTime(1000);
+      (sockets[1] as WebSocketLike).onopen?.();
+      expect(states).toEqual(['connecting', 'open', 'reconnecting', 'open']);
+      sub.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drops a socket that went silent (sleep / half-open connection) and opens a new one', () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const sockets: FakeSocket[] = [];
+      const adapter = new BinanceFuturesAdapter({
+        now: () => now,
+        reconnectDelayMs: 500,
+        staleAfterMs: 9000,
+        wsFactory: (url) => { const s = new FakeSocket(url); sockets.push(s); return s; },
+      });
+      const states: string[] = [];
+      const sub = adapter.subscribeCandles('BTCUSDT', '1m', () => {}, undefined, (s) => states.push(s));
+      sockets[0].onmessage?.({ data: RECORDED_WS_MESSAGE });
+      now = 5000;
+      vi.advanceTimersByTime(6000);
+      expect(sockets).toHaveLength(1); // still fresh
+      now = 10_000;
+      vi.advanceTimersByTime(3000); // watchdog sees 10 s of silence
+      expect(sockets[0].closed).toBe(true);
+      vi.advanceTimersByTime(500);
+      expect(sockets).toHaveLength(2);
+      expect(states).toEqual(['connecting', 'open', 'reconnecting']);
+      sub.close();
+      vi.advanceTimersByTime(60_000);
       expect(sockets).toHaveLength(2);
     } finally {
       vi.useRealTimers();
