@@ -74,6 +74,11 @@ export class SessionEngine {
     return this.last;
   }
 
+  /** Bars processed, warm-up included. */
+  get barsProcessed(): number {
+    return this.engine.barsProcessed;
+  }
+
   get halted(): boolean {
     return this.failure !== null || this.engine.wiped;
   }
