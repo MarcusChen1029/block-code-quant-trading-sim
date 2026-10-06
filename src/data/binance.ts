@@ -1,4 +1,4 @@
-import type { CandleSubscription, ConnectionState, MarketDataAdapter } from './adapter';
+import { MarketDataError, type CandleSubscription, type ConnectionState, type MarketDataAdapter } from './adapter';
 import { timeframeToMs, type Candle, type Timeframe } from './types';
 
 /** Max rows per /fapi/v1/klines request. */
@@ -6,6 +6,29 @@ export const BINANCE_MAX_LIMIT = 1500;
 
 /** REST kline row: [openTime, open, high, low, close, volume, closeTime, ...ignored]. Prices are strings. */
 export type BinanceKlineRow = [number, string, string, string, string, string, number, ...unknown[]];
+
+/** Classifies a non-OK REST response (see MarketDataError). */
+export async function httpError(res: Response): Promise<MarketDataError> {
+  const text = await res.text().catch(() => '');
+  let detail = text.slice(0, 300);
+  try {
+    const body = JSON.parse(text) as { msg?: unknown };
+    if (typeof body?.msg === 'string') detail = body.msg;
+  } catch {
+    // not JSON: keep the raw text
+  }
+  const status = res.status;
+  if (status === 418 || status === 429) {
+    const seconds = Number(res.headers.get('Retry-After'));
+    const retryAfterMs = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : undefined;
+    return new MarketDataError(`Binance rate limit (HTTP ${status})${detail ? `: ${detail}` : ''}`, 'rate-limited', status, retryAfterMs);
+  }
+  if (status >= 400 && status < 500 && status !== 408) {
+    const what = status === 403 ? 'refused access (it may be blocked in your region)' : 'rejected the request';
+    return new MarketDataError(`Binance ${what} (HTTP ${status})${detail ? `: ${detail}` : ''}`, 'terminal', status);
+  }
+  return new MarketDataError(`Binance HTTP ${status}${detail ? `: ${detail}` : ''}`, 'transient', status);
+}
 
 /** Minimal socket surface we use; lets tests inject a fake. */
 export interface WebSocketLike {
@@ -156,7 +179,7 @@ export class BinanceFuturesAdapter implements MarketDataAdapter {
         `${this.restBase}/fapi/v1/klines?symbol=${encodeURIComponent(symbol)}&interval=${tf}` +
         `&startTime=${cursor}&endTime=${endMs}&limit=${BINANCE_MAX_LIMIT}`;
       const res = await this.fetchFn(url);
-      if (!res.ok) throw new Error(`Binance HTTP ${res.status}: ${await res.text()}`);
+      if (!res.ok) throw await httpError(res);
       const rows = (await res.json()) as BinanceKlineRow[];
       if (rows.length === 0) break;
       const serverNow = this.serverNow();
@@ -177,7 +200,7 @@ export class BinanceFuturesAdapter implements MarketDataAdapter {
   async firstBarAtOrAfter(symbol: string, tf: Timeframe, fromMs: number): Promise<number | null> {
     const url = `${this.restBase}/fapi/v1/klines?symbol=${encodeURIComponent(symbol)}&interval=${tf}&startTime=${fromMs}&limit=1`;
     const res = await this.fetchFn(url);
-    if (!res.ok) throw new Error(`Binance HTTP ${res.status}: ${await res.text()}`);
+    if (!res.ok) throw await httpError(res);
     const rows = (await res.json()) as BinanceKlineRow[];
     return rows.length > 0 && rows[0][0] >= fromMs ? rows[0][0] : null;
   }

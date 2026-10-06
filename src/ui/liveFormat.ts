@@ -19,7 +19,9 @@ export function liveBadge(status: LiveStatus, replay: boolean): Badge {
   if (replay) {
     return status.state === 'stopped'
       ? { text: 'STOPPED · read-only', tone: 'stopped', detail }
-      : status.state === 'error'
+      : status.state === 'rate-limited'
+        ? { text: `RATE LIMITED · retry in ${Math.round((status.retryInMs ?? 0) / 1000)}s`, tone: 'warn', detail }
+        : status.state === 'error'
         ? { text: `DATA ERROR · retry in ${Math.round((status.retryInMs ?? 0) / 1000)}s: ${status.message ?? ''}`, tone: 'error', detail }
         : { text: `REPLAYING · ${status.behindBars} bars to go`, tone: 'busy', detail };
   }
@@ -32,6 +34,8 @@ export function liveBadge(status: LiveStatus, replay: boolean): Badge {
       return { text: '● LIVE', tone: 'live', detail };
     case 'reconnecting':
       return { text: 'RECONNECTING…', tone: 'warn', detail };
+    case 'rate-limited':
+      return { text: `RATE LIMITED · retry in ${Math.round((status.retryInMs ?? 0) / 1000)}s`, tone: 'warn', detail };
     case 'error':
       return { text: `DATA ERROR · retry in ${Math.round((status.retryInMs ?? 0) / 1000)}s: ${status.message ?? ''}`, tone: 'error', detail };
     case 'stopped':

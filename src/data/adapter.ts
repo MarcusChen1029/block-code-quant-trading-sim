@@ -38,3 +38,21 @@ export interface MarketDataAdapter {
 }
 
 export type ConnectionState = 'connecting' | 'open' | 'reconnecting';
+
+/**
+ * A failed market-data request, classified for retry decisions:
+ * - 'rate-limited': the exchange asks us to slow down (HTTP 418/429); wait at least `retryAfterMs`;
+ * - 'terminal': retrying cannot help (invalid symbol, other 4xx, blocked region): stop and say why;
+ * - 'transient': server or network trouble; retry with backoff.
+ */
+export class MarketDataError extends Error {
+  constructor(
+    message: string,
+    readonly kind: 'rate-limited' | 'terminal' | 'transient',
+    readonly status?: number,
+    readonly retryAfterMs?: number,
+  ) {
+    super(message);
+    this.name = 'MarketDataError';
+  }
+}

@@ -19,6 +19,8 @@ export interface FakeBinanceState {
   maxBar?: number;
   /** No bars before this index (symbol listed later). */
   firstBar?: number;
+  /** Next kline responses fail with these (status, body, headers), in order. */
+  fail?: Array<{ status: number; body?: string; headers?: Record<string, string> }>;
 }
 
 export function fakeBinance(state: FakeBinanceState) {
@@ -30,6 +32,8 @@ export function fakeBinance(state: FakeBinanceState) {
       if (state.timeDown) throw new TypeError('Failed to fetch');
       return new Response(JSON.stringify({ serverTime: state.serverNow }), { status: 200 });
     }
+    const failure = state.fail?.shift();
+    if (failure) return new Response(failure.body ?? '', { status: failure.status, headers: failure.headers });
     if ((state.emptyFirst ?? 0) > 0) {
       state.emptyFirst!--;
       return new Response('[]', { status: 200 });

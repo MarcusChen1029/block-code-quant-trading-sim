@@ -1,4 +1,4 @@
-import type { CandleSubscription, ConnectionState, MarketDataAdapter } from '../data/adapter';
+import { MarketDataError, type CandleSubscription, type ConnectionState, type MarketDataAdapter } from '../data/adapter';
 import type { Candle, Timeframe } from '../data/types';
 import type { SessionDelta, SessionEngine } from './sessionEngine';
 
@@ -13,6 +13,8 @@ export type LiveState =
   | 'reconnecting'
   /** A REST request failed; nothing was half-applied and it is retried automatically. */
   | 'error'
+  /** Binance asked us to slow down (HTTP 418/429); retried after its Retry-After. */
+  | 'rate-limited'
   | 'stopped';
 
 export interface LiveStatus {
@@ -21,9 +23,9 @@ export interface LiveStatus {
   barsProcessed: number;
   /** Closed bars known to exist but not processed yet (catching-up). */
   behindBars: number;
-  /** 'error': what failed. */
+  /** 'error' / 'rate-limited': what failed. */
   message?: string;
-  /** 'error': delay before the next attempt. */
+  /** 'error' / 'rate-limited': delay before the next attempt. */
   retryInMs?: number;
 }
 
@@ -71,8 +73,11 @@ export interface RunnerOptions {
   fetchChunkBars?: number;
   /** Lets the event loop breathe between batches (stop commands, ticks). */
   yieldFn?: () => Promise<void>;
-  /** Backoff after REST failures; the last value repeats. */
-  retryDelaysMs?: number[];
+  /** Backoff after REST failures: base * 2^attempt, capped, with jitter (half to full delay). */
+  retryBaseMs?: number;
+  retryCapMs?: number;
+  /** Jitter source (tests pin it). */
+  random?: () => number;
   /** When REST does not have a bar the websocket says is closed yet. */
   restLagRetryMs?: number;
   /** Clock check for bars that closed while the socket was silent (sleep, stalled socket). */
@@ -115,7 +120,7 @@ export class LiveRunner {
   private clockChecked = false;
   private heartbeat: unknown = null;
   private retryAttempt = 0;
-  private error: { message: string; retryInMs: number } | null = null;
+  private error: { message: string; retryInMs: number; rateLimited: boolean } | null = null;
   private lastStatusKey = '';
 
   constructor(
@@ -134,7 +139,9 @@ export class LiveRunner {
       timeframe: options.timeframe,
       batchSize: options.batchSize ?? 500,
       fetchChunkBars: options.fetchChunkBars ?? 5000,
-      retryDelaysMs: options.retryDelaysMs ?? [2000, 5000, 10_000, 30_000],
+      retryBaseMs: options.retryBaseMs ?? 2000,
+      retryCapMs: options.retryCapMs ?? 60_000,
+      random: options.random ?? Math.random,
       restLagRetryMs: options.restLagRetryMs ?? 2000,
       heartbeatMs: options.heartbeatMs ?? 10_000,
       closeMarginMs: options.closeMarginMs ?? 10_000,
@@ -281,7 +288,7 @@ export class LiveRunner {
         // One bar past `to`: then `to` is not the newest row, so the adapter can accept it without a server clock.
         bars = await this.adapter.fetchCandles(this.opt.symbol, this.opt.timeframe, from, to + this.step);
       } catch (err) {
-        this.scheduleRetry(err instanceof Error ? err.message : String(err));
+        this.scheduleRetry(err);
         return;
       }
       if (this.stopped) return;
@@ -299,7 +306,7 @@ export class LiveRunner {
           try {
             next = (await this.adapter.firstBarAtOrAfter?.(this.opt.symbol, this.opt.timeframe, from)) ?? null;
           } catch (err) {
-            this.scheduleRetry(err instanceof Error ? err.message : String(err));
+            this.scheduleRetry(err);
             return;
           }
           if (this.stopped) return;
@@ -307,7 +314,7 @@ export class LiveRunner {
             this.cursor = Math.floor((next - from) / this.step) * this.step + from; // jump to the first existing bar
             continue;
           }
-          this.scheduleRetry('Binance returned no bars for a range that should have some; retrying');
+          this.scheduleRetry(new Error('Binance returned no bars for a range that should have some; retrying'));
           return;
         }
         // Closed per the socket/clock but not served by REST yet: wait a moment, keep everything as is.
@@ -345,15 +352,25 @@ export class LiveRunner {
     if (delta.candles.length > 0 || delta.log.length > 0) this.hooks.delta(delta);
   }
 
-  /** `message` null = not an error, just REST lagging behind the socket. */
-  private scheduleRetry(message: string | null): void {
+  /**
+   * `failure` null = not an error, just REST lagging behind the socket. Terminal errors (invalid symbol, other
+   * 4xx) stop the session instead: retrying cannot help.
+   */
+  private scheduleRetry(failure: unknown): void {
     let delay = this.opt.restLagRetryMs;
-    this.retryKind = message === null ? 'lag' : 'error';
-    if (message !== null) {
-      const delays = this.opt.retryDelaysMs;
-      delay = delays[Math.min(this.retryAttempt, delays.length - 1)];
+    this.retryKind = failure === null ? 'lag' : 'error';
+    if (failure !== null) {
+      const message = failure instanceof Error ? failure.message : String(failure);
+      if (failure instanceof MarketDataError && failure.kind === 'terminal') {
+        this.finish('error', `market data: ${message}`);
+        return;
+      }
+      const ceiling = Math.min(this.opt.retryCapMs, this.opt.retryBaseMs * 2 ** this.retryAttempt);
+      delay = Math.round(ceiling / 2 + this.opt.random() * (ceiling / 2));
+      const rateLimited = failure instanceof MarketDataError && failure.kind === 'rate-limited';
+      if (rateLimited) delay = Math.max(delay, failure.retryAfterMs ?? 0);
       this.retryAttempt++;
-      this.error = { message, retryInMs: delay };
+      this.error = { message, retryInMs: delay, rateLimited };
     }
     this.retryTimer = this.timers.setTimeout(() => {
       this.retryTimer = null;
@@ -362,7 +379,7 @@ export class LiveRunner {
     this.emitStatus();
   }
 
-  private finish(reason: HaltReason): void {
+  private finish(reason: HaltReason, message?: string): void {
     if (this.stopped) return;
     this.stopped = true;
     this.sub?.close();
@@ -376,6 +393,8 @@ export class LiveRunner {
     if (reason === 'error' && failure) {
       info.message = failure.message;
       if (failure.blockId !== undefined) info.blockId = failure.blockId;
+    } else if (message !== undefined) {
+      info.message = message;
     }
     if (reason === 'wiped') info.message = 'account wiped: equity <= 0, session stopped';
     this.emitStatus();
@@ -385,7 +404,7 @@ export class LiveRunner {
   private status(): LiveStatus {
     const base = { lastBarTime: this.session.lastBarTime, barsProcessed: this.session.barsProcessed, behindBars: this.behind() };
     if (this.stopped) return { ...base, state: 'stopped', behindBars: 0 };
-    if (this.error) return { ...base, state: 'error', message: this.error.message, retryInMs: this.error.retryInMs };
+    if (this.error) return { ...base, state: this.error.rateLimited ? 'rate-limited' : 'error', message: this.error.message, retryInMs: this.error.retryInMs };
     if (base.behindBars > 0 && (this.busy || this.opt.mode === 'replay')) return { ...base, state: 'catching-up' };
     if (this.ws === 'reconnecting') return { ...base, state: 'reconnecting' };
     if (this.ws === 'connecting') return { ...base, state: 'connecting' };

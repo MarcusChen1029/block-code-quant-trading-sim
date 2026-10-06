@@ -108,7 +108,7 @@ describe('BinanceFuturesAdapter.fetchCandles', () => {
   it('throws with status and body on HTTP errors', async () => {
     const fetchFn = vi.fn(async () => new Response('{"code":-1121,"msg":"Invalid symbol."}', { status: 400 }));
     const adapter = new BinanceFuturesAdapter({ fetchFn });
-    await expect(adapter.fetchCandles('NOPE', '1h', 0, HOUR)).rejects.toThrow('Binance HTTP 400: {"code":-1121,"msg":"Invalid symbol."}');
+    await expect(adapter.fetchCandles('NOPE', '1h', 0, HOUR)).rejects.toThrow('Binance rejected the request (HTTP 400): Invalid symbol.');
   });
 });
 

@@ -27,6 +27,7 @@ function setup(market: FakeMarket, session: LiveSessionRecord, strategy: Strateg
     yieldFn: () => Promise.resolve(),
     closeMarginMs: 0,
     batchSize: 64,
+    random: () => 1, // no jitter: delays are exactly base * 2^attempt
   });
   return { engine, rec, timers, runner };
 }
@@ -212,7 +213,7 @@ describe('LiveRunner errors', () => {
     expect(rec.statuses[rec.statuses.length - 1].state).toBe('error');
     timers.runTimeouts();
     await runner.idle();
-    expect(rec.statuses[rec.statuses.length - 1]).toMatchObject({ state: 'error', retryInMs: 5000 }); // backoff grows
+    expect(rec.statuses[rec.statuses.length - 1]).toMatchObject({ state: 'error', retryInMs: 4000 }); // backoff doubles
     timers.runTimeouts();
     await runner.idle();
     expect(engine.lastBarTime).toBe(24 * MINUTE);
