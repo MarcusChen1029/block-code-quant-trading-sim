@@ -1,4 +1,4 @@
-import { parseSessionRecord, type LiveSessionRecord } from './session';
+import { mergeRecords, parseSessionRecord, type LiveSessionRecord } from './session';
 
 /** Where session records live. Records are copied in and out: callers never share objects with the store. */
 export interface SessionStore {
@@ -7,8 +7,17 @@ export interface SessionStore {
   /** Valid records, newest first; malformed ones are skipped. */
   list(): Promise<LiveSessionRecord[]>;
   get(id: string): Promise<LiveSessionRecord | null>;
-  put(record: LiveSessionRecord): Promise<void>;
+  /**
+   * Merge-on-write (see mergeRecords), read and write in one transaction, so another tab's stop or newer
+   * progress is never overwritten. Returns what is stored now; with `onlyIfExists` (updates of a known
+   * session) nothing is written and null is returned when the session is gone (deleted in another tab).
+   */
+  put(record: LiveSessionRecord, options?: PutOptions): Promise<LiveSessionRecord | null>;
   delete(id: string): Promise<void>;
+}
+
+export interface PutOptions {
+  onlyIfExists?: boolean;
 }
 
 const copy = <T>(value: T): T => structuredClone(value);
@@ -27,8 +36,12 @@ export class MemorySessionStore implements SessionStore {
     return r ? copy(r) : null;
   }
 
-  async put(record: LiveSessionRecord): Promise<void> {
-    this.records.set(record.id, copy(record));
+  async put(record: LiveSessionRecord, options: PutOptions = {}): Promise<LiveSessionRecord | null> {
+    const existing = this.records.get(record.id) ?? null;
+    if (existing === null && options.onlyIfExists) return null;
+    const merged = mergeRecords(existing, copy(record));
+    this.records.set(record.id, merged);
+    return copy(merged);
   }
 
   async delete(id: string): Promise<void> {
@@ -95,14 +108,23 @@ export class IndexedDbSessionStore implements SessionStore {
     return parseSessionRecord(await request(this.store('readonly').get(id)));
   }
 
-  async put(record: LiveSessionRecord): Promise<void> {
+  async put(record: LiveSessionRecord, options: PutOptions = {}): Promise<LiveSessionRecord | null> {
     const tx = this.db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).put(copy(record));
+    const store = tx.objectStore(STORE);
+    let result: LiveSessionRecord | null = null;
+    const read = store.get(record.id);
+    read.onsuccess = () => {
+      const existing = parseSessionRecord(read.result);
+      if (existing === null && options.onlyIfExists) return; // deleted elsewhere: do not recreate it
+      result = mergeRecords(existing, copy(record));
+      store.put(result);
+    };
     await new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error ?? new Error('IndexedDB write failed'));
       tx.onabort = () => reject(tx.error ?? new Error('IndexedDB write aborted (storage full?)'));
     });
+    return result;
   }
 
   async delete(id: string): Promise<void> {

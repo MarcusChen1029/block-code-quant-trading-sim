@@ -189,3 +189,20 @@ export function parseSessionRecord(raw: unknown): LiveSessionRecord | null {
   }
   return record;
 }
+
+/**
+ * What to store when `incoming` is written over `existing` (two tabs may hold copies of one session):
+ * - 'stopped' is final: once stored, a 'running' copy can never bring the session back, and its replay bound
+ *   (lastBarTime) and stop details never change;
+ * - a stop written over 'running' wins, with the stopping tab's lastBarTime;
+ * - between two running copies the later lastBarTime (and its summary) wins: progress never moves back.
+ */
+export function mergeRecords(existing: LiveSessionRecord | null, incoming: LiveSessionRecord): LiveSessionRecord {
+  if (existing === null) return incoming;
+  if (existing.status === 'stopped') return existing;
+  if (incoming.status === 'stopped') return incoming;
+  const later = (incoming.lastBarTime ?? -Infinity) >= (existing.lastBarTime ?? -Infinity) ? incoming : existing;
+  const merged: LiveSessionRecord = { ...incoming, lastBarTime: later.lastBarTime };
+  if (later.summary) merged.summary = later.summary;
+  return merged;
+}

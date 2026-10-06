@@ -7,6 +7,7 @@ import { LiveWorkerClient } from '../live/client';
 import type { LiveEvent } from '../live/host';
 import type { HaltInfo, LiveStatus } from '../live/runner';
 import { MAX_WARMUP_BARS, newSessionRecord, type LiveSessionRecord, type StrategySnapshot } from '../live/session';
+import { browserLocks, claimSession, waitForSession, type SessionLock } from '../live/ownership';
 import { openSessionStore, type SessionStore } from '../live/store';
 import { compilePine } from '../pine/compile';
 import { pineIndicatorDef } from '../pine/library';
@@ -69,6 +70,10 @@ const STOP_TIMEOUT_MS = 3000;
  * Live mode: starts, resumes, views, stops and deletes paper-trading sessions. One session runs at a time (its
  * worker keeps going in Backtest mode too); one more can be viewed read-only (a stopped session replayed in
  * its own worker).
+ *
+ * Several tabs: a running session is run by ONE tab, the holder of its Web Lock. Other tabs show it read-only
+ * ("running in another tab") and take it over if that tab closes. Writes merge in the store (a stop is final),
+ * and tabs tell each other about changes on a BroadcastChannel.
  */
 export class LiveMode {
   private store: SessionStore | null = null;
@@ -79,6 +84,12 @@ export class LiveMode {
   private renderQueued = false;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly panel: LivePanel;
+  private readonly locks = browserLocks();
+  /** Sessions this tab runs, with their lock ('unsupported' = no Web Locks: merge-on-write only). */
+  private readonly owned = new Map<string, SessionLock | 'unsupported'>();
+  /** Sessions another tab runs that this tab will take over when that tab lets go. */
+  private readonly takeovers = new Map<string, () => void>();
+  private readonly channel: BroadcastChannel | null = typeof BroadcastChannel === 'function' ? new BroadcastChannel('quant-sim-live') : null;
 
   constructor(container: HTMLElement, private readonly deps: LiveModeDeps) {
     this.panel = createLivePanel(container, {
@@ -92,6 +103,9 @@ export class LiveMode {
       if (document.visibilityState === 'visible') resync();
     });
     window.addEventListener('online', resync);
+    this.channel?.addEventListener('message', (ev: MessageEvent<{ id?: unknown }>) => {
+      if (typeof ev.data?.id === 'string') void this.onRemoteChange(ev.data.id);
+    });
   }
 
   /** Opens the store and resumes a session left running. Returns whether one was resumed. */
@@ -113,11 +127,116 @@ export class LiveMode {
     }
     this.renderList();
     if (running.length > 0) {
-      this.openView(running[0], 'live');
-      this.deps.setStatus(`Resumed live session "${running[0].name}": replaying its bars from ${running[0].symbol} history, then following the live stream.`);
+      await this.resume(running[0]);
       return true;
     }
     return false;
+  }
+
+  /** Runs a 'running' session here unless another tab does; then it is shown read-only and taken over later. */
+  private async resume(record: LiveSessionRecord): Promise<void> {
+    const claim = this.running && this.running.record.id !== record.id ? null : await claimSession(this.locks, record.id);
+    if (claim !== null) {
+      this.owned.set(record.id, claim);
+      this.openView(record, 'live');
+      this.deps.setStatus(`Resumed live session "${record.name}": replaying its bars from ${record.symbol} history, then following the live stream.`);
+      return;
+    }
+    this.openView(record, 'replay'); // read-only, up to its last saved bar
+    this.deps.setStatus(`Live session "${record.name}" is running in another tab; it is shown read-only here.`);
+    if (!this.takeovers.has(record.id)) {
+      this.takeovers.set(record.id, waitForSession(this.locks, record.id, (lock) => void this.takeOver(record.id, lock)));
+    }
+  }
+
+  /** The tab that ran session `id` let go (closed, or stopped it): run it here if it is still running. */
+  private async takeOver(id: string, lock: SessionLock): Promise<void> {
+    this.takeovers.delete(id);
+    let fresh: LiveSessionRecord | null = null;
+    try {
+      fresh = (await this.store?.get(id)) ?? null;
+    } catch {
+      fresh = null;
+    }
+    if (!fresh || fresh.status !== 'running' || this.running) {
+      lock.release();
+      if (fresh) this.adoptRemote(fresh);
+      else this.dropRemote(id);
+      return;
+    }
+    this.owned.set(id, lock);
+    const local = this.adoptRemote(fresh);
+    if (this.viewed?.record.id === id) {
+      this.viewed.client?.terminate();
+      this.viewed.client = null;
+    }
+    this.openView(local, 'live');
+    this.deps.setStatus(`Live session "${local.name}" was running in a tab that closed; it runs in this tab now.`);
+  }
+
+  private releaseOwnership(id: string): void {
+    const owned = this.owned.get(id);
+    if (owned && owned !== 'unsupported') owned.release();
+    this.owned.delete(id);
+  }
+
+  private announce(id: string): void {
+    this.channel?.postMessage({ type: 'changed', id });
+  }
+
+  /** Another tab changed session `id` in the store. */
+  private async onRemoteChange(id: string): Promise<void> {
+    let fresh: LiveSessionRecord | null;
+    try {
+      fresh = (await this.store?.get(id)) ?? null;
+    } catch {
+      return;
+    }
+    if (fresh === null) this.dropRemote(id);
+    else this.adoptRemote(fresh);
+  }
+
+  /**
+   * Brings a stored record into this tab. A stop made elsewhere halts the session if this tab runs it (its final
+   * write merges into the stored stop, which keeps the stop's last bar).
+   */
+  private adoptRemote(fresh: LiveSessionRecord): LiveSessionRecord {
+    let local = this.sessions.find((s) => s.id === fresh.id);
+    if (!local) {
+      local = fresh;
+      this.sessions.push(fresh);
+      this.sessions.sort((a, b) => b.createdAt - a.createdAt);
+    } else if (this.running?.record === local) {
+      if (fresh.status === 'stopped' && !this.running.halt) {
+        Object.assign(local, fresh);
+        this.running.client?.stop();
+      }
+    } else {
+      Object.assign(local, fresh);
+    }
+    this.renderList();
+    if (this.viewed?.record === local) this.updateBadge();
+    return local;
+  }
+
+  /** Session `id` was deleted in another tab. */
+  private dropRemote(id: string): void {
+    for (const view of [this.running, this.viewed]) {
+      if (view?.record.id === id) {
+        view.client?.terminate();
+        view.client = null;
+      }
+    }
+    if (this.running?.record.id === id) this.running = null;
+    this.releaseOwnership(id);
+    this.takeovers.get(id)?.();
+    this.takeovers.delete(id);
+    this.sessions = this.sessions.filter((s) => s.id !== id);
+    if (this.viewed?.record.id === id) {
+      this.viewed = null;
+      if (this.active) this.fullRender();
+    }
+    this.renderList();
   }
 
   get hasRunning(): boolean {
@@ -158,11 +277,12 @@ export class LiveMode {
       const bars = Math.floor((now - startMs) / timeframeToMs(base.timeframe)) + warmupBars;
       if (bars > MAX_BARS) return this.deps.setStatus(`replay too long: ${bars} bars (max ${MAX_BARS}); pick a later start or a larger timeframe`, true);
     }
-    if (this.running) {
-      const name = this.running.record.name;
-      if (!this.deps.confirm(`"${name}" is running. Only one live session can run at a time.\n\nStop it and start the new session?`)) return;
+    const other = this.running?.record ?? this.sessions.find((s) => s.status === 'running');
+    if (other) {
+      const where = this.running ? '' : ' in another tab';
+      if (!this.deps.confirm(`"${other.name}" is running${where}. Only one live session can run at a time.\n\nStop it and start the new session?`)) return;
       this.panel.setBusy(true);
-      await this.stop(this.running.record.id);
+      await this.stop(other.id);
       this.panel.setBusy(false);
     }
     const record = newSessionRecord(
@@ -170,7 +290,9 @@ export class LiveMode {
       now,
     );
     this.sessions.unshift(record);
-    await this.persist(record);
+    this.owned.set(record.id, (await claimSession(this.locks, record.id)) ?? 'unsupported'); // a new id is free
+    await this.persist(record, true);
+    this.announce(record.id);
     this.openView(record, 'live');
     this.deps.setStatus(`Live session "${record.name}" started (${record.symbol} ${record.timeframe}). Paper trading: no real orders are sent.`);
   }
@@ -179,7 +301,8 @@ export class LiveMode {
     const record = this.sessions.find((s) => s.id === id);
     if (!record) return;
     if (this.running?.record.id === id) this.show(this.running);
-    else this.openView(record, record.status === 'running' ? 'live' : 'replay');
+    else if (record.status === 'running') void this.resume(record); // runs here only if no other tab runs it
+    else this.openView(record, 'replay');
   }
 
   /** Stops the running session `id`; resolves once it is finalised (worker confirmed, or timed out). */
@@ -188,10 +311,11 @@ export class LiveMode {
     if (!view || !view.client) {
       const record = this.sessions.find((s) => s.id === id);
       if (record && record.status === 'running') {
+        // Run by another tab (or nobody): record the stop; the running tab obeys when it hears about it.
         record.status = 'stopped';
         record.stoppedAt = this.deps.now();
-        void this.persist(record);
         this.renderList();
+        return this.persist(record).then(() => this.announce(id));
       }
       return Promise.resolve();
     }
@@ -219,11 +343,15 @@ export class LiveMode {
       if (this.active) this.fullRender();
     }
     this.sessions = this.sessions.filter((s) => s.id !== id);
+    this.takeovers.get(id)?.();
+    this.takeovers.delete(id);
     try {
       await this.store?.delete(id);
     } catch (err) {
       this.panel.setNotice(`Could not delete the saved session: ${err instanceof Error ? err.message : String(err)}`);
     }
+    this.releaseOwnership(id);
+    this.announce(id);
     this.renderList();
   }
 
@@ -316,7 +444,11 @@ export class LiveMode {
       } else if (halt.reason === 'wiped') {
         record.stopReason = 'wiped';
       }
-      void this.persist(record);
+      // Release the lock only after the stop is stored, so a waiting tab never takes over a stopped session.
+      void this.persist(record).then(() => {
+        this.releaseOwnership(record.id);
+        this.announce(record.id);
+      });
       if (this.running === view) this.running = null;
       if (halt.reason === 'error') {
         if (halt.blockId) this.deps.highlightBlock(halt.blockId, halt.message ?? 'error');
@@ -326,6 +458,11 @@ export class LiveMode {
       } else {
         this.deps.setStatus(`Live session "${record.name}" stopped. It is read-only history now (View replays it).`);
       }
+    } else if (view.mode === 'live') {
+      // Stopped in another tab: the stored stop (and its last bar) stands.
+      this.releaseOwnership(record.id);
+      if (this.running === view) this.running = null;
+      this.deps.setStatus(`Live session "${record.name}" was stopped in another tab.`);
     } else if (halt.reason === 'error' && view === this.viewed) {
       this.deps.setStatus(`Session "${record.name}" stopped with an error: ${halt.message}`, true);
     }
@@ -458,28 +595,42 @@ export class LiveMode {
     }
     const status: LiveStatus = view.status ?? { state: view.mode === 'live' ? 'connecting' : 'catching-up', lastBarTime: null, barsProcessed: 0, behindBars: 0 };
     const replay = view.mode === 'replay' || view.halt !== null;
-    const badge = liveBadge(view.halt && view.halt.reason !== 'complete' ? { ...status, state: 'stopped' } : status, replay);
+    let badge = liveBadge(view.halt && view.halt.reason !== 'complete' ? { ...status, state: 'stopped' } : status, replay);
+    if (view.mode === 'replay' && view.record.status === 'running' && view.halt) {
+      badge = { ...badge, text: 'RUNNING IN ANOTHER TAB · read-only (up to its last saved bar)', tone: 'busy' };
+    }
     this.panel.setBadge({ ...badge, detail: `${view.record.name} · ${view.record.symbol} ${view.record.timeframe} · ${badge.detail}` });
     const showMark = view.mode === 'live' && !view.halt && view.markEquity !== null && status.state === 'live';
     this.panel.setMark(showMark ? `Mark equity ${fmtNum(view.markEquity!)} (live price; stats use closed bars)` : null);
   }
 
   private renderList(): void {
-    this.panel.setSessions(this.sessions.map(sessionRow), this.viewed?.record.id ?? null);
+    const here = this.running?.record.id;
+    this.panel.setSessions(this.sessions.map((r) => sessionRow(r, r.status === 'running' && r.id !== here)), this.viewed?.record.id ?? null);
   }
 
   private schedulePersist(): void {
     if (this.persistTimer !== null) return;
     this.persistTimer = setTimeout(() => {
       this.persistTimer = null;
-      if (this.running) void this.persist(this.running.record);
+      if (this.running) {
+        const id = this.running.record.id;
+        void this.persist(this.running.record).then(() => this.announce(id));
+      }
       this.renderList();
     }, PERSIST_EVERY_MS);
   }
 
-  private async persist(record: LiveSessionRecord): Promise<void> {
+  /**
+   * Saves `record` (merge-on-write). Updates never recreate a session deleted elsewhere, and a stop stored by
+   * another tab comes back here and halts this tab's run.
+   */
+  private async persist(record: LiveSessionRecord, create = false): Promise<void> {
     try {
-      await this.store?.put(record);
+      if (!this.store) return;
+      const stored = await this.store.put(record, { onlyIfExists: !create });
+      if (stored === null) this.dropRemote(record.id);
+      else if (stored.status !== record.status) this.adoptRemote(stored);
     } catch (err) {
       this.panel.setNotice(`Could not save the session (${err instanceof Error ? err.message : String(err)}); it will not survive a reload.`);
     }

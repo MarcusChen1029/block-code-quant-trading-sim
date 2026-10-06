@@ -56,9 +56,10 @@ export interface SessionRow {
   running: boolean;
 }
 
-export function sessionRow(r: LiveSessionRecord): SessionRow {
+/** `elsewhere`: the session is running in another tab. */
+export function sessionRow(r: LiveSessionRecord, elsewhere = false): SessionRow {
   const s = r.summary;
-  const status = r.status === 'running' ? 'running' : r.stopReason === 'error' ? 'stopped: error' : r.stopReason === 'wiped' ? 'stopped: wiped' : 'stopped';
+  const status = r.status === 'running' ? (elsewhere ? 'running · other tab' : 'running') : r.stopReason === 'error' ? 'stopped: error' : r.stopReason === 'wiped' ? 'stopped: wiped' : 'stopped';
   return {
     id: r.id,
     name: r.name,
