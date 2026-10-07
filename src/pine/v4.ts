@@ -195,7 +195,8 @@ class V4Normalizer {
 
   /** v4 plot(): re-bound by v4 position; `transp` (visual only) is dropped. */
   private plot(e: CallExpr): Expr {
-    const bound = bindArgs('plot', PLOT_SIG_V4, e.args, pos(e), this.errors);
+    // A missing series is reported by the shared analysis of the rebuilt call (once), not here as well.
+    const bound = bindArgs('plot', { ...PLOT_SIG_V4, required: 0 }, e.args, pos(e), this.errors);
     return { ...e, args: named(PLOT_SIG_V4.params, bound, new Set(['transp'])) };
   }
 

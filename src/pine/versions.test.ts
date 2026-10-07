@@ -104,6 +104,17 @@ describe('unsupported v4 features are explicit errors with line:col', () => {
     expect(first4('x = 0\nswitch\n    close > open => x := 1\nplot(close)')).toEqual(at(4, 1, '"switch" is not supported in v1 (use if / else if)'));
   });
 
+  it('a missing required argument in v4 plot() / study() / input() is reported once', () => {
+    const once = (source: string, line: number, col: number, message: string) => {
+      const errors = compileErrors(source);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({ line, col, message });
+    };
+    once(v4('plot(title="y")'), 3, 1, 'plot() needs the "series" argument (series)');
+    once('//@version=4\nstudy(overlay=true)\nplot(close)\n', 2, 1, 'study() needs the "title" argument (title)');
+    once(v4('n = input(title="N")\nplot(close)'), 3, 5, 'input() needs the "defval" argument (defval)');
+  });
+
   it('a misplaced v4 input() names input(), and v4 inputs stay constant', () => {
     expect(first4('x = sma(close, input(3))\nplot(x)')).toEqual(at(3, 16, /^input\(\) must be assigned to a variable at the top level/));
     expect(first4('n = input(3, type=input.integer)\nn := 4\nplot(close)')).toEqual(at(4, 1, '"n" is an input and cannot be changed'));
