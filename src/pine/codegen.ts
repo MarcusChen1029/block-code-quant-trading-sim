@@ -567,7 +567,7 @@ class Codegen {
       if (fn) return this.userCall(e, fn);
       if (name === 'iff' && this.dialect.iff) {
         // v4 iff() is a function: both branches are evaluated on every bar (unlike ?:).
-        const args = bindArgs('iff', IFF_SIG, e.args, e, this.errors).map((a) => (a ? this.scalar(a) : 'NaN'));
+        const args = bindArgs('iff', IFF_SIG, e.args, { line: e.line, col: e.col }, this.errors).map((a) => (a ? this.scalar(a) : 'NaN'));
         return one(`rt.iff(${args.join(', ')})`);
       }
       if (this.lookup(name)) this.error(e, `"${name}" is a variable, not a function`);

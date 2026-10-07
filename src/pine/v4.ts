@@ -168,7 +168,7 @@ class V4Normalizer {
 
   /** study(...) -> indicator(...) with named arguments. */
   private study(e: CallExpr): Expr {
-    const bound = bindArgs('study', STUDY_SIG, e.args, e, this.errors);
+    const bound = bindArgs('study', STUDY_SIG, e.args, pos(e), this.errors);
     const resolution = STUDY_SIG.params.indexOf('resolution');
     for (const i of [resolution, resolution + 1]) {
       const a = bound[i];
@@ -181,14 +181,14 @@ class V4Normalizer {
 
   /** v4 plot(): re-bound by v4 position; `transp` (visual only) is dropped. */
   private plot(e: CallExpr): Expr {
-    const bound = bindArgs('plot', PLOT_SIG_V4, e.args, e, this.errors);
+    const bound = bindArgs('plot', PLOT_SIG_V4, e.args, pos(e), this.errors);
     return { ...e, args: named(PLOT_SIG_V4.params, bound, new Set(['transp'])) };
   }
 
   /** `x = input(defval, title, type=input.integer, …)` -> `x = input.int(defval, title, …)`. */
   private input(e: CallExpr): Expr {
     const issues: Issue[] = [];
-    const bound = bindArgs('input', INPUT_SIG_V4, e.args, e, issues);
+    const bound = bindArgs('input', INPUT_SIG_V4, e.args, pos(e), issues);
     this.errors.push(...issues);
     const [defval, , typeArg] = bound;
     if (!defval || issues.length > 0) return ident('na', e);
