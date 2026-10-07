@@ -10,7 +10,7 @@ export interface Benchmark {
   finalEquity: number;
   returnPct: number;
   maxDrawdownPct: number;
-  /** Entry fill price: the first bar's open plus slippage. */
+  /** Entry fill price: the second bar's open (the first a strategy could fill at) plus slippage. */
   entryPrice: number;
   qty: number;
   entryFee: number;
@@ -18,24 +18,25 @@ export interface Benchmark {
 
 /** Plain-language definition, shown as a tooltip wherever the benchmark appears. */
 export const BENCHMARK_DEFINITION =
-  'Buy & hold: one 1x long bought at the first bar\'s open with the same starting balance (taker fee and slippage ' +
-  'on entry), held to the last close, no exit fee.';
+  "Buy & hold: one 1x long with the same starting balance, entered at the first bar a strategy could trade (the next " +
+  "bar's open, with taker fee and slippage), held to the last close, no exit fee.";
 
 /**
- * Buy & hold with the backtest's starting balance: a 1x long entered at the first bar's open with the taker fee
- * and slippage on entry, all-in (notional + entry fee = starting balance), held to the last close with no exit fee.
- * Equity at each close = qty x close. Leverage and maker fee do not apply. Null when there are no bars or the
- * first open is not a positive price. Pure and deterministic.
+ * Buy & hold with the backtest's starting balance: a 1x long entered at the first bar a strategy could trade, i.e.
+ * the open of the SECOND bar (an order placed on bar 0's close fills there), with the taker fee and slippage on
+ * entry, all-in (notional + entry fee = starting balance), held to the last close with no exit fee. The curve has
+ * one point per bar like the strategy's: flat at the starting balance on bar 0, then qty x close. Leverage and maker
+ * fee do not apply. Null with fewer than 2 bars (nothing could be traded) or a non-positive entry open. Pure.
  */
 export function buyAndHold(candles: readonly Candle[], broker: BrokerConfig): Benchmark | null {
-  if (candles.length === 0) return null;
+  if (candles.length < 2) return null;
   const initialEquity = broker.initialBalance;
-  const entryPrice = candles[0].open * (1 + broker.slippageBps / 10_000);
+  const entryPrice = candles[1].open * (1 + broker.slippageBps / 10_000);
   if (!(entryPrice > 0) || !(initialEquity > 0)) return null;
   const qty = initialEquity / (entryPrice * (1 + broker.takerFee));
   const entryFee = qty * entryPrice * broker.takerFee;
 
-  const equityCurve: EquityPoint[] = candles.map((c) => ({ time: c.time, equity: qty * c.close }));
+  const equityCurve: EquityPoint[] = candles.map((c, i) => ({ time: c.time, equity: i === 0 ? initialEquity : qty * c.close }));
   let peak = initialEquity;
   let maxDd = 0;
   for (const p of equityCurve) {

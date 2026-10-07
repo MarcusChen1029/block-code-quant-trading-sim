@@ -86,6 +86,23 @@ describe('starter strategies', () => {
     expect(r.activity.orderRequests).toBe(1);
   });
 
+  it('the Buy & hold starter matches the buy & hold benchmark (same entry bar, fee and slippage)', async () => {
+    const { buildVerdict } = await import('../ui/verdict');
+    for (const candles of [FIXED, SWINGS, walkCandles(500, 3, 0.001, 0.02)]) {
+      const r = runBacktest(candles, createBlockStrategy(getStarter('buyHold')!.build()), CONFIG);
+      const b = r.benchmark!;
+      expect(r.stats.finalEquity).toBeCloseTo(b.finalEquity, 6);
+      expect(r.stats.maxDrawdownPct).toBeCloseTo(b.maxDrawdownPct, 8);
+      expect(r.equityCurve.map((p) => p.time)).toEqual(b.equityCurve.map((p) => p.time));
+      const v = buildVerdict({
+        tradeCount: r.trades.length, openPosition: true, fillCount: r.fills.length, totalReturnPct: r.stats.totalReturnPct,
+        maxDrawdownPct: r.stats.maxDrawdownPct, wiped: false, barsProcessed: r.barsProcessed, barsLoaded: candles.length,
+        benchmark: { returnPct: b.returnPct, maxDrawdownPct: b.maxDrawdownPct }, activity: r.activity, warmup: null,
+      });
+      expect(v.text).toMatch(/your strategy matched it\.$/);
+    }
+  });
+
   it('the SMA starter is the default workspace (fresh users get the same strategy)', async () => {
     const { defaultWorkspace } = await import('./defaultWorkspace');
     expect(getStarter('smaCross')!.build()).toEqual(defaultWorkspace());
