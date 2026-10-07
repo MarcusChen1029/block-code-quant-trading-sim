@@ -50,7 +50,8 @@ export interface SignalSite {
   names: string[];
   /** Used when `names` is empty. */
   fallback: string;
-  marker: SignalMarkerSpec;
+  /** undefined = a hidden signal (display.none, show_last=0, fully transparent): a block output, no chart marker. */
+  marker: SignalMarkerSpec | undefined;
   /** label.new sites with the same text are one signal (fires if any of them runs). */
   mergeKey?: string;
 }
@@ -144,6 +145,18 @@ export function staticColor(e: Expr | undefined, version: PineVersion): string |
 
 const LINE_BREAKS = new RegExp(`[\r\n\t${String.fromCharCode(0x2028, 0x2029)}]+`, "g");
 
+/** A colour that is fully transparent: #RRGGBB00, or color.new / color.rgb with a literal transp >= 100. */
+export function isTransparent(e: Expr | undefined): boolean {
+  if (!e) return false;
+  if (e.k === 'color') return /^#[0-9a-fA-F]{6}00$/.test(e.value);
+  if (e.k !== 'call') return false;
+  const name = dottedName(e.callee);
+  const positional = e.args.filter((a) => a.name === undefined).map((a) => a.value);
+  const transp = e.args.find((a) => a.name === 'transp')?.value ?? (name === 'color.new' ? positional[1] : name === 'color.rgb' ? positional[3] : undefined);
+  const t = literalNumber(transp);
+  return (name === 'color.new' || name === 'color.rgb') && t !== null && t >= 100;
+}
+
 /** Display text: one line, trimmed, at most MAX_SIGNAL_NAME characters. */
 export function cleanName(text: string): string {
   return text.replace(LINE_BREAKS, ' ').trim().slice(0, MAX_SIGNAL_NAME).trim();
@@ -194,6 +207,8 @@ function withDefaults(spec: Partial<SignalMarkerSpec>, name: string, neutral: Si
 function plotLike(kind: 'plotshape' | 'plotchar', call: CallExpr, r: Reader): SignalSite {
   const bound = bindArgs(kind, kind === 'plotshape' ? PLOTSHAPE_SIG : PLOTCHAR_SIG, call.args, call, r.errors);
   const [series, titleArg, styleOrChar, locArg, colorArg, offset, textArg] = bound;
+  const hidden = dottedName(bound[11] ?? { k: 'num', value: 0, line: 0, col: 0 }) === 'display.none' ||
+    literalNumber(bound[10]) === 0 || isTransparent(colorArg);
   checkOffset(kind, offset, r);
   const title = literal(titleArg, `${kind} title`, r);
   const text = literal(textArg, `${kind} text`, r);
@@ -221,7 +236,7 @@ function plotLike(kind: 'plotshape' | 'plotchar', call: CallExpr, r: Reader): Si
   const neutral: SignalMarkerSpec = { shape: 'circle', location: 'aboveBar', color: '#2962ff' };
   return {
     kind, call, value: series, mode: spec.location === 'price' ? 'absolute' : 'cond', names,
-    fallback: `Signal ${r.ordinal}`, marker: withDefaults(spec, name, neutral),
+    fallback: `Signal ${r.ordinal}`, marker: hidden ? undefined : withDefaults(spec, name, neutral),
   };
 }
 

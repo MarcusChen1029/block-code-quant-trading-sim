@@ -57,7 +57,8 @@ export function blockIndicatorOverlays(
     for (let n = 2; seenIds.has(id); n++) id = `block-${g.key}#${n}`;
     seenIds.add(id);
     const signals: OverlaySignal[] = (def.signals ?? [])
-      .filter((s) => g.signals.includes(s.key))
+      // A signal without a marker is hidden in its script (display.none / transparent): usable, never drawn.
+      .filter((s) => g.signals.includes(s.key) && s.marker !== undefined)
       .map((s) => ({
         key: s.key,
         label: `${label}: ${s.label}`,

@@ -164,7 +164,14 @@ class V4Normalizer {
       if (name === 'plotshape' || name === 'plotchar') {
         // v4 order has transp after color: re-bind by v4 position, drop transp (visual only), keep named v5 args.
         const s = name === 'plotshape' ? PLOTSHAPE_SIG_V4 : PLOTCHAR_SIG_V4;
-        return { ...e, args: named(s.params, bindArgs(name, s, e.args, pos(e), this.errors), new Set(['transp'])) };
+        const bound = bindArgs(name, s, e.args, pos(e), this.errors);
+        const args = named(s.params, bound, new Set(['transp']));
+        // transp=100 is fully transparent: the signal stays an output but is not drawn (as display=display.none).
+        const transp = literalNumber(bound[s.params.indexOf('transp')]);
+        if (transp !== null && transp >= 100 && !bound[s.params.indexOf('display')]) {
+          args.push({ name: 'display', value: dotted('display', 'none', e), ...pos(e) });
+        }
+        return { ...e, args };
       }
       if (V4_TA_FUNCTIONS.has(name)) return { ...e, callee: dotted('ta', name, e.callee) };
       if (V4_MATH_FUNCTIONS.has(name)) return { ...e, callee: dotted('math', name, e.callee) };

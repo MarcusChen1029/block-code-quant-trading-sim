@@ -27,7 +27,8 @@ export interface PlotInfo {
 export interface SignalInfo {
   /** Unique display name. */
   title: string;
-  marker: SignalMarkerSpec;
+  /** undefined = hidden (no chart marker). */
+  marker: SignalMarkerSpec | undefined;
   sites: SignalSite[];
 }
 

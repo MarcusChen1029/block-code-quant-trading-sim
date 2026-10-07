@@ -45,7 +45,8 @@ export interface PineSignal {
   /** Output key (lowercase identifier, unique among plot and signal keys). */
   key: string;
   title: string;
-  marker: SignalMarkerSpec;
+  /** Absent = hidden in the script (display.none, show_last=0, transparent): still an output, never drawn. */
+  marker?: SignalMarkerSpec;
 }
 
 /** One running copy of a script: `step` is called exactly once per closed bar, in bar order. */
@@ -172,7 +173,7 @@ function compileUnguarded(source: string): PineCompileResult {
   // appended later in the script (a new plot or a same-titled signal) never changes an existing key.
   const keys = new Set<string>();
   const plots: PinePlot[] = analysis.plots.map((p) => ({ key: '', title: p.title }));
-  const signals: PineSignal[] = analysis.signals.map((sg) => ({ key: '', title: sg.title, marker: sg.marker }));
+  const signals: PineSignal[] = analysis.signals.map((sg) => ({ key: '', title: sg.title, ...(sg.marker ? { marker: sg.marker } : {}) }));
   const byPositionOf = (at: { line: number; col: number }) => at.line * 1e6 + at.col;
   const slots = [
     ...analysis.plots.map((p, i) => ({ at: byPositionOf(p.call), assign: () => { plots[i].key = slugIdentifier(p.title, `plot${i + 1}`, keys); } })),

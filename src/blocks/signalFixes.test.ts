@@ -9,6 +9,7 @@ import { defineBlocks } from './definitions';
 import { getIndicator } from './registry';
 import { indicator, log, signal, workspace } from './testing';
 import { fixupIndicatorBlocks } from './workspaceFixup';
+import { blockIndicatorOverlays, defaultIndicatorUse } from '../ui/blockOverlays';
 
 /** Regression tests for review findings on the signals feature (one describe per finding). */
 
@@ -75,6 +76,19 @@ describe('finding 2: a renamed / removed signal or output never silently rewires
 const CANDLES = syntheticCandles(600).map((c, i) => ({ ...c, close: c.close + (i % 11) * 0.4 - 2 }));
 const crossUp = (a: number[], b: number[]) => a.map((v, i) => (i > 0 && a[i - 1] <= b[i - 1] && v > b[i] ? 1 : 0));
 const crossDown = (a: number[], b: number[]) => a.map((v, i) => (i > 0 && a[i - 1] >= b[i - 1] && v < b[i] ? 1 : 0));
+
+describe('finding 4: a hidden Pine signal still works as a block but draws no marker', () => {
+  afterEach(() => syncPineIndicators([]));
+
+  it('the registry signal has no marker; the chart overlay skips it; its sig_ block compiles', () => {
+    syncPineIndicators([{ id: 'pine_h', source: '//@version=5\nindicator("H")\nplotshape(close > open, "Shown")\nplotshape(close < open, "Hidden", display=display.none)\n' }]);
+    const def = getIndicator('pine_h')!;
+    expect(def.signals!.map((s) => [s.key, s.marker === undefined])).toEqual([['shown', false], ['hidden', true]]);
+    const overlays = blockIndicatorOverlays([defaultIndicatorUse(def)]);
+    expect(overlays[0].signals!.map((s) => s.key)).toEqual(['shown']);
+    expect(compileBlocks(workspace({ onBar: [log(signal('pine_h', 'hidden', {}, null))] })).ok).toBe(true);
+  });
+});
 
 describe('finding 6: Bollinger breakouts are described and coloured neutrally (not as buy / sell)', () => {
   it('labels describe the event; markers are neutral triangles (up above the bar, down below it)', () => {

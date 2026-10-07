@@ -109,7 +109,7 @@ export function pineIndicatorDef(id: string, script: PineScript): IndicatorBlock
       ...(input.kind !== 'float' ? { integer: true } : {}),
     })),
     outputs: script.plots.map((p) => ({ key: p.key, label: p.title })),
-    ...(script.signals.length > 0 ? { signals: script.signals.map((s) => ({ key: s.key, label: s.title, marker: { ...s.marker } })) } : {}),
+    ...(script.signals.length > 0 ? { signals: script.signals.map((s) => ({ key: s.key, label: s.title, ...(s.marker ? { marker: { ...s.marker } } : {}) })) } : {}),
     create(params) {
       const instance = script.create(params);
       return {

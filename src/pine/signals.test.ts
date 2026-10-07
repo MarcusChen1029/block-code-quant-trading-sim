@@ -147,7 +147,7 @@ plot(close)
     const inst = s.create();
     inst.step(undefined, CANDLES[0]);
     expect(inst.markerPrice('at_high')).toBe(CANDLES[0].high);
-    expect(s.signals[2].marker.location).toBe('price');
+    expect(s.signals[2].marker?.location).toBe('price');
   });
 
   it('a signal in a loop ORs over iterations; two label.new with the same text are ONE signal', () => {

@@ -10,6 +10,42 @@ const errorsOf = (s: string) => {
   return r.ok ? [] : r.errors;
 };
 
+describe('finding 4: hidden signals (display.none, show_last=0, fully transparent) are signals without a marker', () => {
+  const signalsOf = (s: string) => {
+    const r = compilePine(s);
+    if (!r.ok) throw new Error(r.errors[0].message);
+    return r.script;
+  };
+
+  it('v5/v6: display=display.none, show_last=0, color.new(c, 100), color.rgb(..., 100) and #RRGGBB00 hide the marker', () => {
+    for (const v of [5, 6] as const) {
+      const s = signalsOf(src(v, [
+        'plotshape(close > open, "A", display=display.none)',
+        'plotshape(close > open, "B", show_last=0)',
+        'plotshape(close > open, "C", color=color.new(color.red, 100))',
+        'plotchar(close > open, "D", color=color.rgb(1, 2, 3, 100))',
+        'plotshape(close > open, "E", color=#FF000000)',
+        'plotshape(close > open, "F", color=color.new(color.red, 50), display=display.all)',
+      ].join('\n')));
+      expect(s.signals.map((x) => [x.title, x.marker === undefined])).toEqual([
+        ['A', true], ['B', true], ['C', true], ['D', true], ['E', true], ['F', false],
+      ]);
+    }
+  });
+
+  it('v4: transp=100 (named or positional) hides the marker; transp=50 does not; the signal still fires', () => {
+    const s = signalsOf(src(4, [
+      'plotshape(close > open, "A", transp=100)',
+      'plotshape(close > open, "B", shape.circle, location.abovebar, color.green, 100)',
+      'plotshape(close > open, "C", transp=50)',
+    ].join('\n')));
+    expect(s.signals.map((x) => [x.title, x.marker === undefined])).toEqual([['A', true], ['B', true], ['C', false]]);
+    const inst = s.create();
+    const bar = { time: 0, open: 1, high: 3, low: 0, close: 2, volume: 1 };
+    expect(inst.step(undefined, bar).a).toBe(1);
+  });
+});
+
 describe('finding 2: output / signal keys are stable', () => {
   const keys = (body: string) => {
     const r = compilePine(`//@version=5\nindicator("K")\n${body}\n`);
