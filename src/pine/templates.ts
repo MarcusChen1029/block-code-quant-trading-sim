@@ -99,10 +99,43 @@ plot(trend == 1 ? lower : na, "Up trend", color=color.green)
 plot(trend == -1 ? upper : na, "Down trend", color=color.red)
 `;
 
+/** Signals with plotshape(): each one is a true/false output (its own "sig" block) and is marked on the chart. */
+export const EMA_CROSS_SIGNALS_SOURCE = `//@version=5
+indicator("EMA cross signals", overlay=true)
+fastLength = input.int(9, "Fast length", minval=1, maxval=500)
+slowLength = input.int(21, "Slow length", minval=1, maxval=500)
+fast = ta.ema(close, fastLength)
+slow = ta.ema(close, slowLength)
+plot(fast, "Fast EMA", color=color.yellow)
+plot(slow, "Slow EMA", color=color.blue)
+plotshape(ta.crossover(fast, slow), "Buy", shape.triangleup, location.belowbar, color.green, text="Buy")
+plotshape(ta.crossunder(fast, slow), "Sell", shape.triangledown, location.abovebar, color.red, text="Sell")
+`;
+
+/** Signals with alertcondition() and label.new() inside if (a label marks its bar at the given price). */
+export const RSI_LEVELS_SOURCE = `//@version=5
+indicator("RSI levels", overlay=false)
+length = input.int(14, "RSI length", minval=1, maxval=500)
+overbought = input.int(70, "Overbought", minval=50, maxval=100)
+oversold = input.int(30, "Oversold", minval=0, maxval=50)
+r = ta.rsi(close, length)
+plot(r, "RSI", color=color.purple)
+leftOversold = ta.crossover(r, oversold)
+leftOverbought = ta.crossunder(r, overbought)
+alertcondition(leftOversold, "RSI left oversold", "RSI crossed above the oversold level")
+alertcondition(leftOverbought, "RSI left overbought", "RSI crossed below the overbought level")
+if leftOversold
+    label.new(bar_index, r, "Buy", style=label.style_label_up, color=color.green)
+if leftOverbought
+    label.new(bar_index, r, "Sell", style=label.style_label_down, color=color.red)
+`;
+
 export const PINE_TEMPLATES: readonly PineTemplate[] = [
   { id: 'blank', label: 'Blank (RSI)', source: BLANK_SOURCE },
   { id: 'double-ema', label: 'Double EMA', source: DOUBLE_EMA_SOURCE },
   { id: 'supertrend', label: 'Supertrend', source: SUPERTREND_SOURCE },
   { id: 'rsi-ma-v4', label: 'RSI + MA (Pine v4)', source: RSI_MA_V4_SOURCE },
   { id: 'supertrend-v6', label: 'Supertrend (Pine v6)', source: SUPERTREND_V6_SOURCE },
+  { id: 'ema-cross-signals', label: 'EMA cross buy/sell (signals)', source: EMA_CROSS_SIGNALS_SOURCE },
+  { id: 'rsi-levels', label: 'RSI levels (alerts + labels)', source: RSI_LEVELS_SOURCE },
 ];
