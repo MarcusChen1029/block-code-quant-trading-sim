@@ -18,7 +18,7 @@ export function createStarterPicker(
   const item = (label: string, description: string, onClick: () => void, cls = '') => {
     const b = h('button', { type: 'button', class: `starter-item ${cls}` }, h('span', { class: 'starter-label' }, label), h('span', { class: 'starter-desc' }, description));
     b.addEventListener('click', () => {
-      pop.close();
+      pop.close(true); // focus back on "Start from…", not <body>
       onClick();
     });
     return b;

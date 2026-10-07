@@ -6,7 +6,8 @@ export interface Popover {
   readonly panel: HTMLElement;
   setBadge(text: string): void;
   open(): void;
-  close(): void;
+  /** Closes it; `returnFocus` puts focus back on the trigger button (after choosing an item, like Escape does). */
+  close(returnFocus?: boolean): void;
   readonly isOpen: boolean;
 }
 
@@ -60,7 +61,8 @@ export function createPopover(label: string, title: string, panelLabel: string, 
       document.addEventListener('keydown', onKey);
       window.addEventListener('resize', place);
     },
-    close() {
+    close(returnFocus = false) {
+      if (returnFocus) button.focus();
       if (panel.hidden) return;
       panel.hidden = true;
       button.setAttribute('aria-expanded', 'false');
