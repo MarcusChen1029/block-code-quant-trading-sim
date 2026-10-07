@@ -1,5 +1,5 @@
 import { BT } from './blockTypes';
-import { indicatorBlockType } from './registry';
+import { indicatorBlockType, signalBlockType } from './registry';
 import type { BlockState, ConnectionState, VariableState, WorkspaceState } from './workspaceState';
 
 /** Test helpers that build Blockly-format workspace JSON by hand. */
@@ -21,6 +21,11 @@ export const value = (type: string): BlockState => ({ type, id: id(type) });
 
 export function indicator(ind: string, fields: Record<string, unknown>, source: BlockState | null = price()): BlockState {
   return { type: indicatorBlockType(ind), id: id(ind), fields, inputs: source ? { SOURCE: slot(source) } : {} };
+}
+
+/** A `sig_<ind>` block reading signal `key`. */
+export function signal(ind: string, key: string, fields: Record<string, unknown> = {}, source: BlockState | null = price()): BlockState {
+  return { type: signalBlockType(ind), id: id(`sig-${ind}`), fields: { SIGOUT: key, ...fields }, inputs: source ? { SOURCE: slot(source) } : {} };
 }
 
 export function log(message: BlockState, blockId = id('log')): BlockState {
