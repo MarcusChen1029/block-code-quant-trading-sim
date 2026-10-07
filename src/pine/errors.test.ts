@@ -122,6 +122,19 @@ describe('unsupported features are compile errors with line:col', () => {
     expect(firstError('x = (1 + 2\nplot(x)')).toEqual(at(3, 5, /"\(" is never closed|expected/));
   });
 
+  it('missing-argument errors are plain { line, col, message } objects (no AST nodes), in every version', () => {
+    const cases = [
+      script('plot(na())'), script('plot(nz())'), script('x = math.pow(2)\nplot(x)'), script('x = color.new()\nplot(close)'),
+      script('plot()'), script('x = input.int()\nplot(close)'), '//@version=5\nindicator()\nplot(close)\n',
+      '//@version=6\nindicator("x")\nplot(na())\n', '//@version=4\nstudy("x")\nplot(iff(true))\n', '//@version=4\nstudy("x")\nplot(title="y")\n',
+    ];
+    for (const source of cases) {
+      const errors = compileErrors(source);
+      expect(errors.length, source).toBeGreaterThan(0);
+      for (const e of errors) expect(Object.keys(e).sort(), source).toEqual(['col', 'line', 'message']);
+    }
+  });
+
   it('compilePine never throws, even on deeply nested input', () => {
     const deep = `//@version=5\nindicator("x")\nplot(${'('.repeat(5000)}1${')'.repeat(5000)})\n`;
     const result = compilePine(deep);

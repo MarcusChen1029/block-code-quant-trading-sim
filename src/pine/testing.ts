@@ -13,10 +13,18 @@ export function fixture(count = 400): Candle[] {
   });
 }
 
+/** Every diagnostic is a plain { line, col, message } (no AST nodes leak into errors or warnings). */
+export function expectPlainDiagnostics(result: PineCompileResult): void {
+  for (const d of [...(result.ok ? [] : result.errors), ...result.warnings]) {
+    expect(Object.keys(d).sort(), `${d.line}:${d.col} ${d.message}`).toEqual(['col', 'line', 'message']);
+  }
+}
+
 /** Compiles or fails the test with the errors. */
 export function compileOk(source: string): PineScript {
   const result = compilePine(source);
   if (!result.ok) throw new Error(`expected the script to compile:\n${result.errors.map((e) => `${e.line}:${e.col} ${e.message}`).join('\n')}`);
+  expectPlainDiagnostics(result);
   return result.script;
 }
 
@@ -24,6 +32,7 @@ export function compileOk(source: string): PineScript {
 export function compileErrors(source: string): PineDiagnostic[] {
   const result = compilePine(source);
   if (result.ok) throw new Error('expected compile errors');
+  expectPlainDiagnostics(result);
   return result.errors;
 }
 

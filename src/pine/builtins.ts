@@ -25,13 +25,14 @@ export interface Issue extends Pos {
 
 /**
  * Maps call arguments onto parameter names. Returns one entry per param (undefined = not given) or, for
- * variadic signatures, the positional values. Problems are pushed to `issues`.
+ * variadic signatures, the positional values. Problems are pushed to `issues` as plain { line, col, message }
+ * (`at` may be any node: only its position is copied).
  */
 export function bindArgs(name: string, s: Signature, args: Arg[], at: Pos, issues: Issue[]): (Expr | undefined)[] {
   if (s.variadic) {
     const named = args.find((a) => a.name !== undefined);
     if (named) issues.push({ ...pos(named), message: `${name}() does not take named arguments` });
-    if (args.length < s.required) issues.push({ ...at, message: `${name}() needs at least ${s.required} argument${s.required > 1 ? 's' : ''}` });
+    if (args.length < s.required) issues.push({ ...pos(at), message: `${name}() needs at least ${s.required} argument${s.required > 1 ? 's' : ''}` });
     return args.map((a) => a.value);
   }
   const out: (Expr | undefined)[] = s.params.map(() => undefined);
@@ -56,7 +57,7 @@ export function bindArgs(name: string, s: Signature, args: Arg[], at: Pos, issue
   }
   for (let i = 0; i < s.required; i++) {
     if (out[i] === undefined) {
-      issues.push({ ...at, message: `${name}() needs the "${s.params[i]}" argument (${s.params.slice(0, s.required).join(', ')})` });
+      issues.push({ ...pos(at), message: `${name}() needs the "${s.params[i]}" argument (${s.params.slice(0, s.required).join(', ')})` });
       break;
     }
   }
