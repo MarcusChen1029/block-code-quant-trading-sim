@@ -108,7 +108,8 @@ describe('unsupported features are compile errors with line:col', () => {
     expect(firstError('x = ta.sma(close, input.int(3))\nplot(x)')).toEqual(at(3, 19, /input\.int\(\) must be assigned to a variable at the top level/));
     expect(compileErrors('//@version=5\nplot(close)\n')[0]).toEqual(at(1, 1, 'the script must declare indicator("Title", overlay=true|false)'));
     expect(compileErrors('//@version=5\nindicator("x")\nx = 1\n')[0]).toEqual(at(1, 1, /has no plot\(\)/));
-    expect(compileErrors('//@version=4\nstudy("x")\nplot(close)\n')[0]).toEqual(at(1, 1, 'only //@version=5 is supported (found version 4)'));
+    // v4 and v6 are supported since 2026-10-07 (versions.test.ts); older and newer versions are still errors.
+    expect(compileErrors('//@version=3\nstudy("x")\nplot(close)\n')[0]).toEqual(at(1, 1, /^Pine v3 is too old/));
   });
 
   it('syntax errors report the first problem with its position', () => {

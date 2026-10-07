@@ -57,7 +57,7 @@ const isInputCall = (e: Expr): boolean => {
  * Static pass over the AST: indicator() header, inputs (block params) and plots (block outputs), plus
  * placement errors for indicator / input / plot calls that are not where v1 needs them.
  */
-export function analyze(program: Stmt[]): Analysis {
+export function analyze(program: Stmt[], headerName: 'indicator' | 'study' = 'indicator'): Analysis {
   const errors: Issue[] = [];
   const inputs: InputInfo[] = [];
   const plots: PlotInfo[] = [];
@@ -68,8 +68,8 @@ export function analyze(program: Stmt[]): Analysis {
   for (const s of program) {
     if (s.k === 'expr' && callName(s.expr) === 'indicator') {
       allowed.add(s.expr);
-      if (header) errors.push({ line: s.line, col: s.col, message: 'indicator() is declared twice' });
-      else header = readHeader(s.expr as CallExpr, errors);
+      if (header) errors.push({ line: s.line, col: s.col, message: `${headerName}() is declared twice` });
+      else header = readHeader(s.expr as CallExpr, errors, headerName);
     } else if (s.k === 'expr' && callName(s.expr) === 'plot') {
       allowed.add(s.expr);
       plots.push(readPlot(s.expr as CallExpr, plots.length, errors));
@@ -90,7 +90,7 @@ export function analyze(program: Stmt[]): Analysis {
         walkExpr(e, (x) => {
           if (x.k !== 'call' || allowed.has(x)) return;
           const name = dottedName(x.callee);
-          if (name === 'indicator') errors.push({ line: x.line, col: x.col, message: 'indicator() must be a statement of its own at the top level' });
+          if (name === 'indicator') errors.push({ line: x.line, col: x.col, message: `${headerName}() must be a statement of its own at the top level` });
           else if (name === 'plot') errors.push({ line: x.line, col: x.col, message: 'plot() must be at the top level of the script (not inside if / for / functions / expressions)' });
           else if (name !== null && INPUT_SIGS.has(name)) {
             errors.push({ line: x.line, col: x.col, message: `${name}() must be assigned to a variable at the top level, e.g. len = ${name}(14)` });
@@ -103,18 +103,20 @@ export function analyze(program: Stmt[]): Analysis {
   visitStmts(program);
 
   const otherHeader = program.some((s) => s.k === 'expr' && ['strategy', 'library'].includes(callName(s.expr) ?? ''));
-  if (!header && !otherHeader) {
-    errors.push({ line: 1, col: 1, message: 'the script must declare indicator("Title", overlay=true|false)' });
+  // A v4 study() in a v5/v6 script is reported where it is (see dialect.ts), not as a missing header.
+  const v4Header = headerName === 'indicator' && program.some((s) => s.k === 'expr' && callName(s.expr) === 'study');
+  if (!header && !otherHeader && !v4Header) {
+    errors.push({ line: 1, col: 1, message: `the script must declare ${headerName}("Title", overlay=true|false)` });
   }
   if (plots.length === 0 && !otherHeader) errors.push({ line: 1, col: 1, message: 'the script has no plot(): each plot becomes an output of the block' });
   return { header, inputs, plots, reassigned, errors };
 }
 
-function readHeader(call: CallExpr, errors: Issue[]): Header {
+function readHeader(call: CallExpr, errors: Issue[], headerName: string): Header {
   const [title, shortTitle, overlay, , , , , timeframe] = bindArgs('indicator', INDICATOR_SIG, call.args, call, errors);
   const header: Header = { title: 'Pine script', shortTitle: '', overlay: false };
   if (title?.k === 'str' && title.value.trim() !== '') header.title = title.value.trim();
-  else if (title) errors.push({ line: title.line, col: title.col, message: 'indicator() title must be a non-empty string literal' });
+  else if (title) errors.push({ line: title.line, col: title.col, message: `${headerName}() title must be a non-empty string literal` });
   if (shortTitle?.k === 'str') header.shortTitle = shortTitle.value;
   if (overlay) {
     if (overlay.k === 'bool') header.overlay = overlay.value;

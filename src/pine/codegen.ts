@@ -5,6 +5,7 @@ import {
   BUILTIN_SERIES, bindArgs, COLOR_FUNCTIONS, COLOR_NAMES, IGNORED_CALLS, INPUT_SIGS, isReservedName, type Issue, MATH_CONSTANTS,
   MATH_FUNCTIONS, NA_SIG, NAMESPACES, NZ_SIG, PLOT_SIG, TA_FUNCTIONS, UNSUPPORTED,
 } from './builtins';
+import { dialectFor, v4SpellingHint, type Dialect } from './dialect';
 import { MAX_HISTORY } from './runtime';
 
 /** How an input declaration is wired: a numeric/bool block param (`param` = index into P) or a series source. */
@@ -21,7 +22,13 @@ export interface CodegenInput {
   inputs: Map<Stmt, InputBinding>;
   plotIndex: Map<CallExpr, number>;
   reassigned: Set<string>;
+  /** Version-specific behaviour (default: Pine v5). */
+  dialect?: Dialect;
+  /** v6: `x[n]` expressions of bool type (history before the first bar is false, not na). */
+  boolHistory?: ReadonlySet<Expr>;
 }
+
+const IFF_SIG = { params: ['condition', 'then', 'else'], required: 3 } as const;
 
 export interface CodegenResult {
   /** Body of `new Function('rt', 'P', ...)`; returns `{ step() }`. */
@@ -99,8 +106,16 @@ class Codegen {
   private func: FuncSym | null = null;
   private cond = 0;
   private loop = 0;
+  private readonly dialect: Dialect;
 
-  constructor(private readonly input: CodegenInput) {}
+  constructor(private readonly input: CodegenInput) {
+    this.dialect = input.dialect ?? dialectFor(5);
+  }
+
+  /** In v5/v6, a friendlier message for a v4 spelling (v4 scripts were already normalised). */
+  private hint(name: string, called: boolean): string | undefined {
+    return this.dialect.version >= 5 ? v4SpellingHint(name, called) : undefined;
+  }
 
   run(): CodegenResult {
     const body = this.stmts(this.input.program);
@@ -323,7 +338,14 @@ class Codegen {
 
   private forLoop(s: Extract<Stmt, { k: 'for' }>): string {
     const from = this.scalar(s.from);
-    const to = this.scalar(s.to);
+    // A v6 bound runs once per iteration, so ta.* there is conditional code (it gets the usual warning).
+    if (this.dialect.dynamicForBound) this.cond++;
+    let to: string;
+    try {
+      to = this.scalar(s.to);
+    } finally {
+      if (this.dialect.dynamicForBound) this.cond--;
+    }
     const by = s.by ? this.scalar(s.by) : null;
     const fb = this.bounds(s.from);
     const tb = this.bounds(s.to);
@@ -335,6 +357,21 @@ class Codegen {
       return this.withScope(() => {
         const v = this.declare(s.name, s, { loopVar: true, bounds: { lo: Math.min(fb.lo, tb.lo), hi: Math.max(fb.hi, tb.hi) } });
         const body = this.stmts(s.body);
+        if (this.dialect.dynamicForBound) {
+          // v6: the `to` bound is evaluated again before every iteration; the direction is fixed by its first value.
+          const up = `k${this.id()}`;
+          return [
+            `{`,
+            `const ${a} = rt.num(${from});`,
+            `let ${b} = rt.num(${to});`,
+            `const ${st} = ${by === null ? '1' : `rt.forStep(${by}, ${s.line}, ${s.col})`}, ${up} = ${a} <= ${b};`,
+            `for (let ${v.js} = ${a}; ${up} ? ${v.js} <= ${b} : ${v.js} >= ${b}; ${v.js} += ${up} ? ${st} : -${st}, ${b} = rt.num(${to})) {`,
+            `rt.loop(${s.line}, ${s.col});`,
+            body,
+            `}`,
+            `}`,
+          ].join('\n');
+        }
         return [
           `{`,
           `const ${a} = rt.num(${from}), ${b} = rt.num(${to}), ${st} = ${by === null ? '1' : `rt.forStep(${by}, ${s.line}, ${s.col})`};`,
@@ -430,6 +467,15 @@ class Codegen {
       }
       case 'binary': {
         const a = this.scalar(e.left);
+        if ((e.op === 'and' || e.op === 'or') && this.dialect.lazyLogic) {
+          // v6: the right operand only runs when the left one does not decide (so ta.* there is conditional).
+          this.cond++;
+          try {
+            return one(`(!!(${a}) ${e.op === 'and' ? '&&' : '||'} !!(${this.scalar(e.right)}))`);
+          } finally {
+            this.cond--;
+          }
+        }
         const b = this.scalar(e.right);
         if (e.op === 'and' || e.op === 'or') return one(`rt.${e.op}(${a}, ${b})`);
         return one(`(${a} ${ARITHMETIC.get(e.op)} ${b})`);
@@ -463,7 +509,7 @@ class Codegen {
     if (this.funcs.has(e.name)) this.error(e, `"${e.name}" is a function: call it with ${e.name}(...)`);
     else if (UNSUPPORTED.has(e.name)) this.error(e, UNSUPPORTED.get(e.name)!);
     else if (NAMESPACES.has(e.name)) this.error(e, `"${e.name}" is a namespace: use ${e.name}.something`);
-    else this.error(e, `"${e.name}" is not declared`);
+    else this.error(e, this.hint(e.name, false) ?? `"${e.name}" is not declared`);
     return 'NaN';
   }
 
@@ -484,7 +530,7 @@ class Codegen {
     } else if (UNSUPPORTED.has(root)) {
       this.error(at, UNSUPPORTED.get(root)!);
     } else if (NAMESPACES.has(root)) {
-      this.error(at, called ? `unknown function ${name}()` : `unknown value ${name}`);
+      this.error(at, called ? `unknown function ${name}()` : this.hint(name, false) ?? `unknown value ${name}`);
     } else if (this.lookup(root) || BUILTIN_SERIES.has(root) || this.funcs.has(root) || root === 'na') {
       this.error(at, `member access (${name}) is not supported in v1`);
     } else {
@@ -519,8 +565,13 @@ class Codegen {
       }
       const fn = this.funcs.get(name);
       if (fn) return this.userCall(e, fn);
+      if (name === 'iff' && this.dialect.iff) {
+        // v4 iff() is a function: both branches are evaluated on every bar (unlike ?:).
+        const args = bindArgs('iff', IFF_SIG, e.args, e, this.errors).map((a) => (a ? this.scalar(a) : 'NaN'));
+        return one(`rt.iff(${args.join(', ')})`);
+      }
       if (this.lookup(name)) this.error(e, `"${name}" is a variable, not a function`);
-      else this.error(e, `unknown function "${name}"`);
+      else this.error(e, this.hint(name, true) ?? `unknown function "${name}"`);
       return one('NaN');
     }
     if (root === 'ta' && !member.includes('.')) {
@@ -613,6 +664,12 @@ class Codegen {
 
   /** `x[n]`: history of a built-in series or a top-level variable. */
   private history(e: Extract<Expr, { k: 'index' }>): string {
+    const code = this.historyValue(e);
+    // v6: a bool is never na, so a bool's history before its first bar reads as false.
+    return this.dialect.boolNeverNa && this.input.boolHistory?.has(e) ? `(${code} === true)` : code;
+  }
+
+  private historyValue(e: Extract<Expr, { k: 'index' }>): string {
     const offset = this.scalar(e.index);
     const b = this.bounds(e.index);
     const literal = e.index.k === 'num' ? e.index.value : null;

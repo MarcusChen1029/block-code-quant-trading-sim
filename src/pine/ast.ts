@@ -31,7 +31,7 @@ export interface Name extends Pos {
 }
 
 export type Stmt =
-  | (Pos & { k: 'decl'; name: string; mode: 'plain' | 'var'; init: Expr })
+  | (Pos & { k: 'decl'; name: string; mode: 'plain' | 'var'; init: Expr; /** Declared type (`float x = …`), if any. */ type?: string })
   | (Pos & { k: 'tupleDecl'; names: Name[]; init: Expr })
   | (Pos & { k: 'assign'; name: string; op: string; value: Expr })
   | (Pos & { k: 'if'; cond: Expr; then: Stmt[]; else: Stmt[] | null })

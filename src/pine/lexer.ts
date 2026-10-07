@@ -30,16 +30,6 @@ const isIdentStart = (c: string) => /[A-Za-z_]/.test(c);
 const isIdentPart = (c: string) => /[A-Za-z0-9_]/.test(c);
 const isDigit = (c: string) => c >= '0' && c <= '9';
 
-/** `//@version=N` from the source, or null when absent. */
-export function pineVersion(source: string): { version: number; line: number } | null {
-  const lines = source.split(/\r\n|\r|\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const m = /^\s*\/\/\s*@version\s*=\s*(\d+)/.exec(lines[i]);
-    if (m) return { version: Number(m[1]), line: i + 1 };
-  }
-  return null;
-}
-
 /**
  * Pine source -> tokens with Python-style NEWLINE / INDENT / DEDENT. Blocks are indented by multiples of 4
  * spaces (a tab counts as 4). A line indented by a non-multiple of 4 continues the previous line (Pine's

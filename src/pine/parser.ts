@@ -152,8 +152,10 @@ class Parser {
         case 'var':
         case 'varip': {
           this.next();
+          const typed = this.typePrefixLength();
+          const type = typed > 0 ? this.declaredType(typed) : undefined;
           const name = this.typedName();
-          return this.declaration(name, 'var', t);
+          return this.declaration(name, 'var', t, type);
         }
         default:
           break;
@@ -162,9 +164,10 @@ class Parser {
     if (t.kind === 'ident') {
       const typed = this.typePrefixLength();
       if (typed > 0) {
+        const type = this.declaredType(typed);
         this.i += typed;
         const name = this.expectIdent('a variable name');
-        return this.declaration(name, 'plain', t);
+        return this.declaration(name, 'plain', t, type);
       }
       if (this.isOp('(', 1) && this.isFunctionDef()) {
         if (!topLevel) this.fail(t, 'functions must be defined at the top level of the script');
@@ -219,16 +222,25 @@ class Parser {
     return k > 0 && declaresName(k) ? k : 0;
   }
 
+  /** The type name among the next `count` tokens of a `[qualifier] type` prefix, if there is one. */
+  private declaredType(count: number): string | undefined {
+    for (let k = count - 1; k >= 0; k--) {
+      const t = this.peek(k);
+      if (t.kind === 'ident' && TYPE_NAMES.has(t.value)) return t.value;
+    }
+    return undefined;
+  }
+
   private rejectCollectionType(t: Token): void {
     if (t.kind === 'ident' && COLLECTION_TYPES.has(t.value)) this.fail(t, `${PLURAL[t.value]} are not supported in v1`);
   }
 
-  private declaration(name: Token, mode: 'plain' | 'var', start: Token): Stmt {
+  private declaration(name: Token, mode: 'plain' | 'var', start: Token, type?: string): Stmt {
     if (this.isOp(':=')) this.fail(this.peek(), `"${name.value}" is being declared: use "=" (":=" reassigns an existing variable)`);
     this.expectOp('=');
     const init = this.expression();
     this.endOfStatement();
-    return { k: 'decl', name: name.value, mode, init, ...pos(start) };
+    return { k: 'decl', name: name.value, mode, init, ...pos(start), ...(type === undefined ? {} : { type }) };
   }
 
   private isTupleDecl(): boolean {

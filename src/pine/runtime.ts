@@ -160,6 +160,12 @@ export class PineRuntime {
     return Boolean(a) || Boolean(b);
   }
 
+  /** Pine v4 iff(): both branches were already evaluated (they are arguments); 0, na and ±∞ are false. */
+  iff(cond: unknown, then: unknown, otherwise: unknown): unknown {
+    const yes = typeof cond === 'number' ? cond !== 0 && Number.isFinite(cond) : Boolean(cond);
+    return yes ? then : otherwise;
+  }
+
   color(): string {
     return 'color';
   }

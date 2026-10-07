@@ -4,11 +4,14 @@ import type { Candle } from '../data/types';
 import type { CallExpr, Stmt } from './ast';
 import { analyze, type InputKind } from './analyze';
 import { generate, type InputBinding } from './codegen';
+import { dialectFor } from './dialect';
 import { byPosition, type PineDiagnostic, PineRuntimeError, PineSyntaxError } from './diagnostics';
-import { pineVersion } from './lexer';
 import { parse } from './parser';
 import { MAX_TA_LENGTH, PineRuntime } from './runtime';
 import { forbiddenReferences, SHADOWED_GLOBALS } from './safety';
+import { normalizeV4 } from './v4';
+import { checkV6 } from './v6';
+import { detectVersion, type PineVersion } from './version';
 
 /** A block parameter made from input.int / input.float / input.bool (bool -> 0/1). */
 export interface PineInput {
@@ -43,6 +46,8 @@ export interface PineInstance {
 }
 
 export interface PineScript {
+  /** Pine language version it was compiled as (from //@version, default 5). */
+  version: PineVersion;
   title: string;
   shortTitle: string;
   overlay: boolean;
@@ -80,7 +85,7 @@ const fail = (errors: PineDiagnostic[], warnings: PineDiagnostic[]): PineCompile
   ok: false, errors: [...errors].sort(byPosition), warnings: [...warnings].sort(byPosition),
 });
 
-/** Pine v5 (subset) source -> a runnable indicator, or errors with line:col. Never throws. */
+/** Pine v4 / v5 / v6 (subset) source -> a runnable indicator, or errors with line:col. Never throws. */
 export function compilePine(source: string): PineCompileResult {
   try {
     return compileUnguarded(source);
@@ -95,9 +100,10 @@ export function compilePine(source: string): PineCompileResult {
 
 function compileUnguarded(source: string): PineCompileResult {
   const warnings: PineDiagnostic[] = [];
-  const version = pineVersion(source);
-  if (version === null) warnings.push({ line: 1, col: 1, message: 'no //@version=5 line: compiled as Pine v5' });
-  else if (version.version !== 5) return fail([{ line: version.line, col: 1, message: `only //@version=5 is supported (found version ${version.version})` }], warnings);
+  const detected = detectVersion(source);
+  if (!detected.ok) return fail([detected.error], warnings);
+  if (detected.warning) warnings.push(detected.warning);
+  const { version } = detected;
 
   let program: Stmt[];
   try {
@@ -107,7 +113,18 @@ function compileUnguarded(source: string): PineCompileResult {
     throw err;
   }
 
-  const analysis = analyze(program);
+  // Version front ends: v4 is rewritten into the v5 AST; v6 adds type rules. Everything after is shared.
+  const frontErrors: PineDiagnostic[] = [];
+  if (version === 4) {
+    const v4 = normalizeV4(program);
+    program = v4.program;
+    frontErrors.push(...v4.errors);
+    warnings.push(...v4.warnings);
+  }
+  const v6 = version === 6 ? checkV6(program) : null;
+  if (v6) frontErrors.push(...v6.errors);
+
+  const analysis = analyze(program, version === 4 ? 'study' : 'indicator');
   const params = new Set<string>();
   const inputs: PineInput[] = [];
   const sources: PineSourceInput[] = [];
@@ -128,7 +145,9 @@ function compileUnguarded(source: string): PineCompileResult {
   const plots: PinePlot[] = analysis.plots.map((p, i) => ({ key: slugIdentifier(p.title, `plot${i + 1}`, keys), title: p.title }));
   const plotIndex = new Map<CallExpr, number>(analysis.plots.map((p, i) => [p.call, i]));
 
-  const gen = generate({ program, inputs: bindings, plotIndex, reassigned: analysis.reassigned });
+  const gen = generate({
+    program, inputs: bindings, plotIndex, reassigned: analysis.reassigned, dialect: dialectFor(version), boolHistory: v6?.boolHistory,
+  });
   // An input used as a ta.* length can only be 1..MAX_TA_LENGTH: make that the block field's range, so a bad
   // value is a block compile error rather than a failure when the run starts.
   for (const input of inputs) {
@@ -137,7 +156,7 @@ function compileUnguarded(source: string): PineCompileResult {
     input.max = Math.min(input.max ?? MAX_TA_LENGTH, MAX_TA_LENGTH);
   }
   warnings.push(...gen.warnings);
-  const errors = [...analysis.errors, ...gen.errors];
+  const errors = [...frontErrors, ...analysis.errors, ...gen.errors];
   if (errors.length > 0) return fail(errors, warnings);
 
   const forbidden = forbiddenReferences(gen.js);
@@ -152,6 +171,7 @@ function compileUnguarded(source: string): PineCompileResult {
   const header = analysis.header!;
   const sourceDefault: PriceSource = sources[0]?.default ?? 'close';
   const script: PineScript = {
+    version,
     title: header.title,
     shortTitle: header.shortTitle,
     overlay: header.overlay,
