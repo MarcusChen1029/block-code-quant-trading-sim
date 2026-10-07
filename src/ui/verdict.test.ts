@@ -77,21 +77,49 @@ describe('buildVerdict', () => {
 
   it('tried orders but all were rejected, with the top reason', () => {
     expect(v({ fillCount: 0, tradeCount: 0, activity: activity(2000, 3, 3) }).hint).toBe(
-      'It tried 3 orders but all were rejected: insufficient margin (the order needed more margin than was free: lower the size or raise the leverage).');
+      'It tried 3 orders but all were rejected: 3 × insufficient margin (the order needed more margin than was free: lower the size or raise the leverage).');
     expect(v({ fillCount: 0, tradeCount: 0, activity: activity(2000, 1, 0, 1) }).hint).toBe(
-      'It tried 1 order but it was rejected: nothing to reduce (a close/reduce order with no position to close).');
+      'It tried 1 order but it was rejected: 1 × nothing to reduce (a close/reduce order with no position to close).');
   });
 
   it('placed orders that never filled (pending limit / last bar)', () => {
     expect(v({ fillCount: 0, tradeCount: 0, activity: activity(2000, 2) }).hint).toBe(
       'It placed 2 orders but none filled — a limit price was never reached, or the order was placed on the last bar.');
     expect(v({ fillCount: 0, tradeCount: 0, activity: activity(2000, 3, 1) }).hint).toBe(
-      'It placed 3 orders but none filled (1 rejected: insufficient margin) — a limit price was never reached, or the order was placed on the last bar.');
+      'It placed 3 orders but none filled (rejected: 1 × insufficient margin (the order needed more margin than was free: lower the size or raise the leverage)) — a limit price was never reached, or the order was placed on the last bar.');
   });
 
   it('notes rejected orders on a run that did trade', () => {
     expect(v({ activity: activity(2000, 160, 8) }).hint).toBe(
-      '8 orders did not fill: insufficient margin (the order needed more margin than was free: lower the size or raise the leverage).');
+      '8 orders did not fill: 8 × insufficient margin (the order needed more margin than was free: lower the size or raise the leverage).');
+  });
+
+  it('decides tie / beat / lag on the displayed (rounded) values', () => {
+    expect(v({ totalReturnPct: 5.0149, benchmark: { returnPct: 5.0051, maxDrawdownPct: 1 } }).text).toBe(
+      '76 trades · +5.01% return · worst drop 15.0%. Buy & hold: +5.01% — your strategy matched it.');
+    expect(v({ totalReturnPct: 5.0151, benchmark: { returnPct: 5.0049, maxDrawdownPct: 1 } }).text).toMatch(/\+5\.02% return .* Buy & hold: \+5\.00% — your strategy beat it by 0\.02 points\.$/);
+  });
+
+  it('never prints -0.00% or +0.00%', () => {
+    const t = v({ totalReturnPct: -0.001, benchmark: { returnPct: 0.004, maxDrawdownPct: 0 } });
+    expect(t.text).toBe('76 trades · 0.00% return · worst drop 15.0%. Buy & hold: 0.00% — your strategy matched it.');
+    expect(t.tone).toBe('neutral');
+    expect(v({ fillCount: 0, tradeCount: 0, activity: activity(2000, 0), benchmark: { returnPct: -0.0001, maxDrawdownPct: 0 } }).text).toBe('No trades. Buy & hold: 0.00% over the same bars.');
+  });
+
+  it('attributes rejections to their real reasons with counts', () => {
+    expect(v({ fillCount: 0, tradeCount: 0, activity: activity(2000, 3, 2, 1) }).hint).toBe(
+      'It tried 3 orders but all were rejected: 2 × insufficient margin (the order needed more margin than was free: lower the size or raise the leverage); ' +
+      '1 × nothing to reduce (a close/reduce order with no position to close).');
+    expect(v({ activity: activity(2000, 160, 2, 1) }).hint).toBe(
+      '3 orders did not fill: 2 × insufficient margin (the order needed more margin than was free: lower the size or raise the leverage); ' +
+      '1 × nothing to reduce (a close/reduce order with no position to close).');
+  });
+
+  it('stays sane on a non-finite return (no em dash, no comparison)', () => {
+    const t = v({ totalReturnPct: NaN });
+    expect(t.text).toBe('76 trades · return n/a · worst drop 15.0%. Buy & hold: +3.10% over the same bars.');
+    expect(t.text).not.toContain('—');
   });
 
   it('topReason picks the most frequent', () => {

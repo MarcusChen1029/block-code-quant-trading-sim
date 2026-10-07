@@ -33,11 +33,18 @@ export interface Verdict {
   hint?: string;
 }
 
-/** Below this difference in return points, strategy and buy & hold count as a tie. */
-export const TIE_POINTS = 0.005;
-
 const plural = (n: number, word: string) => `${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`;
-const signedPct = (v: number) => `${v > 0 ? '+' : ''}${fmtNum(v)}%`;
+/** Percent rounded to what is displayed (2 decimals); -0 becomes 0, so "-0.00%" can never appear. */
+export const shownPct = (v: number) => {
+  const r = Math.round(v * 100) / 100;
+  return r === 0 ? 0 : r;
+};
+/** "+5.01%", "-3.20%", "0.00%" (never signed zero), "n/a" when not a finite number. */
+const signedPct = (v: number) => {
+  if (!Number.isFinite(v)) return 'n/a';
+  const r = shownPct(v);
+  return `${r > 0 ? '+' : ''}${fmtNum(r)}%`;
+};
 
 const REASON_TEXT: Record<NotFilledReason, string> = {
   'insufficient margin': 'insufficient margin (the order needed more margin than was free: lower the size or raise the leverage)',
@@ -46,6 +53,15 @@ const REASON_TEXT: Record<NotFilledReason, string> = {
 
 function notFilledTotal(a: EngineActivity): number {
   return Object.values(a.notFilled).reduce((s, n) => s + n, 0);
+}
+
+/** "2 × insufficient margin (…); 1 × nothing to reduce (…)": every reason with its real count, most frequent first. */
+function reasonsText(a: EngineActivity): string {
+  return (Object.keys(REASON_TEXT) as NotFilledReason[])
+    .filter((r) => a.notFilled[r] > 0)
+    .sort((x, y) => a.notFilled[y] - a.notFilled[x])
+    .map((r) => `${a.notFilled[r].toLocaleString('en-US')} × ${REASON_TEXT[r]}`)
+    .join('; ');
 }
 
 /** The most frequent not-filled reason (first in table order on ties), or null. */
@@ -62,9 +78,10 @@ function versus(input: VerdictInput, compare: boolean): string {
   const b = input.benchmark;
   if (!b || !Number.isFinite(b.returnPct)) return '';
   const head = ` Buy & hold: ${signedPct(b.returnPct)}`;
-  if (!compare) return `${head} over the same bars.`;
-  const diff = input.totalReturnPct - b.returnPct;
-  if (Math.abs(diff) < TIE_POINTS) return `${head} — your strategy matched it.`;
+  if (!compare || !Number.isFinite(input.totalReturnPct)) return `${head} over the same bars.`;
+  // Compare what the reader sees: two returns that both display as +5.01% are a tie.
+  const diff = shownPct(shownPct(input.totalReturnPct) - shownPct(b.returnPct));
+  if (diff === 0) return `${head} — your strategy matched it.`;
   return `${head} — your strategy ${diff > 0 ? 'beat' : 'lagged'} it by ${fmtNum(Math.abs(diff))} points.`;
 }
 
@@ -98,13 +115,13 @@ function noTrades(input: VerdictInput): Verdict {
     return {
       tone: 'warn',
       text: `No trades.${tail}`,
-      hint: `It tried ${plural(a.orderRequests, 'order')} but ${a.orderRequests === 1 ? 'it was' : 'all were'} rejected: ${REASON_TEXT[reason]}.`,
+      hint: `It tried ${plural(a.orderRequests, 'order')} but ${a.orderRequests === 1 ? 'it was' : 'all were'} rejected: ${reasonsText(a)}.`,
     };
   }
   return {
     tone: 'warn',
     text: `No trades.${tail}`,
-    hint: `It placed ${plural(a.orderRequests, 'order')} but none filled${rejected > 0 ? ` (${rejected} rejected: ${reason})` : ''} — a limit price was never reached, or the order was placed on the last bar.`,
+    hint: `It placed ${plural(a.orderRequests, 'order')} but none filled${rejected > 0 ? ` (rejected: ${reasonsText(a)})` : ''} — a limit price was never reached, or the order was placed on the last bar.`,
   };
 }
 
@@ -125,16 +142,16 @@ export function buildVerdict(input: VerdictInput): Verdict {
   }
   if (input.fillCount === 0) return noTrades(input);
 
-  const ret = input.totalReturnPct;
-  const retText = ret < 0 ? `${signedPct(ret)} return (a loss)` : `${signedPct(ret)} return`;
+  const finite = Number.isFinite(input.totalReturnPct);
+  const ret = finite ? shownPct(input.totalReturnPct) : 0;
+  const retText = !finite ? 'return n/a' : ret < 0 ? `${signedPct(ret)} return (a loss)` : `${signedPct(ret)} return`;
   const text = `${tradesText(input)} · ${retText} · worst drop ${fmtNum(input.maxDrawdownPct, 1)}%.${versus(input, true)}`;
   const b = input.benchmark;
-  const beat = !b || ret - b.returnPct >= TIE_POINTS;
-  const tone: VerdictTone = ret < 0 ? 'bad' : ret > 0 && beat ? 'good' : 'neutral';
+  const beat = !b || !Number.isFinite(b.returnPct) || shownPct(ret - shownPct(b.returnPct)) > 0;
+  const tone: VerdictTone = !finite ? 'neutral' : ret < 0 ? 'bad' : ret > 0 && beat ? 'good' : 'neutral';
 
   const a = input.activity;
   const rejected = a ? notFilledTotal(a) : 0;
-  const reason = a ? topReason(a) : null;
-  const hint = rejected > 0 && reason ? `${plural(rejected, 'order')} did not fill: ${REASON_TEXT[reason]}.` : undefined;
+  const hint = a && rejected > 0 ? `${plural(rejected, 'order')} did not fill: ${reasonsText(a)}.` : undefined;
   return hint ? { tone, text, hint } : { tone, text };
 }
