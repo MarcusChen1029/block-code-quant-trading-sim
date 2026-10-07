@@ -68,6 +68,7 @@ export function blockIndicatorOverlays(
     out.push({
       id,
       label,
+      indicatorId: def.id,
       pane: def.pane,
       lines: def.outputs.map((o) => ({ key: o.key, color: COLORS[colorCursor++ % COLORS.length] })),
       ...(signals.length > 0 ? { signals } : {}),
@@ -95,6 +96,31 @@ export function blockIndicatorOverlays(
         };
       },
     });
+  }
+  return out;
+}
+
+/**
+ * Overlays of a live session's chart: its own (from its snapshot) plus the extra ones (picked, "Show on chart").
+ * A signal (indicator id + signal key) the session already marks is dropped from the extras, so no marker is drawn
+ * twice; an extra overlay identical to a session one with nothing left to mark is dropped entirely.
+ */
+export function liveSessionOverlays(session: readonly OverlayDef[], extra: readonly OverlayDef[]): OverlayDef[] {
+  const marked = new Set(session.flatMap((d) => (d.signals ?? []).map((s) => `${d.indicatorId}|${s.key}`)));
+  const ids = new Set(session.map((d) => d.id));
+  const out: OverlayDef[] = [...session];
+  for (const d of extra) {
+    if (d.indicatorId === undefined || !d.signals) {
+      out.push(d);
+      continue;
+    }
+    const signals = d.signals.filter((s) => !marked.has(`${d.indicatorId}|${s.key}`));
+    if (signals.length === d.signals.length) out.push(d);
+    else if (signals.length > 0) out.push({ ...d, signals });
+    else if (!ids.has(d.id)) {
+      const { signals: _drop, ...lines } = d;
+      out.push(lines);
+    }
   }
   return out;
 }

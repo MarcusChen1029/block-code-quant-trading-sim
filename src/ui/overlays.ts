@@ -27,6 +27,8 @@ export interface OverlayDef {
   label: string;
   pane: 'price' | 'sub';
   lines: OverlayLine[];
+  /** Registry id of the indicator it draws (block / Pine overlays), so signal markers can be deduplicated. */
+  indicatorId?: string;
   /** Signals to mark on the chart (on the price series, or on this overlay's own pane when it has one). */
   signals?: OverlaySignal[];
   /**

@@ -11,7 +11,7 @@ import { browserLocks, claimSession, waitForSession, type SessionLock } from '..
 import { openSessionStore, type SessionStore } from '../live/store';
 import { compilePine } from '../pine/compile';
 import { pineIndicatorDef } from '../pine/library';
-import { blockIndicatorOverlays } from './blockOverlays';
+import { blockIndicatorOverlays, liveSessionOverlays } from './blockOverlays';
 import type { ChartPanel } from './chart';
 import { fmtNum } from './format';
 import { liveBadge, parseUtcDateTime, sessionRow } from './liveFormat';
@@ -575,7 +575,7 @@ export class LiveMode {
       chart.updateCandle(view.forming);
       chartTime = view.forming.time;
     }
-    chart.setOverlays([...this.overlaysFor(view), ...this.deps.extraOverlays()], view.candles);
+    chart.setOverlays(liveSessionOverlays(this.overlaysFor(view), this.deps.extraOverlays()), view.candles);
     chart.setMarkers(this.markers(view));
     stats.clear(view.stats ? '' : `Session "${view.record.name}": loading ${view.record.symbol} ${view.record.timeframe} bars…`);
     if (view.stats) {
