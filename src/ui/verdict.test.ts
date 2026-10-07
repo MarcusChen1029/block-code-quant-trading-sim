@@ -6,7 +6,7 @@ const activity = (barsRun: number, orderRequests: number, margin = 0, reduce = 0
 
 const BASE: VerdictInput = {
   tradeCount: 76, openPosition: false, fillCount: 152, totalReturnPct: 7.48, maxDrawdownPct: 15.04, wiped: false,
-  barsProcessed: 2000, barsLoaded: 2000, benchmark: { returnPct: 3.1, maxDrawdownPct: 22 }, activity: activity(2000, 152), warmup: { label: 'SMA 30', bars: 30 },
+  barsProcessed: 2000, barsLoaded: 2000, benchmark: { returnPct: 3.1, maxDrawdownPct: 22 }, activity: activity(2000, 152), warmup: { known: true, label: 'SMA 30', bars: 32 },
 };
 const v = (patch: Partial<VerdictInput>) => buildVerdict({ ...BASE, ...patch });
 
@@ -54,7 +54,7 @@ describe('buildVerdict', () => {
 
   it('not enough history for the slowest indicator', () => {
     expect(v({ fillCount: 0, tradeCount: 0, barsProcessed: 20, barsLoaded: 20, activity: activity(20, 0) })).toEqual({
-      tone: 'warn', text: 'Not enough history: SMA 30 needs 30 bars but only 20 bars were loaded — move the start date earlier.',
+      tone: 'warn', text: 'Not enough history: SMA 30 needs 32 bars before the first order can fill, but only 20 bars were loaded — move the start date earlier.',
     });
   });
 
@@ -65,7 +65,12 @@ describe('buildVerdict', () => {
     });
   });
 
-  it('never placed an order, warm-up unknown', () => {
+  it('never placed an order and the history need is unknown: generic hint, no number', () => {
+    expect(v({ fillCount: 0, tradeCount: 0, warmup: { known: false }, activity: activity(20, 0) }).hint).toBe(
+      'Your strategy ran on 20 bars but never placed an order. Only 20 bars were loaded — if it needs a long warm-up, try an earlier start date; otherwise check your conditions.');
+  });
+
+  it('never placed an order, warm-up not analysed', () => {
     expect(v({ fillCount: 0, tradeCount: 0, warmup: null, activity: activity(5, 0), benchmark: null }).hint).toBe(
       'Your strategy ran on 5 bars but never placed an order — check your conditions.');
   });

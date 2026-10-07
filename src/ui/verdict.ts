@@ -1,7 +1,7 @@
 import type { NotFilledReason } from '../engine/broker';
 import type { EngineActivity } from '../engine/engine';
 import { fmtNum } from './format';
-import type { Warmup } from './warmup';
+import type { HistoryNeed } from './warmup';
 
 /** Everything the verdict sentence is built from (numbers only, so it can be tested without a run). */
 export interface VerdictInput {
@@ -19,8 +19,8 @@ export interface VerdictInput {
   barsLoaded: number;
   benchmark: { returnPct: number; maxDrawdownPct: number } | null;
   activity: EngineActivity | null;
-  /** The strategy's slowest indicator, when known. */
-  warmup: Warmup | null;
+  /** Bars needed before the first order can fill (known), or unknown; null when not analysed. */
+  warmup: HistoryNeed | null;
 }
 
 export type VerdictTone = 'good' | 'bad' | 'neutral' | 'warn';
@@ -79,15 +79,18 @@ function noTrades(input: VerdictInput): Verdict {
   const a = input.activity;
   const bars = a ? a.barsRun : input.barsProcessed;
   const w = input.warmup;
-  if (w && bars < w.bars) {
+  if (w?.known && bars < w.bars) {
     return {
       tone: 'warn',
-      text: `Not enough history: ${w.label} needs ${plural(w.bars, 'bar')} but only ${plural(bars, 'bar')} ${bars === 1 ? 'was' : 'were'} loaded — move the start date earlier.`,
+      text: `Not enough history: ${w.label} needs ${plural(w.bars, 'bar')} before the first order can fill, but only ${plural(bars, 'bar')} ${bars === 1 ? 'was' : 'were'} loaded — move the start date earlier.`,
     };
   }
   const tail = versus(input, false);
   if (!a || a.orderRequests === 0) {
-    return { tone: 'warn', text: `No trades.${tail}`, hint: `Your strategy ran on ${plural(bars, 'bar')} but never placed an order — check your conditions.` };
+    const hint = w && !w.known
+      ? `Your strategy ran on ${plural(bars, 'bar')} but never placed an order. Only ${plural(bars, 'bar')} ${bars === 1 ? 'was' : 'were'} loaded — if it needs a long warm-up, try an earlier start date; otherwise check your conditions.`
+      : `Your strategy ran on ${plural(bars, 'bar')} but never placed an order — check your conditions.`;
+    return { tone: 'warn', text: `No trades.${tail}`, hint };
   }
   const rejected = notFilledTotal(a);
   const reason = topReason(a);

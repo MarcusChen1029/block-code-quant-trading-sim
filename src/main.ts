@@ -18,7 +18,7 @@ import { pickStarter as pickStarterFlow, restorePrevious as restorePreviousFlow,
 import { createStarterPicker } from './ui/starterPicker';
 import { buildVerdict } from './ui/verdict';
 import { VerdictView } from './ui/verdictView';
-import { indicatorWarmup, maxWarmup, type Warmup } from './ui/warmup';
+import { smaCrossHistoryNeed, strategyHistoryNeed, type HistoryNeed } from './ui/warmup';
 import type { BacktestResult } from './engine/engine';
 import { syncPineIndicators } from './pine/library';
 import { createPineEditor } from './ui/pineEditor';
@@ -238,14 +238,13 @@ const EMPTY_VERDICT_INPUT = {
   barsProcessed: 0, barsLoaded: 0, benchmark: null, activity: null, warmup: null,
 };
 
-/** The slowest indicator of the strategy that ran (for the "not enough history" hint), when known. */
-function strategyWarmup(spec: StrategySpec): Warmup | null {
-  if (spec.id === 'smaCross') return indicatorWarmup({ indicatorId: 'sma', params: { length: Math.max(spec.params.fast, spec.params.slow) } });
-  const compiled = compileBlocks(spec.workspace);
-  return compiled.ok ? maxWarmup(compiled.program.indicators) : null;
+/** Bars the strategy that ran needs before its first order can fill (for the "not enough history" hint). */
+function strategyWarmup(spec: StrategySpec): HistoryNeed {
+  if (spec.id === 'smaCross') return smaCrossHistoryNeed(Math.max(spec.params.fast, spec.params.slow));
+  return strategyHistoryNeed(spec.workspace);
 }
 
-function verdictFor(result: BacktestResult, barsLoaded: number, warmup: Warmup | null) {
+function verdictFor(result: BacktestResult, barsLoaded: number, warmup: HistoryNeed | null) {
   return buildVerdict({
     tradeCount: result.trades.length,
     openPosition: result.finalPosition.side !== 'flat',
