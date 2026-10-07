@@ -1,25 +1,38 @@
 import { TIMEFRAMES } from '../data/types';
+import { accountSummary } from './accountSummary';
 import { h } from './dom';
 import type { RawSettings } from './settings';
+import { loadText, saveText } from './storage';
 
 export interface TopBar {
   read(): RawSettings;
   setRunning(running: boolean): void;
-  /** Element where extra controls (the overlay picker) can be appended. */
+  /** Primary-row slot for extra controls ("Start from…", "Chart overlays"). */
+  readonly tools: HTMLElement;
+  /** Slot inside the collapsible "Account settings" section (the strategy source select). */
   readonly extras: HTMLElement;
   setMode(mode: AppMode): void;
+  /** Recomputes the closed section's summary (call when something it mentions changes outside the fields). */
+  refreshSummary(): void;
 }
 
 /** Backtest: run over history. Live: paper-trade sessions on the live stream (start date and Run do not apply). */
 export type AppMode = 'backtest' | 'live';
 
-/** Builds the run form: product, timeframe, start date, balance, leverage, fees, slippage, Run. */
+export const ACCOUNT_OPEN_STORAGE_KEY = 'quant-sim.account-open';
+
+/**
+ * The run form. Primary row: mode, product, timeframe, start date, balance, Run (+ tools). Leverage, fees and
+ * slippage live in a collapsible "Account settings" section (closed by default, state remembered) whose button
+ * shows a one-line summary, highlighted when a value differs from the defaults.
+ */
 export function createTopBar(
   container: HTMLElement,
   initial: RawSettings,
   onRun: () => void,
   initialMode: AppMode = 'backtest',
   onMode: (mode: AppMode) => void = () => {},
+  usesBuiltInStrategy: () => boolean = () => false,
 ): TopBar {
   const input = (name: keyof RawSettings, type: string, width: string, attrs: Record<string, string> = {}) => {
     const el = h('input', { name, type, style: `width:${width}`, ...attrs });
@@ -59,7 +72,40 @@ export function createTopBar(
   const modeToggle = h('div', { class: 'mode-toggle', role: 'group', 'aria-label': 'Mode' }, ...modeButtons.map(([, b]) => b));
   showMode(initialMode);
 
-  const field = (label: string, el: HTMLElement, cls?: string) => h('label', { class: cls }, h('span', {}, label), el);
+  const field = (label: string, el: HTMLElement, cls?: string, title?: string) => h('label', { class: cls, title }, h('span', {}, label), el);
+
+  // Account settings: closed by default; the toggle carries the summary of the hidden values.
+  const summary = h('span', { class: 'account-summary' });
+  const accountToggle = h(
+    'button', { type: 'button', class: 'account-toggle', 'aria-expanded': 'false', 'aria-controls': 'account-panel', title: 'Leverage, fees and slippage used by backtests and new live sessions' },
+    h('span', { class: 'account-caret', 'aria-hidden': 'true' }, '▸'), h('span', { class: 'account-title' }, 'Account settings'), summary,
+  );
+  const extras = h('div', { class: 'extras' });
+  const accountPanel = h(
+    'div', { class: 'account-panel', id: 'account-panel', role: 'group', 'aria-label': 'Account settings' },
+    field('Leverage', leverage, undefined, 'Notional cap = equity x leverage (1-125)'),
+    field('Taker %', takerFeePct, undefined, 'Fee on market and stop fills, in percent'),
+    field('Maker %', makerFeePct, undefined, 'Fee on limit and take-profit fills, in percent'),
+    field('Slip bps', slippageBps, undefined, 'Slippage against you on market / stop fills, in basis points (1 bps = 0.01%)'),
+    extras,
+  );
+  const refreshSummary = () => {
+    const s = accountSummary({ leverage: leverage.value, takerFeePct: takerFeePct.value, makerFeePct: makerFeePct.value, slippageBps: slippageBps.value }, usesBuiltInStrategy());
+    summary.textContent = s.text;
+    accountToggle.classList.toggle('non-default', s.nonDefault);
+  };
+  let accountOpen = false;
+  const setOpen = (open: boolean) => {
+    accountOpen = open;
+    accountPanel.hidden = !open;
+    accountToggle.setAttribute('aria-expanded', String(open));
+    accountToggle.classList.toggle('open', open);
+    saveText(ACCOUNT_OPEN_STORAGE_KEY, open ? '1' : '0');
+  };
+  accountToggle.addEventListener('click', () => setOpen(!accountOpen));
+  for (const el of [leverage, takerFeePct, makerFeePct, slippageBps]) el.addEventListener('input', refreshSummary);
+
+  const tools = h('div', { class: 'tools' });
   const form = h(
     'form', { class: 'run-form' },
     h('div', { class: 'field' }, h('span', {}, 'Mode'), modeToggle),
@@ -67,22 +113,24 @@ export function createTopBar(
     field('TF', timeframe),
     field('Start', startDate, 'backtest-only'),
     field('Balance', balance),
-    field('Leverage', leverage),
-    field('Taker %', takerFeePct),
-    field('Maker %', makerFeePct),
-    field('Slip bps', slippageBps),
     run,
+    tools,
+    accountToggle,
+    accountPanel,
   );
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
     onRun();
   });
-  const extras = h('div', { class: 'extras' });
-  container.append(form, extras);
+  container.append(form);
+  setOpen(loadText(ACCOUNT_OPEN_STORAGE_KEY) === '1');
+  refreshSummary();
 
   return {
+    tools,
     extras,
     setMode: showMode,
+    refreshSummary,
     read: () => ({
       symbol: symbol.value,
       timeframe: timeframe.value,

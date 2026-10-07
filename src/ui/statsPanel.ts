@@ -1,10 +1,22 @@
-import { ColorType, LineSeries, createChart, type IChartApi, type ISeriesApi } from 'lightweight-charts';
+import { ColorType, LineSeries, LineStyle, createChart, type IChartApi, type ISeriesApi } from 'lightweight-charts';
+import { BENCHMARK_DEFINITION, type Benchmark } from '../engine/benchmark';
 import type { BacktestResult } from '../engine/engine';
 import type { EquityPoint, Stats } from '../engine/stats';
 import type { LogEntry, Trade } from '../engine/types';
 import { toChartTime } from './chartData';
 import { h } from './dom';
-import { fmtNum, fmtTime, statsRows } from './format';
+import { fmtNum, fmtPct, fmtTime, statsRows, type StatRow } from './format';
+import { loadText, saveText } from './storage';
+
+export const BENCHMARK_LINE_STORAGE_KEY = 'quant-sim.benchmark-line';
+
+/** Buy & hold cards, shown right after the strategy's max drawdown. */
+export function benchmarkRows(b: Pick<Benchmark, 'returnPct' | 'maxDrawdownPct'>): StatRow[] {
+  return [
+    { label: 'Buy & hold return', value: fmtPct(b.returnPct), tone: b.returnPct > 0 ? 'pos' : b.returnPct < 0 ? 'neg' : 'neutral' },
+    { label: 'Buy & hold max DD', value: fmtPct(b.maxDrawdownPct), tone: b.maxDrawdownPct > 0 ? 'neg' : 'neutral' },
+  ];
+}
 
 const MAX_TRADE_ROWS = 500;
 
@@ -13,16 +25,23 @@ export class StatsPanel {
   private readonly cards: HTMLElement;
   private readonly equityChart: IChartApi;
   private readonly equitySeries: ISeriesApi<'Line'>;
+  private readonly benchSeries: ISeriesApi<'Line'>;
+  private readonly benchToggle: HTMLInputElement;
+  private readonly benchLabel: HTMLElement;
   private readonly trades: HTMLElement;
   private readonly log: HTMLElement;
 
   constructor(container: HTMLElement) {
     this.cards = h('div', { class: 'stat-cards' });
     const equityEl = h('div', { class: 'equity' });
+    this.benchToggle = h('input', { type: 'checkbox' });
+    this.benchToggle.checked = loadText(BENCHMARK_LINE_STORAGE_KEY) !== '0';
+    this.benchLabel = h('label', { class: 'bench-toggle', title: BENCHMARK_DEFINITION }, this.benchToggle, 'Buy & hold line');
+    this.benchLabel.hidden = true;
     this.trades = h('div', { class: 'trades' });
     this.log = h('div', { class: 'log' });
     container.append(
-      h('div', { class: 'stats-left' }, this.cards, equityEl),
+      h('div', { class: 'stats-left' }, this.cards, h('div', { class: 'equity-wrap' }, equityEl, this.benchLabel)),
       h('div', { class: 'stats-right' }, this.trades, this.log),
     );
     this.equityChart = createChart(equityEl, {
@@ -32,32 +51,53 @@ export class StatsPanel {
       timeScale: { timeVisible: true },
     });
     this.equitySeries = this.equityChart.addSeries(LineSeries, { color: '#42a5f5', lineWidth: 2, title: 'Equity' });
+    // Muted and dashed: a reference line, not a second result.
+    this.benchSeries = this.equityChart.addSeries(LineSeries, {
+      color: '#787b86', lineWidth: 1, lineStyle: LineStyle.Dashed, title: 'Buy & hold', visible: this.benchToggle.checked,
+      priceLineVisible: false, lastValueVisible: false,
+    });
+    this.benchToggle.addEventListener('change', () => {
+      this.benchSeries.applyOptions({ visible: this.benchToggle.checked });
+      saveText(BENCHMARK_LINE_STORAGE_KEY, this.benchToggle.checked ? '1' : '0');
+    });
     this.clear();
   }
 
   clear(hint = 'Press Run to backtest the selected strategy (blocks on the left, or the built-in example).'): void {
     this.cards.replaceChildren(h('div', { class: 'hint' }, hint));
     this.equitySeries.setData([]);
+    this.setBenchmark(null);
     this.trades.replaceChildren();
     this.log.replaceChildren();
   }
 
   render(result: BacktestResult): void {
-    this.showStats(result.stats, result.wiped);
+    this.showStats(result.stats, result.wiped, result.benchmark ?? null);
+    this.setBenchmark(result.benchmark ?? null);
     this.setEquity(result.equityCurve);
     this.setTrades(result.trades);
     this.log.replaceChildren();
     this.appendLog(result.log);
   }
 
-  /** The stat cards (live sessions call this per update). */
-  showStats(stats: Stats, wiped: boolean): void {
-    this.cards.replaceChildren(
-      ...statsRows(stats).map((row) =>
-        h('div', { class: `card ${row.tone}` }, h('div', { class: 'label' }, row.label), h('div', { class: 'value' }, row.value)),
-      ),
-    );
+  /** The stat cards (live sessions call this per update, without a benchmark). */
+  showStats(stats: Stats, wiped: boolean, benchmark: Benchmark | null = null): void {
+    const card = (row: StatRow, cls = '', title?: string) =>
+      h('div', { class: `card ${row.tone}${cls}`, title }, h('div', { class: 'label' }, row.label), h('div', { class: 'value' }, row.value));
+    const rows = statsRows(stats);
+    const cards = rows.map((row) => card(row));
+    if (benchmark) {
+      const at = rows.findIndex((r) => r.label === 'Max drawdown') + 1;
+      cards.splice(at, 0, ...benchmarkRows(benchmark).map((row) => card(row, ' bench', BENCHMARK_DEFINITION)));
+    }
+    this.cards.replaceChildren(...cards);
     if (wiped) this.cards.append(h('div', { class: 'card neg wiped' }, 'ACCOUNT WIPED'));
+  }
+
+  /** The buy & hold line (null removes it and its toggle). */
+  setBenchmark(benchmark: Benchmark | null): void {
+    this.benchSeries.setData(benchmark ? benchmark.equityCurve.map((p) => ({ time: toChartTime(p.time), value: p.equity })) : []);
+    this.benchLabel.hidden = benchmark === null;
   }
 
   setEquity(points: readonly EquityPoint[]): void {

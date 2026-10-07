@@ -25,6 +25,13 @@ export interface BlockEditor {
   /** Replaces the workspace with an example: the SMA cross (default) or the order block + FVG zones example. */
   resetToExample(example?: 'smaCross' | 'zones'): void;
   /**
+   * Replaces the workspace with `state` (a starter, or a restored previous workspace) and saves it. Returns false
+   * (workspace unchanged) when it cannot be loaded.
+   */
+  loadWorkspace(state: unknown): boolean;
+  /** Zooms and scrolls so the whole strategy is visible (never zoomed in past 100 %). No-op while hidden. */
+  fit(): void;
+  /**
    * Indicator registrations changed (Pine scripts saved / deleted): redefines blocks, rebuilds the toolbox and
    * reloads the current workspace so blocks pick up new shapes; then recompiles (onChange) even if unchanged.
    */
@@ -159,6 +166,26 @@ export function createBlockEditor(
       if (!load(example === 'zones' ? zoneExampleWorkspace() : defaultWorkspace()).ok) return;
       persist = true;
       emit();
+    },
+    loadWorkspace(state) {
+      const result = load(state, true);
+      if (!result.ok) {
+        onLoadError(`The blocks could not be loaded: ${result.error}`);
+        return false;
+      }
+      persist = true;
+      emit();
+      return true;
+    },
+    fit() {
+      if (container.clientWidth === 0 || container.clientHeight === 0 || ws.getTopBlocks(false).length === 0) return;
+      Blockly.svgResize(ws);
+      Blockly.renderManagement.triggerQueuedRenders(ws); // renders are queued on animation frames, which stall while hidden
+      ws.zoomToFit();
+      if (ws.scale > 1) {
+        ws.setScale(1);
+        ws.scrollCenter();
+      }
     },
     refreshIndicators() {
       const json = Blockly.serialization.workspaces.save(ws);

@@ -1,4 +1,5 @@
 import { h } from './dom';
+import { clampFraction, fractionForKey, fractionFromPointer, fractionRange, SPLIT } from './splitter';
 
 export type PaneId = 'left' | 'right';
 export type LeftTab = 'blocks' | 'pine';
@@ -46,6 +47,80 @@ export function setupLayout(
   show('left');
 }
 
+/**
+ * Draggable splitter between the strategy pane and the chart pane (wide layouts only; CSS hides it below 900px,
+ * where the pane switcher applies as before). Keyboard: arrows (Shift = bigger steps), PageUp/PageDown, Home/End,
+ * Enter resets; double-click resets. The fraction is applied as --left-width and saved via `save` after a change.
+ */
+export function setupSplitter(
+  layout: HTMLElement,
+  splitter: HTMLElement,
+  initial: number | null,
+  save: (fraction: number) => void,
+  onResize: () => void = () => {},
+): { readonly fraction: number } {
+  let fraction = initial ?? SPLIT.defaultFraction;
+  splitter.setAttribute('role', 'separator');
+  splitter.setAttribute('aria-orientation', 'vertical');
+  splitter.setAttribute('aria-controls', 'left');
+  splitter.setAttribute('aria-label', 'Resize the strategy pane (arrow keys; double-click or Enter resets)');
+  splitter.setAttribute('title', 'Drag to resize; double-click to reset');
+  splitter.tabIndex = 0;
+
+  /** Shows `f` (clamped to the current width); the stored preference stays as chosen. */
+  const apply = (f: number) => {
+    const width = layout.clientWidth;
+    const shown = width > 0 ? clampFraction(f, width) : f;
+    const { min, max } = fractionRange(width);
+    layout.style.setProperty('--left-width', `${(shown * 100).toFixed(2)}%`);
+    splitter.setAttribute('aria-valuenow', String(Math.round(shown * 100)));
+    splitter.setAttribute('aria-valuemin', String(Math.round(min * 100)));
+    splitter.setAttribute('aria-valuemax', String(Math.round(max * 100)));
+    onResize();
+  };
+  const set = (f: number) => {
+    fraction = f;
+    apply(f);
+    save(f);
+  };
+
+  let dragging = false;
+  splitter.addEventListener('pointerdown', (ev) => {
+    if (ev.button !== 0) return;
+    dragging = true;
+    splitter.setPointerCapture(ev.pointerId);
+    splitter.classList.add('dragging');
+    document.body.classList.add('resizing');
+    ev.preventDefault();
+  });
+  splitter.addEventListener('pointermove', (ev) => {
+    if (!dragging) return;
+    const r = layout.getBoundingClientRect();
+    fraction = fractionFromPointer(ev.clientX, r.left, r.width);
+    apply(fraction);
+  });
+  const end = (ev: PointerEvent) => {
+    if (!dragging) return;
+    dragging = false;
+    if (splitter.hasPointerCapture(ev.pointerId)) splitter.releasePointerCapture(ev.pointerId);
+    splitter.classList.remove('dragging');
+    document.body.classList.remove('resizing');
+    save(fraction);
+  };
+  splitter.addEventListener('pointerup', end);
+  splitter.addEventListener('pointercancel', end);
+  splitter.addEventListener('dblclick', () => set(SPLIT.defaultFraction));
+  splitter.addEventListener('keydown', (ev) => {
+    const next = fractionForKey(clampFraction(fraction, layout.clientWidth), ev.key, ev.shiftKey, layout.clientWidth);
+    if (next === null) return;
+    ev.preventDefault();
+    set(next);
+  });
+  window.addEventListener('resize', () => apply(fraction));
+  apply(fraction);
+  return { get fraction() { return fraction; } };
+}
+
 export interface ProblemsView {
   show(errors: ReadonlyArray<{ message: string; blockId?: string }>, warnings: ReadonlyArray<{ message: string; blockId?: string }>): void;
 }
@@ -70,7 +145,7 @@ export function createProblemsView(container: HTMLElement, onPick: (blockId: str
 }
 
 /** "Strategy: [Blocks | Example: SMA cross]" select for the top bar. */
-export function createStrategyPicker(container: HTMLElement, initial: string, onChange: (id: string) => void): void {
+export function createStrategyPicker(container: HTMLElement, initial: string, onChange: (id: string) => void): { set(id: string): void } {
   const select = h(
     'select', { name: 'strategy' },
     h('option', { value: 'blocks' }, 'Blocks (left pane)'),
@@ -78,5 +153,6 @@ export function createStrategyPicker(container: HTMLElement, initial: string, on
   );
   select.value = initial;
   select.addEventListener('change', () => onChange(select.value));
-  container.append(h('label', { class: 'strategy-picker' }, 'Strategy ', select));
+  container.append(h('label', { class: 'strategy-picker', title: 'What Run backtests: your blocks, or the hard-coded SMA cross example' }, h('span', {}, 'Strategy'), select));
+  return { set: (id) => { select.value = id; } };
 }

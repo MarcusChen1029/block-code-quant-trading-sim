@@ -10,7 +10,15 @@ import { createBlockEditor } from './ui/blockEditor';
 import { blockIndicatorOverlays, defaultIndicatorUse, zoneToggleOverlays } from './ui/blockOverlays';
 import { ChartPanel } from './ui/chart';
 import { h } from './ui/dom';
-import { createProblemsView, createStrategyPicker, setupLayout, type LeftTab } from './ui/layout';
+import { createProblemsView, createStrategyPicker, setupLayout, setupSplitter, type LeftTab } from './ui/layout';
+import { getStarter, STARTERS, type StarterId } from './blocks/starters';
+import { parseStoredFraction } from './ui/splitter';
+import { isEmptyWorkspace, StarterMemory } from './ui/starterMemory';
+import { createStarterPicker } from './ui/starterPicker';
+import { buildVerdict } from './ui/verdict';
+import { VerdictView } from './ui/verdictView';
+import { indicatorWarmup, maxWarmup, type Warmup } from './ui/warmup';
+import type { BacktestResult } from './engine/engine';
 import { syncPineIndicators } from './pine/library';
 import { createPineEditor } from './ui/pineEditor';
 import { loadPineRecords, loadPineRetired, loadPineShown, savePineShown } from './ui/pineStore';
@@ -31,6 +39,7 @@ const STRATEGY_STORAGE_KEY = 'quant-sim.strategy';
 const LEFT_TAB_STORAGE_KEY = 'quant-sim.left-tab';
 const MODE_STORAGE_KEY = 'quant-sim.mode';
 const OVERLAYS_STORAGE_KEY = 'quant-sim.overlays.v1';
+const SPLIT_STORAGE_KEY = 'quant-sim.split.v1';
 
 /** Top-bar picker: the classic overlays plus the zone indicators' "show on chart" toggles (default settings). */
 const PICKER_OVERLAYS: OverlayDef[] = [...OVERLAYS, ...zoneToggleOverlays()];
@@ -62,6 +71,8 @@ function setStatus(text: string, isError = false): void {
 const adapter = new BinanceFuturesAdapter();
 const chart = new ChartPanel(document.getElementById('chart')!);
 const stats = new StatsPanel(document.getElementById('stats')!);
+const verdict = new VerdictView(document.getElementById('verdict')!);
+const starterMemory = new StarterMemory({ get: loadJson, set: saveJson });
 let candles: Candle[] = [];
 let live: CandleSubscription | null = null;
 let pickedOverlayIds: string[] = loadPickedOverlays();
@@ -132,8 +143,10 @@ function onWorkspaceChange(json: unknown): void {
 const editor = createBlockEditor(document.getElementById('blockly')!, onWorkspaceChange, (message) => setStatus(message, true));
 if (editor.restored === 'default-after-error') {
   setStatus(`The saved block workspace could not be loaded (${editor.loadError}). It is kept unchanged in browser storage; ` +
-    "the SMA cross example is shown and edits are not saved until you press 'Reset to example'.", true);
+    "the SMA cross example is shown and edits are not saved until you pick a starter from 'Start from…'.", true);
 }
+// A fresh user starts on the SMA cross: remember it as an untouched starter (replacing it later needs no confirm).
+if (editor.restored === 'default') starterMemory.recordLoaded('smaCross', JSON.stringify(editor.save()));
 if (pineStartup.length > 0) setStatus(`${pineStartup.length} saved Pine script${pineStartup.length > 1 ? 's do' : ' does'} not compile; open the Pine tab to fix ${pineStartup.length > 1 ? 'them' : 'it'}.`, true);
 
 const pineEditor = createPineEditor(document.getElementById('pine')!, {
@@ -165,15 +178,20 @@ setupLayout(document.getElementById('pane-switch')!, document.getElementById('le
   else pineEditor.refresh();
 });
 new ResizeObserver(() => editor.resize()).observe(document.getElementById('blockly')!);
-const resetButton = h('button', { type: 'button', class: 'reset-blocks', title: 'Replace the workspace with the SMA cross example' }, 'Reset to example');
-resetButton.addEventListener('click', () => {
-  if (window.confirm('Replace your blocks with the SMA 10/30 cross example?')) editor.resetToExample();
-});
-const zoneExampleButton = h('button', { type: 'button', class: 'example-blocks', title: 'Replace the workspace with the order block + fair value gap example' }, 'Zone example');
-zoneExampleButton.addEventListener('click', () => {
-  if (window.confirm('Replace your blocks with the order block + FVG zone example?')) editor.resetToExample('zones');
-});
-document.getElementById('left-tabs')!.append(resetButton, zoneExampleButton);
+const fitButton = h('button', { type: 'button', class: 'fit-blocks', title: 'Zoom and scroll so the whole strategy is visible' }, 'Fit');
+fitButton.addEventListener('click', () => editor.fit());
+document.getElementById('left-tabs')!.append(fitButton);
+/** Fit after Blockly has laid the new blocks out (animation frames may stall in a hidden window: use a timer). */
+const fitSoon = () => setTimeout(() => editor.fit(), 60);
+if (editor.restored === 'default') fitSoon(); // a fresh user sees the whole starter strategy
+
+setupSplitter(
+  document.getElementById('layout')!,
+  document.getElementById('splitter')!,
+  parseStoredFraction(loadText(SPLIT_STORAGE_KEY)),
+  (fraction) => saveText(SPLIT_STORAGE_KEY, String(fraction)),
+  () => editor.resize(),
+);
 
 /** Loads history from `settings.startMs` to now, redraws the chart and restarts the live stream. */
 async function loadMarket(settings: RunSettings): Promise<void> {
@@ -214,6 +232,34 @@ function strategySpec(): StrategySpec | null {
   return { id: 'blocks', workspace, pineScripts: pineRecords, pineRetired };
 }
 
+const EMPTY_VERDICT_INPUT = {
+  tradeCount: 0, openPosition: false, fillCount: 0, totalReturnPct: 0, maxDrawdownPct: 0, wiped: false,
+  barsProcessed: 0, barsLoaded: 0, benchmark: null, activity: null, warmup: null,
+};
+
+/** The slowest indicator of the strategy that ran (for the "not enough history" hint), when known. */
+function strategyWarmup(spec: StrategySpec): Warmup | null {
+  if (spec.id === 'smaCross') return indicatorWarmup({ indicatorId: 'sma', params: { length: Math.max(spec.params.fast, spec.params.slow) } });
+  const compiled = compileBlocks(spec.workspace);
+  return compiled.ok ? maxWarmup(compiled.program.indicators) : null;
+}
+
+function verdictFor(result: BacktestResult, barsLoaded: number, warmup: Warmup | null) {
+  return buildVerdict({
+    tradeCount: result.trades.length,
+    openPosition: result.finalPosition.side !== 'flat',
+    fillCount: result.fills.length,
+    totalReturnPct: result.stats.totalReturnPct,
+    maxDrawdownPct: result.stats.maxDrawdownPct,
+    wiped: result.wiped,
+    barsProcessed: result.barsProcessed,
+    barsLoaded,
+    benchmark: result.benchmark ? { returnPct: result.benchmark.returnPct, maxDrawdownPct: result.benchmark.maxDrawdownPct } : null,
+    activity: result.activity ?? null,
+    warmup,
+  });
+}
+
 async function run(): Promise<void> {
   if (mode !== 'backtest') return; // Enter in the top-bar form while in Live mode
   const parsed = parseSettings(topBar.read(), Date.now());
@@ -226,9 +272,13 @@ async function run(): Promise<void> {
   const settings = parsed.settings;
   topBar.setRunning(true);
   stats.clear();
+  verdict.clear();
   try {
     await loadMarket(settings);
-    if (candles.length < 2) throw new Error('not enough candles in the selected range');
+    if (candles.length < 2) {
+      verdict.show(buildVerdict({ ...EMPTY_VERDICT_INPUT, barsLoaded: candles.length, barsProcessed: candles.length }));
+      throw new Error('not enough candles in the selected range');
+    }
     setStatus(`Running backtest on ${candles.length} bars…`);
     const result = await runBacktestInWorker({
       type: 'run',
@@ -238,6 +288,7 @@ async function run(): Promise<void> {
     });
     chart.setMarkers(fillsToMarkers(result.fills));
     stats.render(result);
+    verdict.show(verdictFor(result, candles.length, strategyWarmup(spec)));
     setStatus(
       `Backtest done (${spec.id === 'blocks' ? 'block strategy' : 'built-in SMA cross'}): ${result.barsProcessed} bars, ${result.trades.length} trades` +
         (result.wiped ? ' (ACCOUNT WIPED)' : '') +
@@ -256,7 +307,8 @@ async function run(): Promise<void> {
   }
 }
 
-const topBar = createTopBar(document.getElementById('topbar')!, defaultRawSettings(Date.now()), () => void run(), mode, (m) => switchMode(m));
+const topBar = createTopBar(document.getElementById('topbar')!, defaultRawSettings(Date.now()), () => void run(), mode, (m) => switchMode(m),
+  () => strategyChoice === 'smaCross');
 
 /** Product/timeframe/account from the top bar plus a frozen copy of the selected strategy, for a new live session. */
 function sessionBase(): SessionBase {
@@ -286,6 +338,7 @@ function switchMode(next: AppMode): void {
   mode = next;
   topBar.setMode(next);
   saveText(MODE_STORAGE_KEY, next);
+  verdict.clear(); // backtest-only (live sessions keep their own stats; no benchmark there)
   if (next === 'live') {
     live?.close(); // the backtest chart's own stream
     live = null;
@@ -305,12 +358,47 @@ function switchMode(next: AppMode): void {
       (liveSessions.hasRunning ? ' A live session keeps running in the background.' : '')))
     .catch((err: unknown) => setStatus(err instanceof Error ? err.message : String(err), true));
 }
-createStrategyPicker(topBar.extras, strategyChoice, (id) => {
-  strategyChoice = id === 'smaCross' ? 'smaCross' : 'blocks';
-  saveText(STRATEGY_STORAGE_KEY, strategyChoice);
+const strategyPicker = createStrategyPicker(topBar.extras, strategyChoice, (id) => setStrategyChoice(id === 'smaCross' ? 'smaCross' : 'blocks'));
+
+function setStrategyChoice(choice: StrategyChoice): void {
+  strategyChoice = choice;
+  strategyPicker.set(choice);
+  saveText(STRATEGY_STORAGE_KEY, choice);
+  topBar.refreshSummary();
   applyOverlays();
-});
-renderOverlayPicker(topBar.extras, PICKER_OVERLAYS, pickedOverlayIds, (ids) => {
+}
+
+/** Loads a starter into the Blocks pane; a workspace with edits is confirmed first and kept as "previous". */
+function pickStarter(id: StarterId): void {
+  const starter = getStarter(id);
+  if (!starter) return;
+  const current = editor.save();
+  const plan = starterMemory.planLoad(JSON.stringify(current), isEmptyWorkspace(current));
+  if (plan.confirm && !window.confirm(`Replace your current blocks with "${starter.label}"?\n\nYour blocks are kept: "Start from…" → "Restore previous workspace" brings them back.`)) return;
+  if (plan.savePrevious && !starterMemory.savePrevious(current, Date.now())) {
+    if (!window.confirm('Your current blocks could not be saved as the previous workspace (browser storage is full or blocked). Replace them anyway?')) return;
+  }
+  if (!editor.loadWorkspace(starter.build())) return;
+  starterMemory.recordLoaded(id, JSON.stringify(editor.save()));
+  if (strategyChoice !== 'blocks') setStrategyChoice('blocks'); // Run must test the strategy just loaded
+  fitSoon();
+  setStatus(`Loaded starter "${starter.label}": ${starter.description} Press Run to backtest it.`);
+}
+
+/** Swaps the previous workspace back in (the current one becomes the previous one: nothing is lost). */
+function restorePrevious(): void {
+  const prev = starterMemory.previous;
+  if (!prev) return;
+  const current = editor.save();
+  if (!editor.loadWorkspace(prev.workspace)) return;
+  starterMemory.completeRestore(current, Date.now());
+  if (strategyChoice !== 'blocks') setStrategyChoice('blocks');
+  fitSoon();
+  setStatus('Restored the previous workspace. The blocks you just had are now the previous workspace.');
+}
+
+createStarterPicker(topBar.tools, STARTERS, { onPick: pickStarter, onRestore: restorePrevious, previous: () => starterMemory.previous });
+renderOverlayPicker(topBar.tools, PICKER_OVERLAYS, pickedOverlayIds, (ids) => {
   pickedOverlayIds = ids;
   saveJson(OVERLAYS_STORAGE_KEY, ids);
   applyOverlays();
