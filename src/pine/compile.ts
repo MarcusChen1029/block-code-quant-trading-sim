@@ -11,7 +11,7 @@ import { MAX_TA_LENGTH, PineRuntime } from './runtime';
 import { forbiddenReferences, SHADOWED_GLOBALS } from './safety';
 import { normalizeV4 } from './v4';
 import type { SignalMarkerSpec, SignalSite } from './signals';
-import { checkV6 } from './v6';
+import { checkV6, exprTyper } from './v6';
 import { detectVersion, type PineVersion } from './version';
 
 /** A block parameter made from input.int / input.float / input.bool (bool -> 0/1). */
@@ -140,6 +140,18 @@ function compileUnguarded(source: string): PineCompileResult {
   if (v6) frontErrors.push(...v6.errors);
 
   const analysis = analyze(program, version === 4 ? 'study' : 'indicator', version);
+  // A string or colour series can never be true: reject it rather than compile a signal that never fires.
+  const typeOf = exprTyper(program);
+  for (const sg of analysis.signals) {
+    for (const site of sg.sites) {
+      const t = site.value ? typeOf(site.value) : 'unknown';
+      if (site.value && (t === 'string' || t === 'color')) {
+        const what = site.kind === 'alertcondition' ? 'condition' : site.kind === 'label' ? 'y' : 'series';
+        const name = site.kind === 'label' ? 'label.new' : site.kind;
+        frontErrors.push({ line: site.value.line, col: site.value.col, message: `${name} ${what} must be a bool or a number, not a ${t}` });
+      }
+    }
+  }
   const params = new Set<string>();
   const inputs: PineInput[] = [];
   const sources: PineSourceInput[] = [];

@@ -93,6 +93,10 @@ class V6Checker {
 
   // ---- inference -----------------------------------------------------------------------------------
 
+  inferType(e: Expr): Inferred {
+    return this.type(e);
+  }
+
   private nameType(name: string): Inferred {
     const known = this.nameTypes.get(name);
     if (known !== undefined) return known;
@@ -246,6 +250,15 @@ class V6Checker {
       for (const b of childBlocks(s)) this.visit(b);
     }
   }
+}
+
+/**
+ * The light, conservative type inference behind the v6 rules, for any version's (v5-shaped) AST: 'unknown' when
+ * not sure, so callers only act on a definite type.
+ */
+export function exprTyper(program: Stmt[]): (e: Expr) => PineType | 'na' {
+  const checker = new V6Checker(program);
+  return (e) => checker.inferType(e);
 }
 
 /** Pine v6 type rules over the (v5-shaped) AST. */
