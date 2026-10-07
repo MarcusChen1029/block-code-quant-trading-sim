@@ -101,9 +101,10 @@ export const BUILTIN_INDICATORS: IndicatorBlockDef[] = [
       const over = new CrossOver();
       const under = new CrossUnder();
       return {
-        step: (src, candle) => {
+        // The cross uses the SOURCE value the bands are built from (close by default), never a different series.
+        step: (src) => {
           const v = bb.update(src);
-          return { ...v, above_upper: bit(over.update(candle.close, v.upper)), below_lower: bit(under.update(candle.close, v.lower)) };
+          return { ...v, above_upper: bit(over.update(src, v.upper)), below_lower: bit(under.update(src, v.lower)) };
         },
       };
     },
