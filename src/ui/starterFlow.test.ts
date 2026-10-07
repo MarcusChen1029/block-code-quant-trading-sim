@@ -120,6 +120,32 @@ describe('starter flow: previous workspaces', () => {
     expect(h.current).toBe('W');
   });
 
+  it('restore reports truthfully when browser storage refuses the update', () => {
+    const store = memoryStore();
+    const h = harness({ store });
+    pickStarter(h.deps, A); // previous: [W]
+    const id = h.memory.previousList[0].id;
+    store.set = () => false; // storage now throws / is full
+    const answers = [false]; // "could not be saved... restore anyway?" -> no
+    h.deps.confirm = (m) => { h.confirms.push(m); return answers.shift() ?? true; };
+    h.edit('A-edited');
+    expect(restorePrevious(h.deps, id)).toBe(false);
+    expect(h.current).toBe('A-edited'); // nothing replaced
+    expect(h.statuses.at(-1)).toEqual(['Kept your blocks: browser storage refused to save them, so nothing was restored.', true]);
+
+    // Restoring over an untouched starter (nothing to keep) still works, but says the list could not be updated.
+    const h2 = harness({ store: memoryStore() });
+    pickStarter(h2.deps, A);
+    const id2 = h2.memory.previousList[0].id;
+    (h2.store as KeyValueStore).set = () => false;
+    expect(restorePrevious(h2.deps, id2)).toBe(true);
+    expect(h2.current).toBe('W');
+    const [message, isError] = h2.statuses.at(-1)!;
+    expect(isError).toBe(true);
+    expect(message).toMatch(/browser storage refused the update/);
+    expect(message).not.toMatch(/are kept as/);
+  });
+
   it('migrates the earlier single previous slot into the list', () => {
     const store = memoryStore();
     store.set('quant-sim.blocks.previous.v1', { workspace: ws('old'), savedAt: 5 });
