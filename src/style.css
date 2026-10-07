@@ -44,6 +44,8 @@ button.run:disabled { opacity: 0.6; cursor: progress; }
 .starter-label { color: #d1d4dc; font-weight: 600; }
 .starter-desc { color: #787b86; font-size: 11px; white-space: normal; }
 .starter-sep { border-top: 1px solid #2a2e39; margin: 4px 0; }
+.starter-heading { color: #787b86; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 8px; }
+.starter-empty { padding: 2px 8px 4px; }
 
 /* Account settings: one toggle with the summary; the fields only when open. */
 .account-toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 10px; max-width: 100%; min-width: 0; color: #787b86; background: transparent; }

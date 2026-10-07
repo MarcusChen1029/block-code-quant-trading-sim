@@ -13,7 +13,8 @@ import { h } from './ui/dom';
 import { createProblemsView, createStrategyPicker, setupLayout, setupSplitter, type LeftTab } from './ui/layout';
 import { getStarter, STARTERS, type StarterId } from './blocks/starters';
 import { parseStoredFraction } from './ui/splitter';
-import { isEmptyWorkspace, StarterMemory } from './ui/starterMemory';
+import { StarterMemory } from './ui/starterMemory';
+import { pickStarter as pickStarterFlow, restorePrevious as restorePreviousFlow, type FlowDeps } from './ui/starterFlow';
 import { createStarterPicker } from './ui/starterPicker';
 import { buildVerdict } from './ui/verdict';
 import { VerdictView } from './ui/verdictView';
@@ -146,7 +147,7 @@ if (editor.restored === 'default-after-error') {
     "the SMA cross example is shown and edits are not saved until you pick a starter from 'Start from…'.", true);
 }
 // A fresh user starts on the SMA cross: remember it as an untouched starter (replacing it later needs no confirm).
-if (editor.restored === 'default') starterMemory.recordLoaded('smaCross', JSON.stringify(editor.save()));
+if (editor.restored === 'default') starterMemory.recordLoaded('smaCross', JSON.stringify(editor.save()), getStarter('smaCross')!.label);
 if (pineStartup.length > 0) setStatus(`${pineStartup.length} saved Pine script${pineStartup.length > 1 ? 's do' : ' does'} not compile; open the Pine tab to fix ${pineStartup.length > 1 ? 'them' : 'it'}.`, true);
 
 const pineEditor = createPineEditor(document.getElementById('pine')!, {
@@ -368,36 +369,30 @@ function setStrategyChoice(choice: StrategyChoice): void {
   applyOverlays();
 }
 
-/** Loads a starter into the Blocks pane; a workspace with edits is confirmed first and kept as "previous". */
+const flowDeps: FlowDeps = {
+  editor,
+  memory: starterMemory,
+  confirm: (message) => window.confirm(message),
+  status: (message, isError = false) => setStatus(message, isError),
+  now: () => Date.now(),
+};
+
+/** Loads a starter (starterFlow.ts: edits are confirmed and kept among the last 3 previous workspaces). */
 function pickStarter(id: StarterId): void {
   const starter = getStarter(id);
-  if (!starter) return;
-  const current = editor.save();
-  const plan = starterMemory.planLoad(JSON.stringify(current), isEmptyWorkspace(current));
-  if (plan.confirm && !window.confirm(`Replace your current blocks with "${starter.label}"?\n\nYour blocks are kept: "Start from…" → "Restore previous workspace" brings them back.`)) return;
-  if (plan.savePrevious && !starterMemory.savePrevious(current, Date.now())) {
-    if (!window.confirm('Your current blocks could not be saved as the previous workspace (browser storage is full or blocked). Replace them anyway?')) return;
-  }
-  if (!editor.loadWorkspace(starter.build())) return;
-  starterMemory.recordLoaded(id, JSON.stringify(editor.save()));
+  if (!starter || !pickStarterFlow(flowDeps, starter)) return;
   if (strategyChoice !== 'blocks') setStrategyChoice('blocks'); // Run must test the strategy just loaded
   fitSoon();
-  setStatus(`Loaded starter "${starter.label}": ${starter.description} Press Run to backtest it.`);
 }
 
-/** Swaps the previous workspace back in (the current one becomes the previous one: nothing is lost). */
-function restorePrevious(): void {
-  const prev = starterMemory.previous;
-  if (!prev) return;
-  const current = editor.save();
-  if (!editor.loadWorkspace(prev.workspace)) return;
-  starterMemory.completeRestore(current, Date.now());
+/** Brings previous workspace `id` back; the blocks it replaces take its place in the list. */
+function restorePrevious(id: string): void {
+  if (!restorePreviousFlow(flowDeps, id)) return;
   if (strategyChoice !== 'blocks') setStrategyChoice('blocks');
   fitSoon();
-  setStatus('Restored the previous workspace. The blocks you just had are now the previous workspace.');
 }
 
-createStarterPicker(topBar.tools, STARTERS, { onPick: pickStarter, onRestore: restorePrevious, previous: () => starterMemory.previous });
+createStarterPicker(topBar.tools, STARTERS, { onPick: pickStarter, onRestore: restorePrevious, previousList: () => starterMemory.previousList });
 renderOverlayPicker(topBar.tools, PICKER_OVERLAYS, pickedOverlayIds, (ids) => {
   pickedOverlayIds = ids;
   saveJson(OVERLAYS_STORAGE_KEY, ids);

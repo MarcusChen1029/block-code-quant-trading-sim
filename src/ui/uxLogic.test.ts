@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { accountSummary } from './accountSummary';
 import { overlayBadge } from './overlayPicker';
 import { clampFraction, fractionForKey, fractionFromPointer, fractionRange, parseStoredFraction, SPLIT } from './splitter';
-import { isEmptyWorkspace, LAST_STARTER_KEY, PREVIOUS_WORKSPACE_KEY, StarterMemory, type KeyValueStore } from './starterMemory';
+import { isEmptyWorkspace, LAST_STARTER_KEY, PREVIOUS_LIST_KEY, PREVIOUS_WORKSPACE_KEY, StarterMemory, type KeyValueStore } from './starterMemory';
 
 const DEF = { leverage: '1', takerFeePct: '0.04', makerFeePct: '0.02', slippageBps: '2' };
 
@@ -84,45 +84,41 @@ function memoryStore(): KeyValueStore & { data: Map<string, unknown> } {
 describe('StarterMemory (previous workspace)', () => {
   const ws = (name: string) => ({ blocks: { blocks: [{ type: 'event_bar', id: name }] } });
 
-  it('a fresh user with nothing recorded is asked before replacing a non-empty workspace, and it is saved', () => {
+  it('a fresh user with nothing recorded is asked before replacing a non-empty workspace, labelled "Your blocks"', () => {
     const m = new StarterMemory(memoryStore());
-    expect(m.planLoad(JSON.stringify(ws('mine')), false)).toEqual({ confirm: true, savePrevious: true });
-    expect(m.planLoad('{}', true)).toEqual({ confirm: false, savePrevious: false }); // empty: nothing to lose
+    expect(m.planReplace(JSON.stringify(ws('mine')), false)).toEqual({ confirm: true, savePrevious: true, evicts: null, label: 'Your blocks' });
+    expect(m.planReplace('{}', true)).toMatchObject({ confirm: false, savePrevious: false }); // empty: nothing to lose
   });
 
-  it('an untouched starter is replaced silently; an edited one asks and is kept', () => {
+  it('an untouched starter is replaced silently; an edited one asks and is labelled with the starter', () => {
     const m = new StarterMemory(memoryStore());
     const loaded = JSON.stringify(ws('sma'));
-    m.recordLoaded('smaCross', loaded);
-    expect(m.planLoad(loaded, false)).toEqual({ confirm: false, savePrevious: false });
-    expect(m.planLoad(JSON.stringify(ws('sma-edited')), false)).toEqual({ confirm: true, savePrevious: true });
+    m.recordLoaded('smaCross', loaded, 'SMA 10/30 cross');
+    expect(m.planReplace(loaded, false)).toMatchObject({ confirm: false, savePrevious: false });
+    expect(m.planReplace(JSON.stringify(ws('sma-edited')), false)).toEqual({ confirm: true, savePrevious: true, evicts: null, label: 'Edited SMA 10/30 cross' });
   });
 
-  it('saves the previous workspace and restores it by swapping (no data loss either way)', () => {
+  it('writes most recent first, trims to 3 and reverts exactly from a snapshot', () => {
     const store = memoryStore();
     const m = new StarterMemory(store);
-    expect(m.previous).toBeNull();
-    m.savePrevious(ws('mine'), 1000);
-    m.recordLoaded('rsiReversion', JSON.stringify(ws('rsi')));
-    expect(m.previous).toEqual({ workspace: ws('mine'), savedAt: 1000 });
-
-    // Restore: the RSI starter now showing becomes the previous one; the next starter pick asks again.
-    const restored = m.previous!.workspace;
-    expect(m.completeRestore(ws('rsi'), 2000)).toBe(true);
-    expect(restored).toEqual(ws('mine'));
-    expect(m.previous).toEqual({ workspace: ws('rsi'), savedAt: 2000 });
-    expect(m.last).toBeNull();
-    expect(m.isModified(JSON.stringify(ws('mine')))).toBe(true);
-    expect(store.data.has(PREVIOUS_WORKSPACE_KEY) && store.data.has(LAST_STARTER_KEY)).toBe(true);
+    for (const t of [1, 2, 3]) m.writeList([{ workspace: ws(`w${t}`), savedAt: t, label: 'Your blocks' }]);
+    const snap = m.snapshot();
+    expect(m.planReplace(JSON.stringify(ws('x')), false).evicts?.id).toBe('p-1');
+    m.writeList([{ workspace: ws('w4'), savedAt: 4, label: 'Your blocks' }]);
+    expect(m.previousList.map((p) => p.id)).toEqual(['p-4', 'p-3', 'p-2']);
+    m.revert(snap);
+    expect(m.previousList.map((p) => p.id)).toEqual(['p-3', 'p-2', 'p-1']);
+    expect(store.data.has(PREVIOUS_LIST_KEY)).toBe(true);
   });
 
   it('ignores malformed stored values', () => {
     const store = memoryStore();
     store.set(LAST_STARTER_KEY, { id: 3 });
     store.set(PREVIOUS_WORKSPACE_KEY, { workspace: null, savedAt: 1 });
+    store.set(PREVIOUS_LIST_KEY, [{ workspace: null, savedAt: 2 }, 'junk', { workspace: ws('ok'), savedAt: 3 }]);
     const m = new StarterMemory(store);
     expect(m.last).toBeNull();
-    expect(m.previous).toBeNull();
+    expect(m.previousList.map((p) => p.id)).toEqual(['p-3']);
   });
 
   it('detects empty workspaces', () => {
