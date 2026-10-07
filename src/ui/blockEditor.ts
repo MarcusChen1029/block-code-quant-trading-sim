@@ -1,4 +1,5 @@
 import * as Blockly from 'blockly';
+import { HAT_MAX_INSTANCES } from '../blocks/blockTypes';
 import { defaultWorkspace } from '../blocks/defaultWorkspace';
 import { defineBlocks, defineMissingIndicatorBlocks } from '../blocks/definitions';
 import type { CompileIssue } from '../blocks/generator';
@@ -55,6 +56,7 @@ export function createBlockEditor(
     grid: { spacing: 24, length: 2, colour: '#2a2e39', snap: true },
     zoom: { controls: true, wheel: true, startScale: 0.65, maxScale: 2, minScale: 0.3, scaleSpeed: 1.15 },
     move: { scrollbars: true, drag: true, wheel: false },
+    maxInstances: { ...HAT_MAX_INSTANCES },
   });
 
   let loading = false;

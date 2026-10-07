@@ -36,6 +36,12 @@ export const BT = {
   log: 'action_log',
 } as const;
 
+/**
+ * Blockly `maxInstances`: a strategy has at most one of each event hat (the compiler rejects a second one).
+ * With the limit reached Blockly greys the hat out in the toolbox and refuses to paste or duplicate it.
+ */
+export const HAT_MAX_INSTANCES: Readonly<Record<string, number>> = { [BT.start]: 1, [BT.bar]: 1 };
+
 export type Options = ReadonlyArray<readonly [string, string]>;
 
 export const PRICE_FIELD_OPTIONS: Options = [
