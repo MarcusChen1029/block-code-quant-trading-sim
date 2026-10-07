@@ -16,7 +16,8 @@ Sources (fetched 2026-10-07; keys used below):
 
 ## Version line
 `//@version=4|5|6` selects the dialect. Missing line: warning, compiled as v5 (unchanged rule). 1..3, above 6,
-or not a whole number (`//@version=abc`): error on that line.
+or no leading number (`//@version=abc`): error on that line. Leading digits with trailing text (`5.0`) compiled
+as that number before; the docs only show plain numbers (unverified), so it stays accepted, with a warning.
 
 ## (a) v4 differences that touch our subset -> normalised to the v5 AST
 - Namespaces [M5 rename tables]: bare `sma ema rma wma rsi stdev change highest lowest macd bb atr stoch

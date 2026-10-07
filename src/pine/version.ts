@@ -22,11 +22,15 @@ export function detectVersion(source: string): VersionResult {
     if (!m) continue;
     const line = i + 1;
     const text = m[1].replace(/\/\/.*$/, '');
-    if (!/^\d{1,3}$/.test(text)) {
+    const digits = /^\d{1,3}/.exec(text);
+    if (!digits) {
       return { ok: false, error: { line, col: 1, message: `malformed version line "//@version=${text.slice(0, 20)}": write //@version=4, //@version=5 or //@version=6` } };
     }
-    const n = Number(text);
-    if (n === 4 || n === 5 || n === 6) return { ok: true, version: n };
+    const n = Number(digits[0]);
+    // "5.0" and the like compiled as v5 before v4/v6 support; keep accepting them (the docs only show "=5").
+    const warning = digits[0] === text ? undefined
+      : { line, col: 1, message: `"//@version=${text.slice(0, 20)}" is not a plain version number: compiled as Pine v${n} (write //@version=${n})` };
+    if (n === 4 || n === 5 || n === 6) return warning ? { ok: true, version: n, warning } : { ok: true, version: n };
     const why = n < 4 ? `Pine v${n} is too old` : `Pine v${n} is not supported yet`;
     return { ok: false, error: { line, col: 1, message: `${why} (found //@version=${n}): only versions 4, 5 and 6 are supported` } };
   }

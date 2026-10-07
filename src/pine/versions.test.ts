@@ -23,13 +23,21 @@ describe('version line', () => {
     expect(result.warnings).toEqual([at(1, 1, 'no //@version=5 line: compiled as Pine v5')]);
   });
 
+  it('"N.0"-style lines (accepted before v4/v6 support) still compile as version N, with a warning', () => {
+    for (const [line, n, body] of [['5.0', 5, 'indicator("x")'], ['4.0', 4, 'study("x")'], ['6.0', 6, 'indicator("x")'], ['5.5', 5, 'indicator("x")']] as const) {
+      const result = compilePine(`//@version=${line}\n${body}\nplot(close)\n`);
+      expect(result.ok && result.script.version, line).toBe(n);
+      expect(result.warnings, line).toEqual([at(1, 1, `"//@version=${line}" is not a plain version number: compiled as Pine v${n} (write //@version=${n})`)]);
+    }
+    expect(compileErrors('//@version=3.0\nstudy("x")\nplot(close)\n')).toEqual([at(1, 1, /^Pine v3 is too old/)]);
+  });
+
   it('versions below 4 or above 6, and malformed lines, are errors on that line', () => {
     expect(compileErrors('//@version=3\nstudy("x")\nplot(close)\n')).toEqual([at(1, 1, 'Pine v3 is too old (found //@version=3): only versions 4, 5 and 6 are supported')]);
     expect(compileErrors('//@version=1\nplot(close)\n')).toEqual([at(1, 1, /^Pine v1 is too old/)]);
     expect(compileErrors('//@version=7\nindicator("x")\nplot(close)\n')).toEqual([at(1, 1, 'Pine v7 is not supported yet (found //@version=7): only versions 4, 5 and 6 are supported')]);
     expect(compileErrors('//@version=abc\nindicator("x")\nplot(close)\n')).toEqual([at(1, 1, 'malformed version line "//@version=abc": write //@version=4, //@version=5 or //@version=6')]);
     expect(compileErrors('//@version=\nindicator("x")\nplot(close)\n')).toEqual([at(1, 1, /^malformed version line/)]);
-    expect(compileErrors('//@version=5.5\nindicator("x")\nplot(close)\n')).toEqual([at(1, 1, /^malformed version line "\/\/@version=5\.5"/)]);
     expect(compileErrors('// my script\n//@version=9\nindicator("x")\nplot(close)\n')).toEqual([at(2, 1, /^Pine v9 is not supported yet/)]);
   });
 });
