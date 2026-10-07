@@ -26,16 +26,16 @@ describe('parseSettings', () => {
   });
 
   it.each([
-    [{ symbol: 'BTC/USDT' }, 'symbol must be 2-20 letters/digits, e.g. BTCUSDT'],
-    [{ timeframe: '7m' }, 'unsupported timeframe: 7m'],
-    [{ startDate: '07/07/2026' }, 'start date must be YYYY-MM-DD'],
-    [{ startDate: '2026-12-01' }, 'start date must be in the past'],
-    [{ balance: '0' }, 'balance must be greater than 0'],
-    [{ leverage: '200' }, 'leverage must be between 1 and 125'],
-    [{ takerFeePct: '-1' }, 'fees must be between 0% and 1%'],
-    [{ slippageBps: '' }, 'slippage must be between 0 and 1000 bps'],
-  ])('rejects %j', (patch, error) => {
-    expect(parseSettings({ ...base, ...patch }, NOW)).toEqual({ ok: false, error });
+    [{ symbol: 'BTC/USDT' }, 'symbol must be 2-20 letters/digits, e.g. BTCUSDT', 'symbol'],
+    [{ timeframe: '7m' }, 'unsupported timeframe: 7m', 'timeframe'],
+    [{ startDate: '07/07/2026' }, 'start date must be YYYY-MM-DD', 'startDate'],
+    [{ startDate: '2026-12-01' }, 'start date must be in the past', 'startDate'],
+    [{ balance: '0' }, 'balance must be greater than 0', 'balance'],
+    [{ leverage: '200' }, 'leverage must be between 1 and 125, got 200', 'leverage'],
+    [{ takerFeePct: '-1' }, 'taker fee must be between 0% and 1%, got -1', 'takerFeePct'],
+    [{ slippageBps: '' }, 'slippage must be between 0 and 1000 bps, got nothing', 'slippageBps'],
+  ])('rejects %j', (patch, error, field) => {
+    expect(parseSettings({ ...base, ...patch }, NOW)).toEqual({ ok: false, error, field });
   });
 
   it('caps the number of bars', () => {

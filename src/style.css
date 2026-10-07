@@ -58,6 +58,7 @@ button.run:disabled { opacity: 0.6; cursor: progress; }
 .account-toggle.open .account-caret { transform: rotate(90deg); }
 .account-panel { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; padding: 6px 8px; background: #0f121a; border: 1px solid #2a2e39; border-radius: 4px; }
 .account-panel[hidden] { display: none; }
+.run-form [aria-invalid='true'] { border-color: #ef5350; box-shadow: 0 0 0 1px #ef5350; }
 .extras { display: flex; align-items: flex-end; }
 .strategy-picker { color: #787b86; font-size: 11px; }
 

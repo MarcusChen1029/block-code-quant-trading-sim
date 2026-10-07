@@ -265,7 +265,8 @@ async function run(): Promise<void> {
   if (mode !== 'backtest') return; // Enter in the top-bar form while in Live mode
   const parsed = parseSettings(topBar.read(), Date.now());
   if (!parsed.ok) {
-    setStatus(parsed.error, true);
+    setStatus(`Cannot run: ${parsed.error}.`, true);
+    topBar.showInvalid(parsed.field);
     return;
   }
   const spec = strategySpec();
@@ -315,7 +316,10 @@ const topBar = createTopBar(document.getElementById('topbar')!, defaultRawSettin
 function sessionBase(): SessionBase {
   const now = Date.now();
   const parsed = parseSettings({ ...topBar.read(), startDate: defaultStartDate(now, 1) }, now); // the start date is backtest-only
-  if (!parsed.ok) return parsed;
+  if (!parsed.ok) {
+    topBar.showInvalid(parsed.field);
+    return { ok: false, error: `Cannot start: ${parsed.error}.` };
+  }
   const { symbol, timeframe, broker } = parsed.settings;
   if (strategyChoice === 'smaCross') return { ok: true, symbol, timeframe, brokerConfig: broker, strategy: smaCrossSnapshot(DEFAULT_SMA_CROSS) };
   const spec = strategySpec();

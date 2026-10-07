@@ -1,7 +1,7 @@
 import { TIMEFRAMES } from '../data/types';
 import { accountSummary } from './accountSummary';
 import { h } from './dom';
-import type { RawSettings } from './settings';
+import { isAccountField, type RawSettings } from './settings';
 import { loadText, saveText } from './storage';
 
 export interface TopBar {
@@ -14,6 +14,8 @@ export interface TopBar {
   setMode(mode: AppMode): void;
   /** Recomputes the closed section's summary (call when something it mentions changes outside the fields). */
   refreshSummary(): void;
+  /** Marks `field` invalid and focuses it, opening Account settings first when the field lives there. */
+  showInvalid(field: keyof RawSettings): void;
 }
 
 /** Backtest: run over history. Live: paper-trade sessions on the live stream (start date and Run do not apply). */
@@ -118,6 +120,9 @@ export function createTopBar(
     accountToggle,
     accountPanel,
   );
+  // The browser's own validation (min/max/step) would silently block submit: parseSettings validates instead,
+  // with a specific message; the step attributes only drive the spinner arrows.
+  form.noValidate = true;
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
     onRun();
@@ -126,11 +131,24 @@ export function createTopBar(
   setOpen(loadText(ACCOUNT_OPEN_STORAGE_KEY) === '1');
   refreshSummary();
 
+  const fields: Record<keyof RawSettings, HTMLInputElement | HTMLSelectElement> = {
+    symbol, timeframe, startDate, balance, leverage, takerFeePct, makerFeePct, slippageBps,
+  };
+  for (const el of Object.values(fields)) el.addEventListener('input', () => el.removeAttribute('aria-invalid'));
+  const showInvalid = (field: keyof RawSettings) => {
+    const el = fields[field];
+    if (isAccountField(field) && !accountOpen) setOpen(true);
+    el.setAttribute('aria-invalid', 'true');
+    el.focus();
+    if (el instanceof HTMLInputElement && el.type !== 'date') el.select();
+  };
+
   return {
     tools,
     extras,
     setMode: showMode,
     refreshSummary,
+    showInvalid,
     read: () => ({
       symbol: symbol.value,
       timeframe: timeframe.value,
