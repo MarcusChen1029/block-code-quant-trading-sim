@@ -35,6 +35,7 @@ button.run:disabled { opacity: 0.6; cursor: progress; }
 .tabs button.active { background: #2a2e39; color: #fff; }
 .tabs button:disabled { opacity: 0.45; cursor: not-allowed; }
 .tabs .reset-blocks { margin-left: auto; font-size: 11px; color: #787b86; }
+.tabs .example-blocks { margin-left: 4px; font-size: 11px; color: #787b86; }
 #blockly { flex: 1; min-height: 0; position: relative; }
 .problems { margin: 0; padding: 4px 8px; list-style: none; max-height: 120px; overflow: auto; border-top: 1px solid #2a2e39; font-size: 12px; }
 .problem-error { color: #ef5350; }
@@ -44,7 +45,7 @@ button.run:disabled { opacity: 0.6; cursor: progress; }
 .pane-switch { display: none; }
 
 /* Left pane tabs: Blocks | Pine. */
-body[data-left-tab='pine'] #blockly, body[data-left-tab='pine'] #problems, body[data-left-tab='pine'] .reset-blocks { display: none; }
+body[data-left-tab='pine'] #blockly, body[data-left-tab='pine'] #problems, body[data-left-tab='pine'] .reset-blocks, body[data-left-tab='pine'] .example-blocks { display: none; }
 body:not([data-left-tab='pine']) #pine { display: none; }
 .pine-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .pine-toolbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; border-bottom: 1px solid #2a2e39; }

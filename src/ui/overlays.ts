@@ -1,5 +1,5 @@
 import type { LineData, UTCTimestamp, WhitespaceData } from 'lightweight-charts';
-import type { SignalMarker } from '../blocks/registry';
+import type { SignalMarker, ZoneEvent, ZoneStyle } from '../blocks/registry';
 import type { Candle } from '../data/types';
 import { Ema, Sma } from '../indicators/averages';
 import { BollingerBands } from '../indicators/bands';
@@ -31,12 +31,19 @@ export interface OverlayDef {
   indicatorId?: string;
   /** Signals to mark on the chart (on the price series, or on this overlay's own pane when it has one). */
   signals?: OverlaySignal[];
+  /** Zone indicators: how its zones are drawn (the stepper then has `zones()`). */
+  zones?: ZoneStyle;
+  /** Identity of the zone indicator + settings: two overlays with the same key draw their zones once. */
+  zoneKey?: string;
   /**
    * Returns a fresh stepper. Call it once per CLOSED candle; it returns one value per line key (NaN = na), 1/0 per
    * signal key, and for price-located signals the marker price under `signalPriceKey(key)`.
    */
-  create(): (candle: Candle) => Record<string, number>;
+  create(): OverlayStepper;
 }
+
+/** A stepper; zone overlays also report the zone lifecycle events of the candle just stepped. */
+export type OverlayStepper = ((candle: Candle) => Record<string, number>) & { zones?: () => readonly ZoneEvent[] };
 
 /** Where a stepper reports a signal's marker price (not an identifier, so it never collides with an output key). */
 export const signalPriceKey = (key: string) => `price:${key}`;

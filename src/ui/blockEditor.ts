@@ -1,6 +1,7 @@
 import * as Blockly from 'blockly';
 import { HAT_MAX_INSTANCES } from '../blocks/blockTypes';
 import { defaultWorkspace } from '../blocks/defaultWorkspace';
+import { zoneExampleWorkspace } from '../blocks/zoneExample';
 import { defineBlocks, defineMissingIndicatorBlocks } from '../blocks/definitions';
 import type { CompileIssue } from '../blocks/generator';
 import { quantTheme } from '../blocks/theme';
@@ -21,8 +22,8 @@ export interface BlockEditor {
   /** Highlights, selects and scrolls to a block that failed at runtime. */
   highlightError(blockId: string, message: string): void;
   resize(): void;
-  /** Replaces the workspace with the SMA-cross example. */
-  resetToExample(): void;
+  /** Replaces the workspace with an example: the SMA cross (default) or the order block + FVG zones example. */
+  resetToExample(example?: 'smaCross' | 'zones'): void;
   /**
    * Indicator registrations changed (Pine scripts saved / deleted): redefines blocks, rebuilds the toolbox and
    * reloads the current workspace so blocks pick up new shapes; then recompiles (onChange) even if unchanged.
@@ -154,8 +155,8 @@ export function createBlockEditor(
       block.setWarningText(message, ISSUE_WARNING_ID);
     },
     resize: () => Blockly.svgResize(ws),
-    resetToExample() {
-      if (!load(defaultWorkspace()).ok) return;
+    resetToExample(example = 'smaCross') {
+      if (!load(example === 'zones' ? zoneExampleWorkspace() : defaultWorkspace()).ok) return;
       persist = true;
       emit();
     },

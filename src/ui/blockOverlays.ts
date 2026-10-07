@@ -1,5 +1,6 @@
 import type { IndicatorUse } from '../blocks/generator';
 import { priceOf } from '../blocks/priceSource';
+import type { Candle } from '../data/types';
 import { getIndicator, type IndicatorBlockDef } from '../blocks/registry';
 import { signalPriceKey, type OverlayDef, type OverlaySignal } from './overlays';
 
@@ -70,8 +71,10 @@ export function blockIndicatorOverlays(
       label,
       indicatorId: def.id,
       pane: def.pane,
-      lines: def.outputs.map((o) => ({ key: o.key, color: COLORS[colorCursor++ % COLORS.length] })),
+      // Zone indicators are drawn as boxes / levels; their numeric outputs (nearest zone edges) are not drawn as lines.
+      lines: def.zones ? [] : def.outputs.map((o) => ({ key: o.key, color: COLORS[colorCursor++ % COLORS.length] })),
       ...(signals.length > 0 ? { signals } : {}),
+      ...(def.zones ? { zones: def.zones.style, zoneKey: g.key } : {}),
       create() {
         // A Pine script can throw (bad parameter, loop budget): the chart then shows gaps instead of breaking.
         const gap = () => Object.fromEntries([...def.outputs.map((o) => [o.key, NaN]), ...signals.map((s) => [s.key, 0])]);
@@ -81,7 +84,7 @@ export function blockIndicatorOverlays(
         } catch {
           return gap;
         }
-        return (candle) => {
+        const step = (candle: Candle) => {
           if (!instance) return gap();
           try {
             const result = instance.step(source ? priceOf(candle, source) : NaN, candle);
@@ -94,6 +97,7 @@ export function blockIndicatorOverlays(
             return gap();
           }
         };
+        return def.zones ? Object.assign(step, { zones: () => instance?.zones?.() ?? [] }) : step;
       },
     });
   }
@@ -123,6 +127,26 @@ export function liveSessionOverlays(session: readonly OverlayDef[], extra: reado
     }
   }
   return out;
+}
+
+/** The zone indicators offered as top-bar "show on chart" toggles, in this order, with these labels. */
+export const ZONE_TOGGLES: ReadonlyArray<readonly [id: string, label: string]> = [
+  ['orderblock', 'Order blocks'],
+  ['fvg', 'FVG'],
+  ['swing', 'Swing structure'],
+];
+
+/**
+ * Picker overlays for the zone indicators with default settings (ids `zones-<id>`): their zones, plus the signals
+ * that have markers (swing structure: break of structure arrows). Zones identical to a strategy's are drawn once.
+ */
+export function zoneToggleOverlays(resolve: (id: string) => IndicatorBlockDef | undefined = getIndicator): OverlayDef[] {
+  return ZONE_TOGGLES.flatMap(([id, label]) => {
+    const def = resolve(id);
+    if (!def) return [];
+    const [overlay] = blockIndicatorOverlays([defaultIndicatorUse(def)], resolve);
+    return overlay ? [{ ...overlay, id: `zones-${id}`, label }] : [];
+  });
 }
 
 /**

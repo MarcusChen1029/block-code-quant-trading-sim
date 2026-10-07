@@ -72,7 +72,12 @@ export function buildToolbox(): Toolbox {
         block(BT.balance), block(BT.equity), block(BT.positionIs), block(BT.positionSide), block(BT.positionSize),
         block(BT.entryPrice), block(BT.unrealizedPnl), block(BT.openOrders),
       ]),
-      category('Indicators', 'indicator_blocks', all.filter((d) => !d.id.startsWith(PINE_ID_PREFIX)).flatMap(indicatorBlock)),
+      category('Indicators', 'indicator_blocks', all.filter((d) => !d.id.startsWith(PINE_ID_PREFIX) && !d.zones).flatMap(indicatorBlock)),
+      // Order blocks, fair value gaps, swing structure: numeric outputs + signals, drawn as zones on the chart.
+      category('Zones', 'indicator_blocks', [
+        { kind: 'label', text: 'Zones: boxes on the chart; values only use closed bars (no look-ahead).' },
+        ...all.filter((d) => !d.id.startsWith(PINE_ID_PREFIX) && d.zones).flatMap(indicatorBlock),
+      ]),
       category('Pine', 'indicator_blocks', pine.length > 0
         ? pine.flatMap(indicatorBlock)
         : [{ kind: 'label', text: 'Compile a script in the Pine tab to get a block here.' }]),

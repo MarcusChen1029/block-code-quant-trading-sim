@@ -7,7 +7,7 @@ import { BinanceFuturesAdapter } from './data/binance';
 import type { Candle } from './data/types';
 import { DEFAULT_SMA_CROSS } from './engine/strategies/smaCross';
 import { createBlockEditor } from './ui/blockEditor';
-import { blockIndicatorOverlays, defaultIndicatorUse } from './ui/blockOverlays';
+import { blockIndicatorOverlays, defaultIndicatorUse, zoneToggleOverlays } from './ui/blockOverlays';
 import { ChartPanel } from './ui/chart';
 import { h } from './ui/dom';
 import { createProblemsView, createStrategyPicker, setupLayout, type LeftTab } from './ui/layout';
@@ -21,7 +21,7 @@ import { defaultRawSettings, defaultStartDate, parseSettings, type RunSettings }
 import { blocksSnapshot, smaCrossSnapshot } from './live/session';
 import { LiveMode, type SessionBase } from './ui/liveMode';
 import { StatsPanel } from './ui/statsPanel';
-import { loadText, saveText } from './ui/storage';
+import { loadJson, loadText, saveJson, saveText } from './ui/storage';
 import { createTopBar, type AppMode } from './ui/topbar';
 import { BacktestError, runBacktestInWorker } from './worker/client';
 import type { StrategySpec } from './worker/protocol';
@@ -30,6 +30,17 @@ type StrategyChoice = 'blocks' | 'smaCross';
 const STRATEGY_STORAGE_KEY = 'quant-sim.strategy';
 const LEFT_TAB_STORAGE_KEY = 'quant-sim.left-tab';
 const MODE_STORAGE_KEY = 'quant-sim.mode';
+const OVERLAYS_STORAGE_KEY = 'quant-sim.overlays.v1';
+
+/** Top-bar picker: the classic overlays plus the zone indicators' "show on chart" toggles (default settings). */
+const PICKER_OVERLAYS: OverlayDef[] = [...OVERLAYS, ...zoneToggleOverlays()];
+
+/** Picked overlay ids remembered across reloads (unknown ids from storage are dropped). */
+function loadPickedOverlays(): string[] {
+  const saved = loadJson(OVERLAYS_STORAGE_KEY);
+  const known = new Set(PICKER_OVERLAYS.map((d) => d.id));
+  return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string' && known.has(id)) : [];
+}
 
 // Pine indicators must be registered before the block editor loads a workspace that uses them.
 let pineRecords = loadPineRecords();
@@ -53,7 +64,7 @@ const chart = new ChartPanel(document.getElementById('chart')!);
 const stats = new StatsPanel(document.getElementById('stats')!);
 let candles: Candle[] = [];
 let live: CandleSubscription | null = null;
-let pickedOverlayIds: string[] = [];
+let pickedOverlayIds: string[] = loadPickedOverlays();
 let strategyChoice: StrategyChoice = loadText(STRATEGY_STORAGE_KEY) === 'smaCross' ? 'smaCross' : 'blocks';
 let mode: AppMode = loadText(MODE_STORAGE_KEY) === 'live' ? 'live' : 'backtest';
 /** Created after the editor (whose first compile already redraws overlays). */
@@ -86,7 +97,7 @@ function applyOverlays(): void {
     liveMode?.redrawOverlays(); // a live session draws its own snapshot's indicators
     return;
   }
-  chart.setOverlays([...strategyOverlays(), ...OVERLAYS.filter((d) => pickedOverlayIds.includes(d.id))], candles);
+  chart.setOverlays([...strategyOverlays(), ...PICKER_OVERLAYS.filter((d) => pickedOverlayIds.includes(d.id))], candles);
 }
 
 const problems = createProblemsView(document.getElementById('problems')!, (blockId, message) => editor.highlightError(blockId, message));
@@ -158,7 +169,11 @@ const resetButton = h('button', { type: 'button', class: 'reset-blocks', title: 
 resetButton.addEventListener('click', () => {
   if (window.confirm('Replace your blocks with the SMA 10/30 cross example?')) editor.resetToExample();
 });
-document.getElementById('left-tabs')!.append(resetButton);
+const zoneExampleButton = h('button', { type: 'button', class: 'example-blocks', title: 'Replace the workspace with the order block + fair value gap example' }, 'Zone example');
+zoneExampleButton.addEventListener('click', () => {
+  if (window.confirm('Replace your blocks with the order block + FVG zone example?')) editor.resetToExample('zones');
+});
+document.getElementById('left-tabs')!.append(resetButton, zoneExampleButton);
 
 /** Loads history from `settings.startMs` to now, redraws the chart and restarts the live stream. */
 async function loadMarket(settings: RunSettings): Promise<void> {
@@ -261,7 +276,7 @@ const liveSessions = new LiveMode(document.getElementById('live')!, {
   setStatus,
   highlightBlock: (blockId, message) => editor.highlightError(blockId, message),
   sessionBase,
-  extraOverlays: () => [...blockIndicatorOverlays(shownUses()), ...OVERLAYS.filter((d) => pickedOverlayIds.includes(d.id))],
+  extraOverlays: () => [...blockIndicatorOverlays(shownUses()), ...PICKER_OVERLAYS.filter((d) => pickedOverlayIds.includes(d.id))],
   confirm: (message) => window.confirm(message),
   now: () => Date.now(),
 });
@@ -295,10 +310,14 @@ createStrategyPicker(topBar.extras, strategyChoice, (id) => {
   saveText(STRATEGY_STORAGE_KEY, strategyChoice);
   applyOverlays();
 });
-renderOverlayPicker(topBar.extras, OVERLAYS, pickedOverlayIds, (ids) => {
+renderOverlayPicker(topBar.extras, PICKER_OVERLAYS, pickedOverlayIds, (ids) => {
   pickedOverlayIds = ids;
+  saveJson(OVERLAYS_STORAGE_KEY, ids);
   applyOverlays();
 });
+
+// Development builds only: lets a browser check read what the chart drew (zone boxes, signal counts).
+if (import.meta.env.DEV) (window as unknown as { __quantSim?: unknown }).__quantSim = { chart };
 
 liveSessions
   .init()

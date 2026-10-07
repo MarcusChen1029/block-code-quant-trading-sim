@@ -1,4 +1,5 @@
 import type { Candle } from '../data/types';
+import type { Zone } from '../indicators/zones';
 import { BUILTIN_INDICATORS } from './builtinIndicators';
 import type { PriceSource } from './priceSource';
 
@@ -43,6 +44,20 @@ export interface SignalOutput {
 }
 
 /**
+ * A zone lifecycle event (order block, fair value gap, swing level): reported once when the zone becomes known
+ * (`endTime` null) and once when it stops being active. Upsert by `id` (unique per instance).
+ */
+export type ZoneEvent = Zone;
+
+/** How an indicator's zones are drawn: order-block boxes, fair-value-gap boxes (another tint), swing levels (lines). */
+export type ZoneStyle = 'orderBlock' | 'fvg' | 'swing';
+
+/** An indicator that draws zones on the chart (optional capability next to `outputs` and `signals`). */
+export interface ZoneOutput {
+  style: ZoneStyle;
+}
+
+/**
  * One stateful, incremental indicator instance. `step` is called exactly once per closed bar, in bar order,
  * and returns one value per output key (NaN = na).
  */
@@ -50,6 +65,8 @@ export interface IndicatorInstance {
   step(source: number, candle: Candle): Record<string, number>;
   /** Marker price of signal `key` on the last stepped bar, for markers located at 'price' (NaN = none). */
   markerPrice?(key: string): number;
+  /** Zone lifecycle events of the last stepped bar (indicators with `zones`); empty when nothing changed. */
+  zones?(): readonly ZoneEvent[];
 }
 
 /**
@@ -75,6 +92,8 @@ export interface IndicatorBlockDef {
   outputs: IndicatorOutput[];
   /** Signal outputs: they get a second, Boolean block type `sig_<id>` with a dropdown of them. */
   signals?: SignalOutput[];
+  /** Zones drawn on the chart (its instances implement `zones()`); numeric outputs are then not drawn as lines. */
+  zones?: ZoneOutput;
   create(params: Record<string, number>): IndicatorInstance;
 }
 

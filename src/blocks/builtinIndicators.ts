@@ -8,6 +8,7 @@ import type { SeriesIndicator } from '../indicators/types';
 import { Atr } from '../indicators/volatility';
 import { Vwap } from '../indicators/vwap';
 import type { IndicatorBlockDef, IndicatorParam, SignalOutput } from './registry';
+import { ZONE_INDICATORS } from './zoneIndicators';
 
 const VALUE = [{ key: 'value', label: 'value' }];
 const length = (def: number): IndicatorParam => ({ name: 'length', label: 'length', default: def, min: 1, max: 5000, integer: true });
@@ -174,4 +175,5 @@ export const BUILTIN_INDICATORS: IndicatorBlockDef[] = [
   series('highest', 'highest', 'Highest value of the last N bars, including this one (ta.highest).', 'price', 20, (n) => new Highest(n), 'high'),
   series('lowest', 'lowest', 'Lowest value of the last N bars, including this one (ta.lowest).', 'price', 20, (n) => new Lowest(n), 'low'),
   series('change', 'change', 'Value now minus value N bars ago (ta.change).', 'sub', 1, (n) => new Change(n)),
+  ...ZONE_INDICATORS,
 ];

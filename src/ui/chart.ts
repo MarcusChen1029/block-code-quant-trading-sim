@@ -16,6 +16,8 @@ import type { Candle } from '../data/types';
 import { DOWN_COLOR, UP_COLOR, candleToBar, candleToVolume } from './chartData';
 import { MAX_MARKERS_PER_SIGNAL, mergeMarkers, signalMarkers, type SignalHit } from './markers';
 import { computeOverlaySeries, overlayPoint, signalPriceKey, type OverlayDef, type OverlaySignal } from './overlays';
+import { ZoneStore, type ZoneRect } from './zoneGeometry';
+import { ZoneLayer } from './zonePrimitive';
 
 interface ActiveSignal {
   signal: OverlaySignal;
@@ -29,6 +31,8 @@ interface ActiveOverlay {
   signals: ActiveSignal[];
   /** Where its signal markers go: its first line series (sub-pane overlays), else the candles. */
   markerSeries: ISeriesApi<'Line'> | null;
+  /** Zone indicators: its zones (null when another overlay already draws the same zones, or none). */
+  zones: ZoneStore | null;
 }
 
 const GLYPH = new Map([['arrowUp', '▲'], ['arrowDown', '▼'], ['circle', '●'], ['square', '■']]);
@@ -51,6 +55,9 @@ export class ChartPanel {
   private readonly legend: HTMLElement;
   private hoverTime: number | null = null;
   private lastTime = -Infinity;
+  /** Open times (ms) of the bars on the chart, ascending: logical index lookup for the zone layer. */
+  private times: number[] = [];
+  private readonly zoneLayer: ZoneLayer;
 
   constructor(private readonly container: HTMLElement) {
     this.chart = createChart(container, {
@@ -68,6 +75,8 @@ export class ChartPanel {
     });
     this.volume = this.chart.addSeries(HistogramSeries, { priceScaleId: '', priceFormat: { type: 'volume' } });
     this.volume.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+    this.zoneLayer = new ZoneLayer((time) => this.timeIndex(time), () => this.lastTime);
+    this.candles.attachPrimitive(this.zoneLayer);
     this.legend = document.createElement('div');
     this.legend.className = 'signal-legend';
     this.legend.hidden = true;
@@ -85,6 +94,7 @@ export class ChartPanel {
     this.candles.setData(candles.map(candleToBar));
     this.volume.setData(candles.map(candleToVolume));
     this.lastTime = candles.length > 0 ? candles[candles.length - 1].time : -Infinity;
+    this.times = candles.map((c) => c.time);
     this.fit();
   }
 
@@ -111,6 +121,7 @@ export class ChartPanel {
     if (candle.time < this.lastTime) return;
     this.candles.update(candleToBar(candle));
     this.volume.update(candleToVolume(candle));
+    if (candle.time > this.lastTime) this.times.push(candle.time);
     this.lastTime = candle.time;
   }
 
@@ -122,17 +133,23 @@ export class ChartPanel {
     while (this.chart.panes().length > 1) this.chart.removePane(this.chart.panes().length - 1);
 
     let nextPane = 1;
+    const zoneKeys = new Set<string>();
     for (const def of defs) {
       // A sub-pane overlay without lines (a signal-only Pine script) gets no pane: its markers go on the candles.
       const paneIndex = def.pane === 'price' || def.lines.length === 0 ? 0 : nextPane++;
       const signals: ActiveSignal[] = (def.signals ?? []).map((signal) => ({ signal, hits: [] }));
       const create = def.create();
-      // Records signal hits while the lines are computed (one pass over the candles; live bars use the same step).
+      // Zones identical to an earlier overlay's (a strategy's and a picked toggle) are drawn once.
+      const key = def.zoneKey ?? def.id;
+      const zones = def.zones && !zoneKeys.has(key) ? new ZoneStore(def.zones) : null;
+      if (def.zones) zoneKeys.add(key);
+      // Records signal hits and zone events while the lines are computed (one pass; live bars use the same step).
       const step = (candle: Candle) => {
         const values = create(candle);
         for (const s of signals) {
           if (values[s.signal.key] === 1) s.hits.push({ time: candle.time, price: values[signalPriceKey(s.signal.key)] ?? NaN });
         }
+        if (zones && create.zones) zones.apply(create.zones());
         return values;
       };
       const points = computeOverlaySeries(def, candles, step);
@@ -152,8 +169,9 @@ export class ChartPanel {
         series[line.key].setData(points[line.key]);
       }
       const first = def.lines[0] ? series[def.lines[0].key] : undefined;
-      this.overlays.push({ def, step, series, signals, markerSeries: paneIndex > 0 && first ? first : null });
+      this.overlays.push({ def, step, series, signals, markerSeries: paneIndex > 0 && first ? first : null, zones });
     }
+    this.zoneLayer.setStores(this.overlays.flatMap((o) => (o.zones ? [o.zones] : [])));
     const panes = this.chart.panes();
     if (panes.length > 1) panes[0].setStretchFactor(3);
     this.refreshMarkers();
@@ -175,6 +193,34 @@ export class ChartPanel {
       if (o.signals.reduce((n, s) => n + s.hits.length, 0) !== before) fired = true;
     }
     if (fired) this.refreshMarkers();
+    // Active zones grow to the new bar and events may have arrived: redraw the layer (no series are recreated).
+    if (this.overlays.some((o) => o.zones)) this.zoneLayer.update();
+  }
+
+  /** Zone boxes of the last draw, in CSS pixels (inspection / browser checks). */
+  zoneRects(): readonly ZoneRect[] {
+    return this.zoneLayer.drawnRects();
+  }
+
+  /** Zones kept per zone overlay label (active + recently ended). */
+  zoneCounts(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const o of this.overlays) if (o.zones) out[o.def.label] = o.zones.size;
+    return out;
+  }
+
+  /** Logical index of the bar opening at `time` (binary search), or null when it is not on the chart. */
+  private timeIndex(time: number): number | null {
+    let lo = 0;
+    let hi = this.times.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const t = this.times[mid];
+      if (t === time) return mid;
+      if (t < time) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    return null;
   }
 
   /** Number of signal markers drawn per signal label (inspection / tests in the browser). */
