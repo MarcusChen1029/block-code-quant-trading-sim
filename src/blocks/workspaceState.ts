@@ -16,6 +16,8 @@ export interface BlockState {
   enabled?: boolean;
   disabledReasons?: string[];
   extraState?: unknown;
+  /** Blockly's per-block user data string (we keep a stale dropdown choice there, see staleChoice.ts). */
+  data?: unknown;
   fields?: Record<string, unknown>;
   inputs?: Record<string, ConnectionState>;
   next?: ConnectionState;

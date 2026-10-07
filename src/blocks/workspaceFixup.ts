@@ -1,4 +1,7 @@
-import { blockParams, getIndicator, INDICATOR_BLOCK_PREFIX, paramFieldName, SIGNAL_BLOCK_PREFIX, type IndicatorBlockDef } from './registry';
+import {
+  blockParams, getIndicator, INDICATOR_BLOCK_PREFIX, paramFieldName, rememberedChoiceTitle, SIGNAL_BLOCK_PREFIX, type IndicatorBlockDef,
+} from './registry';
+import { readStaleChoice, staleChoiceData } from './staleChoice';
 import type { BlockState, ConnectionState } from './workspaceState';
 
 /** The definition behind an `ind_` / `sig_` block when that block kind still exists, else undefined. */
@@ -40,6 +43,21 @@ export function fixupIndicatorBlocks(workspace: unknown): { workspace: unknown; 
         const choices = kind === 'ind' ? def.outputs : def.signals ?? [];
         const allowed = new Set([...blockParams(def, kind).map(paramFieldName), ...(choice ? [choice] : [])]);
         const fields = block.fields && typeof block.fields === 'object' ? block.fields : {};
+        // The choice field is checked even when the dropdown is gone (a script down to one output).
+        const field = kind === 'ind' ? 'OUT' : 'SIGOUT';
+        const stale = readStaleChoice(block);
+        const chosen = fields[field];
+        if (stale && stale.field === field) {
+          // An earlier vanished choice wins over the dropdown's fallback value; restored once the script has it again.
+          if (choices.some((o) => o.key === stale.key)) {
+            if (choice) fields[choice] = stale.key;
+            delete block.data;
+          }
+        } else if (chosen !== undefined && !choices.some((o) => o.key === chosen)) {
+          // The chosen output / signal is gone: remember it (Blockly will show the first option) so it errors.
+          const key = String(chosen);
+          block.data = staleChoiceData({ field, key, title: rememberedChoiceTitle(def.id, field, key) ?? key });
+        }
         block.fields = Object.fromEntries(Object.entries(fields).filter(([k, v]) => {
           if (!allowed.has(k)) return false;
           return k !== choice || choices.some((o) => o.key === v);

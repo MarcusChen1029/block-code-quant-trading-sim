@@ -107,7 +107,7 @@ describe('sig_ blocks: definition', () => {
 
   it('an unknown signal value is a compile error naming the block', () => {
     const result = compileBlocks(workspace({ onBar: [log(signal('supertrend', 'constructor'))] }));
-    expect(!result.ok && result.errors[0].message).toBe('Supertrend: unknown signal "constructor"');
+    expect(!result.ok && result.errors[0].message).toBe('Supertrend: signal "constructor" does not exist (renamed or removed?): choose a signal in this block');
   });
 });
 

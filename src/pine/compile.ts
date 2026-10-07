@@ -168,10 +168,18 @@ function compileUnguarded(source: string): PineCompileResult {
       });
     }
   }
+  // Keys are slugs of the (deduplicated) titles, handed out in SOURCE ORDER across plots and signals, so text
+  // appended later in the script (a new plot or a same-titled signal) never changes an existing key.
   const keys = new Set<string>();
-  const plots: PinePlot[] = analysis.plots.map((p, i) => ({ key: slugIdentifier(p.title, `plot${i + 1}`, keys), title: p.title }));
+  const plots: PinePlot[] = analysis.plots.map((p) => ({ key: '', title: p.title }));
+  const signals: PineSignal[] = analysis.signals.map((sg) => ({ key: '', title: sg.title, marker: sg.marker }));
+  const byPositionOf = (at: { line: number; col: number }) => at.line * 1e6 + at.col;
+  const slots = [
+    ...analysis.plots.map((p, i) => ({ at: byPositionOf(p.call), assign: () => { plots[i].key = slugIdentifier(p.title, `plot${i + 1}`, keys); } })),
+    ...analysis.signals.map((sg, i) => ({ at: byPositionOf(sg.sites[0].call), assign: () => { signals[i].key = slugIdentifier(sg.title, `signal${i + 1}`, keys); } })),
+  ];
+  for (const s of slots.sort((a, b) => a.at - b.at)) s.assign();
   const plotIndex = new Map<CallExpr, number>(analysis.plots.map((p, i) => [p.call, i]));
-  const signals: PineSignal[] = analysis.signals.map((sg, i) => ({ key: slugIdentifier(sg.title, `signal${i + 1}`, keys), title: sg.title, marker: sg.marker }));
   const signalSites = new Map<CallExpr, { index: number; site: SignalSite }>();
   analysis.signals.forEach((sg, index) => {
     for (const site of sg.sites) signalSites.set(site.call, { index, site });

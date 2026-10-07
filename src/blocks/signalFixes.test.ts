@@ -1,10 +1,76 @@
-import { describe, it, expect } from 'vitest';
+import * as Blockly from 'blockly';
+import { afterEach, describe, it, expect } from 'vitest';
 import { syntheticCandles } from '../engine/syntheticCandles';
 import { BollingerBands } from '../indicators/bands';
 import { Rsi } from '../indicators/oscillators';
+import { syncPineIndicators } from '../pine/library';
+import { compileBlocks } from './compiler';
+import { defineBlocks } from './definitions';
 import { getIndicator } from './registry';
+import { indicator, log, signal, workspace } from './testing';
+import { fixupIndicatorBlocks } from './workspaceFixup';
 
 /** Regression tests for review findings on the signals feature (one describe per finding). */
+
+const pine = (title: string, signals: string[], plots: string[] = []) => `//@version=5
+indicator("${title}")
+${plots.map((p) => `plot(close, "${p}")`).join('\n')}
+${signals.map((s) => `plotshape(close > open, "${s}")`).join('\n')}
+`;
+
+describe('finding 2: a renamed / removed signal or output never silently rewires a saved block', () => {
+  afterEach(() => syncPineIndicators([]));
+
+  const sigWs = (key: string | undefined) => workspace({ onBar: [log(signal('pine_s', key ?? 'x', {}, null))] });
+  const firstError = (ws: unknown) => {
+    const r = compileBlocks(ws);
+    return r.ok ? null : r.errors[0];
+  };
+
+  it('a SIGOUT value that does not exist (no fixup) or a missing SIGOUT is a compile error naming the block', () => {
+    syncPineIndicators([{ id: 'pine_s', source: pine('Arrows', ['Up', 'Down']) }]);
+    const unknown = sigWs('gone');
+    expect(firstError(unknown)).toEqual({ message: expect.stringMatching(/^Arrows: signal "gone" does not exist/), blockId: expect.stringMatching(/^sig-pine_s/) });
+    const missing = sigWs(undefined);
+    delete (missing.blocks!.blocks![0].next!.block!.inputs!.MSG.block!.fields as Record<string, unknown>).SIGOUT;
+    expect(firstError(missing)?.message).toMatch(/^Arrows: no signal is chosen/);
+  });
+
+  it('renaming "Up" to "Up arrow": after the editor fixup (and a Blockly load/save) the block errors with the old title', () => {
+    syncPineIndicators([{ id: 'pine_s', source: pine('Arrows', ['Up', 'Down']) }]);
+    defineBlocks();
+    const ws = sigWs('up');
+    expect(compileBlocks(ws).ok).toBe(true);
+    syncPineIndicators([{ id: 'pine_s', source: pine('Arrows', ['Up arrow', 'Down']) }]);
+    defineBlocks();
+    const fixed = fixupIndicatorBlocks(ws).workspace;
+    // Through real Blockly: the dropdown falls back to its first option, the stale choice must survive anyway.
+    const bw = new Blockly.Workspace();
+    Blockly.serialization.workspaces.load(fixed as Record<string, unknown>, bw);
+    const saved = Blockly.serialization.workspaces.save(bw);
+    bw.dispose();
+    const err = firstError(saved);
+    expect(err?.message).toBe('Arrows: signal "Up" no longer exists in the script (renamed or removed): choose a signal in this block');
+    expect(err?.blockId).toMatch(/^sig-pine_s/);
+    // Renamed back: the old choice is restored and it compiles again.
+    syncPineIndicators([{ id: 'pine_s', source: pine('Arrows', ['Up', 'Down']) }]);
+    defineBlocks();
+    const restored = fixupIndicatorBlocks(saved).workspace as typeof ws;
+    const block = restored.blocks!.blocks![0].next!.block!.inputs!.MSG.block!;
+    expect(block.fields?.SIGOUT).toBe('up');
+    expect(compileBlocks(restored).ok).toBe(true);
+  });
+
+  it('the same holds for a numeric output dropdown (plot "Fast" renamed to "Quick")', () => {
+    syncPineIndicators([{ id: 'pine_s', source: pine('Lines', [], ['Fast', 'Slow']) }]);
+    defineBlocks();
+    const ws = workspace({ onBar: [log(indicator('pine_s', { OUT: 'fast' }, null))] });
+    expect(compileBlocks(ws).ok).toBe(true);
+    syncPineIndicators([{ id: 'pine_s', source: pine('Lines', [], ['Quick', 'Slow']) }]);
+    const fixed = fixupIndicatorBlocks(ws).workspace;
+    expect(firstError(fixed)?.message).toBe('Lines: output "Fast" no longer exists in the script (renamed or removed): choose an output in this block');
+  });
+});
 
 const CANDLES = syntheticCandles(600).map((c, i) => ({ ...c, close: c.close + (i % 11) * 0.4 - 2 }));
 const crossUp = (a: number[], b: number[]) => a.map((v, i) => (i > 0 && a[i - 1] <= b[i - 1] && v > b[i] ? 1 : 0));

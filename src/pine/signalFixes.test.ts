@@ -10,6 +10,30 @@ const errorsOf = (s: string) => {
   return r.ok ? [] : r.errors;
 };
 
+describe('finding 2: output / signal keys are stable', () => {
+  const keys = (body: string) => {
+    const r = compilePine(`//@version=5\nindicator("K")\n${body}\n`);
+    if (!r.ok) throw new Error(r.errors[0].message);
+    return { plots: r.script.plots.map((p) => p.key), signals: r.script.signals.map((s) => s.key) };
+  };
+
+  it('appending a plot with the same title after a signal does not change the signal key', () => {
+    const before = keys('plotshape(close > open, "Buy")');
+    const after = keys('plotshape(close > open, "Buy")\nplot(close, "Buy")');
+    expect(before.signals).toEqual(['buy']);
+    expect(after.signals).toEqual(['buy']);
+    expect(after.plots).toEqual(['buy_2']);
+  });
+
+  it('appending a duplicate signal later in the file does not change earlier keys', () => {
+    const before = keys('plot(close, "Close")\nplotshape(close > open, "Buy")\nplotshape(close < open, "Sell")');
+    const after = keys('plot(close, "Close")\nplotshape(close > open, "Buy")\nplotshape(close < open, "Sell")\nplotshape(high > high[1], "Buy")\nplot(open, "Close")');
+    expect(after.signals.slice(0, 2)).toEqual(before.signals);
+    expect(after.plots[0]).toBe(before.plots[0]);
+    expect(after.signals[2]).toBe('buy_2');
+  });
+});
+
 describe('finding 3: string / colour series are compile errors (they could never fire)', () => {
   for (const v of [4, 5, 6] as const) {
     it(`v${v}: string and colour literals, colour constants and string variables are rejected with line:col`, () => {

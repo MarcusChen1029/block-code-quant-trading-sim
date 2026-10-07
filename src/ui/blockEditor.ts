@@ -5,6 +5,7 @@ import { defineBlocks, defineMissingIndicatorBlocks } from '../blocks/definition
 import type { CompileIssue } from '../blocks/generator';
 import { quantTheme } from '../blocks/theme';
 import { buildToolbox } from '../blocks/toolbox';
+import { readStaleChoice } from '../blocks/staleChoice';
 import { fixupIndicatorBlocks } from '../blocks/workspaceFixup';
 import { loadWorkspaceSafely, type LoadResult } from '../blocks/workspaceLoad';
 import { loadJson, saveJson } from './storage';
@@ -120,6 +121,11 @@ export function createBlockEditor(
 
   ws.addChangeListener((event) => {
     if (loading || event.isUiEvent) return;
+    // Picking an output / signal clears the "your old choice no longer exists" marker (see staleChoice.ts).
+    if (event instanceof Blockly.Events.BlockChange && event.element === 'field' && (event.name === 'OUT' || event.name === 'SIGOUT')) {
+      const block = event.blockId ? ws.getBlockById(event.blockId) : null;
+      if (block && readStaleChoice({ data: block.data }) !== null) block.data = null;
+    }
     clearTimeout(timer);
     timer = setTimeout(emit, 250);
   });

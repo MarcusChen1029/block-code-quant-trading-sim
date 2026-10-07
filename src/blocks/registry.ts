@@ -93,6 +93,16 @@ export function registerIndicator(def: IndicatorBlockDef): void {
   const keys = [...def.outputs.map((o) => o.key), ...signals.map((o) => o.key)];
   if (new Set(keys).size !== keys.length) throw new Error(`indicator "${def.id}": output and signal keys must be unique`);
   registry.set(def.id, def);
+  for (const o of def.outputs) seenTitles.set(`${def.id}|OUT|${o.key}`, o.label);
+  for (const s of signals) seenTitles.set(`${def.id}|SIGOUT|${s.key}`, s.label);
+}
+
+/** Titles of every output / signal key registered in this realm, so a block whose choice vanished can name it. */
+const seenTitles = new Map<string, string>();
+
+/** The title an output (`OUT`) or signal (`SIGOUT`) key of indicator `id` had when it was last registered. */
+export function rememberedChoiceTitle(id: string, field: 'OUT' | 'SIGOUT', key: string): string | undefined {
+  return seenTitles.get(`${id}|${field}|${key}`);
 }
 
 /** Removes a registered indicator (used when a Pine script is edited or deleted). Returns whether it existed. */

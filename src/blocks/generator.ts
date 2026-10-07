@@ -7,6 +7,7 @@ import {
   blockParams, getIndicator, INDICATOR_BLOCK_PREFIX, missingIndicatorTitle, paramFieldName, PINE_ID_PREFIX, SIGNAL_BLOCK_PREFIX,
   type IndicatorBlockDef,
 } from './registry';
+import { readStaleChoice } from './staleChoice';
 import { connected, isEnabled, type BlockState, type ConnectionState, type WorkspaceState } from './workspaceState';
 
 export interface CompileIssue {
@@ -510,6 +511,10 @@ class Generator {
 
   /** Indicator call-site: one stateful instance, stepped in hoist() on EVERY bar; the expression reads the cache. */
   private indicator(block: BlockState, k: number, def: IndicatorBlockDef): string {
+    const stale = readStaleChoice(block);
+    if (stale?.field === 'OUT') {
+      this.error(`${def.label}: output "${stale.title}" no longer exists in the script (renamed or removed): choose an output in this block`, block);
+    }
     let output = def.outputs[0].key;
     if (def.outputs.length > 1) {
       const out = block.fields?.OUT;
@@ -525,11 +530,20 @@ class Generator {
    * An `ind_` and a `sig_` block of the same script each get their own instance (duplicate work, same values).
    */
   private signal(block: BlockState, k: number, def: IndicatorBlockDef): string {
+    // Never fall back to another signal: a missing or vanished choice is an error on this block.
     const signals = def.signals ?? [];
     let key = signals[0].key;
     const chosen = block.fields?.SIGOUT;
-    if (signals.some((s) => s.key === chosen)) key = chosen as string;
-    else if (chosen !== undefined) this.error(`${def.label}: unknown signal "${String(chosen)}"`, block);
+    const stale = readStaleChoice(block);
+    if (stale?.field === 'SIGOUT') {
+      this.error(`${def.label}: signal "${stale.title}" no longer exists in the script (renamed or removed): choose a signal in this block`, block);
+    } else if (chosen === undefined) {
+      this.error(`${def.label}: no signal is chosen in this block`, block);
+    } else if (signals.some((s) => s.key === chosen)) {
+      key = chosen as string;
+    } else {
+      this.error(`${def.label}: signal "${String(chosen)}" does not exist (renamed or removed?): choose a signal in this block`, block);
+    }
     return `(C[${this.instance(block, k, def, 'sig', key)}][${jsString(key)}] === 1)`;
   }
 
