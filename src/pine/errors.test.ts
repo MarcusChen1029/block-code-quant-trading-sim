@@ -42,15 +42,18 @@ describe('unsupported features are compile errors with line:col', () => {
   });
 
   it('drawing objects: line / label / box / table', () => {
-    for (const ns of ['line', 'label', 'box', 'table']) {
+    for (const ns of ['line', 'box', 'table']) {
       expect(firstError(`${ns}.new(bar_index, close)\nplot(close)`), ns).toEqual(at(3, 1, `drawing objects (${ns}.*) are not supported in v1`));
     }
-    expect(firstError('label l = na\nplot(close)')).toEqual(at(3, 1, 'drawing objects (label) are not supported in v1'));
+    // label.new is a signal now (src/pine/signals.ts): without a text literal it cannot name one.
+    expect(firstError('label.new(bar_index, close)\nplot(close)')).toEqual(at(3, 1, /^label\.new needs a text string literal/));
+    expect(firstError('label l = na\nplot(close)')).toEqual(at(3, 1, /^label objects beyond label\.new at the current bar are not supported/));
   });
 
   it('alert and alertcondition', () => {
     expect(firstError('alert("hi")\nplot(close)')).toEqual(at(3, 1, 'alerts (alert) are not supported in v1'));
-    expect(firstError('alertcondition(close > open, "up")\nplot(close)')).toEqual(at(3, 1, 'alerts (alertcondition) are not supported in v1'));
+    // alertcondition() is a signal output now.
+    expect(compilePine(script('alertcondition(close > open, "up")\nplot(close)')).ok).toBe(true);
   });
 
   it('import / export / library', () => {

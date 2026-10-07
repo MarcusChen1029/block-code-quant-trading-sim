@@ -10,6 +10,7 @@ import { parse } from './parser';
 import { MAX_TA_LENGTH, PineRuntime } from './runtime';
 import { forbiddenReferences, SHADOWED_GLOBALS } from './safety';
 import { normalizeV4 } from './v4';
+import type { SignalMarkerSpec, SignalSite } from './signals';
 import { checkV6 } from './v6';
 import { detectVersion, type PineVersion } from './version';
 
@@ -39,10 +40,23 @@ export interface PinePlot {
   title: string;
 }
 
+/** A signal output (plotshape / plotchar / alertcondition / label.new): 1 on bars where it fires, else 0. */
+export interface PineSignal {
+  /** Output key (lowercase identifier, unique among plot and signal keys). */
+  key: string;
+  title: string;
+  marker: SignalMarkerSpec;
+}
+
 /** One running copy of a script: `step` is called exactly once per closed bar, in bar order. */
 export interface PineInstance {
-  /** `source` feeds the first input.source (undefined = its default price source). Returns one value per plot key. */
+  /**
+   * `source` feeds the first input.source (undefined = its default price source). Returns one value per plot key
+   * plus 1/0 per signal key.
+   */
   step(source: number | undefined, candle: Candle): Record<string, number>;
+  /** Marker price of signal `key` on the last stepped bar (label y, location.absolute series), NaN if none. */
+  markerPrice(key: string): number;
 }
 
 export interface PineScript {
@@ -54,6 +68,7 @@ export interface PineScript {
   inputs: PineInput[];
   sources: PineSourceInput[];
   plots: PinePlot[];
+  signals: PineSignal[];
   warnings: PineDiagnostic[];
   /** The generated JS (for inspection and tests). */
   js: string;
@@ -124,7 +139,7 @@ function compileUnguarded(source: string): PineCompileResult {
   const v6 = version === 6 ? checkV6(program) : null;
   if (v6) frontErrors.push(...v6.errors);
 
-  const analysis = analyze(program, version === 4 ? 'study' : 'indicator');
+  const analysis = analyze(program, version === 4 ? 'study' : 'indicator', version);
   const params = new Set<string>();
   const inputs: PineInput[] = [];
   const sources: PineSourceInput[] = [];
@@ -144,9 +159,16 @@ function compileUnguarded(source: string): PineCompileResult {
   const keys = new Set<string>();
   const plots: PinePlot[] = analysis.plots.map((p, i) => ({ key: slugIdentifier(p.title, `plot${i + 1}`, keys), title: p.title }));
   const plotIndex = new Map<CallExpr, number>(analysis.plots.map((p, i) => [p.call, i]));
+  const signals: PineSignal[] = analysis.signals.map((sg, i) => ({ key: slugIdentifier(sg.title, `signal${i + 1}`, keys), title: sg.title, marker: sg.marker }));
+  const signalSites = new Map<CallExpr, { index: number; site: SignalSite }>();
+  analysis.signals.forEach((sg, index) => {
+    for (const site of sg.sites) signalSites.set(site.call, { index, site });
+  });
+  const signalSlot = new Map(signals.map((sg, i) => [sg.key, i]));
 
   const gen = generate({
     program, inputs: bindings, plotIndex, reassigned: analysis.reassigned, dialect: dialectFor(version), boolHistory: v6?.boolHistory,
+    signals: signalSites,
   });
   // An input used as a ta.* length can only be 1..MAX_TA_LENGTH: make that the block field's range, so a bad
   // value is a block compile error rather than a failure when the run starts.
@@ -178,6 +200,7 @@ function compileUnguarded(source: string): PineCompileResult {
     inputs,
     sources,
     plots,
+    signals,
     warnings: [...warnings].sort(byPosition),
     js: gen.js,
     create(values = {}, limits) {
@@ -191,7 +214,7 @@ function compileUnguarded(source: string): PineCompileResult {
         }
         return v;
       });
-      const rt = new PineRuntime(header.title, gen.maxBarsBack, plots.length, sourceDefault, limits);
+      const rt = new PineRuntime(header.title, gen.maxBarsBack, plots.length, sourceDefault, limits, signals.length);
       const program = factory(rt, P);
       return {
         step(src, candle) {
@@ -199,7 +222,12 @@ function compileUnguarded(source: string): PineCompileResult {
           program.step();
           const out: Record<string, number> = {};
           for (let i = 0; i < plots.length; i++) out[plots[i].key] = rt.out[i];
+          for (let i = 0; i < signals.length; i++) out[signals[i].key] = rt.sg[i];
           return out;
+        },
+        markerPrice(key) {
+          const i = signalSlot.get(key);
+          return i === undefined ? NaN : rt.sp[i];
         },
       };
     },
@@ -214,14 +242,15 @@ function compileUnguarded(source: string): PineCompileResult {
   return { ok: true, script, warnings: script.warnings };
 }
 
-/** Test/overlay helper: runs a fresh instance over `candles`; returns one array per plot key. */
+/** Test/overlay helper: runs a fresh instance over `candles`; returns one array per plot key and per signal key (1/0). */
 export function runPine(script: PineScript, candles: readonly Candle[], params?: Record<string, number>, sources?: readonly number[]): Record<string, number[]> {
   const inst = script.create(params);
   const out: Record<string, number[]> = {};
-  for (const p of script.plots) out[p.key] = [];
+  const keys = [...script.plots.map((p) => p.key), ...script.signals.map((s) => s.key)];
+  for (const k of keys) out[k] = [];
   candles.forEach((c, i) => {
     const values = inst.step(sources?.[i], c);
-    for (const p of script.plots) out[p.key].push(values[p.key]);
+    for (const k of keys) out[k].push(values[k]);
   });
   return out;
 }

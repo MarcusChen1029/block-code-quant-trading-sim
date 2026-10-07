@@ -1,6 +1,7 @@
 import { dottedName, type Arg, type CallExpr, type Expr, type Pos, type Stmt } from './ast';
 import { literalNumber } from './analyze';
 import { bindArgs, type Issue, SOURCE_DEFAULTS, type Signature } from './builtins';
+import { PLOTCHAR_SIG_V4, PLOTSHAPE_SIG_V4 } from './signals';
 import { V4_INPUT_TYPES, V4_MATH_FUNCTIONS, V4_OTHER_INPUT_TYPES, V4_TA_FUNCTIONS, V4_UNSUPPORTED } from './dialect';
 
 /**
@@ -160,6 +161,11 @@ class V4Normalizer {
       if (this.userFunctions.has(name)) return e;
       if (name === 'study') return this.study(e);
       if (name === 'plot') return this.plot(e);
+      if (name === 'plotshape' || name === 'plotchar') {
+        // v4 order has transp after color: re-bind by v4 position, drop transp (visual only), keep named v5 args.
+        const s = name === 'plotshape' ? PLOTSHAPE_SIG_V4 : PLOTCHAR_SIG_V4;
+        return { ...e, args: named(s.params, bindArgs(name, s, e.args, pos(e), this.errors), new Set(['transp'])) };
+      }
       if (V4_TA_FUNCTIONS.has(name)) return { ...e, callee: dotted('ta', name, e.callee) };
       if (V4_MATH_FUNCTIONS.has(name)) return { ...e, callee: dotted('math', name, e.callee) };
       if (name === 'indicator') this.error(e, 'indicator() is not available in Pine v4: use study("Title", overlay=true|false)');

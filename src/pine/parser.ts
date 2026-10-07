@@ -215,6 +215,7 @@ class Parser {
     if (TYPE_NAMES.has(t.value) || DRAWING_TYPES.has(t.value)) {
       if (this.isOp('[', k + 1) && this.isOp(']', k + 2)) this.fail(t, 'arrays are not supported in v1');
       if (declaresName(k + 1)) {
+        if (t.value === 'label') this.fail(t, 'label objects beyond label.new at the current bar are not supported (a label cannot be stored in a variable)');
         if (DRAWING_TYPES.has(t.value)) this.fail(t, `drawing objects (${t.value}) are not supported in v1`);
         return k + 1;
       }

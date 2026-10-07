@@ -7,6 +7,7 @@ import {
 } from './builtins';
 import { dialectFor, v4SpellingHint, type Dialect } from './dialect';
 import { MAX_HISTORY } from './runtime';
+import { SIGNAL_FUNCTIONS, type SignalSite } from './signals';
 
 /** How an input declaration is wired: a numeric/bool block param (`param` = index into P) or a series source. */
 export interface InputBinding {
@@ -24,6 +25,8 @@ export interface CodegenInput {
   reassigned: Set<string>;
   /** Version-specific behaviour (default: Pine v5). */
   dialect?: Dialect;
+  /** Signal call sites (statements) -> their signal slot (rt.sg index) and how they set it. */
+  signals?: ReadonlyMap<CallExpr, { index: number; site: SignalSite }>;
   /** v6: `x[n]` expressions of bool type (history before the first bar is false, not na). */
   boolHistory?: ReadonlySet<Expr>;
 }
@@ -232,6 +235,7 @@ class Codegen {
       const name = dottedName(e.callee);
       if (name === 'indicator') return '';
       if (name === 'plot') return this.plot(e);
+      if (name !== null && SIGNAL_FUNCTIONS.has(name)) return this.signal(e);
       if (name !== null && IGNORED_CALLS.has(name)) {
         this.warn(e, `${name}() is accepted but ignored in v1 (not drawn)`);
         return '';
@@ -245,6 +249,25 @@ class Codegen {
     const [series] = bindArgs('plot', PLOT_SIG, call.args, call, []);
     const value = series ? this.scalar(series) : 'NaN';
     return index === undefined ? '' : `rt.out[${index}] = rt.num(${value});`;
+  }
+
+  /**
+   * A signal call site: sets its slot on the bar it runs (slots reset to 0 / na every bar, so an `if` that is
+   * not taken leaves the signal false). Only the series / y argument is code; names and styles are static.
+   */
+  private signal(call: CallExpr): string {
+    const entry = this.input.signals?.get(call);
+    if (!entry) return ''; // misplaced (e.g. inside a function) or unreadable: already reported by the analysis
+    const { index, site } = entry;
+    const value = site.value ? this.scalar(site.value) : 'NaN';
+    switch (site.mode) {
+      case 'cond':
+        return `rt.signal(${index}, ${value});`;
+      case 'absolute':
+        return `rt.signalAt(${index}, rt.num(${value}), false);`;
+      case 'label':
+        return `rt.signalAt(${index}, rt.num(${value}), true);`;
+    }
   }
 
   private decl(s: Extract<Stmt, { k: 'decl' }>): string {
@@ -548,7 +571,7 @@ class Codegen {
     const dot = name.indexOf('.');
     const root = dot < 0 ? name : name.slice(0, dot);
     const member = dot < 0 ? '' : name.slice(dot + 1);
-    if (name === 'indicator' || name === 'plot' || INPUT_SIGS.has(name)) return one('NaN'); // placement reported by the analysis
+    if (name === 'indicator' || name === 'plot' || INPUT_SIGS.has(name) || SIGNAL_FUNCTIONS.has(name)) return one('NaN'); // placement reported by the analysis
     if (IGNORED_CALLS.has(name)) {
       this.warn(e, `${name}() is accepted but ignored in v1 (not drawn)`);
       return one('NaN');

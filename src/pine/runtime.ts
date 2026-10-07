@@ -71,6 +71,10 @@ export class PineRuntime {
   barIndex = -1;
   /** One value per plot, written each bar. */
   readonly out: number[];
+  /** One value per signal: 1 when it fired on this bar, else 0 (reset every bar). */
+  readonly sg: number[];
+  /** Marker price per signal on this bar (label y / location.absolute), else NaN. */
+  readonly sp: number[];
   private readonly candles: History;
   private iterations = 0;
   private barStart = 0;
@@ -82,9 +86,12 @@ export class PineRuntime {
     private readonly defaultSource: PriceSource,
     /** Same per-bar iteration and wall-clock budget as block strategies (src/blocks/runtime.ts). */
     private readonly limits: RuntimeLimits = DEFAULT_LIMITS,
+    signalCount = 0,
   ) {
     this.candles = new History(maxBarsBack + 1);
     this.out = new Array<number>(plotCount).fill(NaN);
+    this.sg = new Array<number>(signalCount).fill(0);
+    this.sp = new Array<number>(signalCount).fill(NaN);
   }
 
   /** Starts a new closed bar. `source` overrides the first input.source's default. */
@@ -96,6 +103,29 @@ export class PineRuntime {
     this.iterations = 0;
     this.barStart = this.limits.now();
     this.out.fill(NaN);
+    this.sg.fill(0);
+    this.sp.fill(NaN);
+  }
+
+  // ---- signals (plotshape / plotchar / alertcondition / label.new) ----------------------------------
+
+  /** Pine truthiness of a signal series: true, or a number that is neither 0 nor na. */
+  truthy(x: unknown): boolean {
+    if (typeof x === 'boolean') return x;
+    return typeof x === 'number' && x !== 0 && !Number.isNaN(x);
+  }
+
+  /** Fires signal `i` on this bar when `cond` is truthy (several sites / iterations OR together). */
+  signal(i: number, cond: unknown): void {
+    if (this.truthy(cond)) this.sg[i] = 1;
+  }
+
+  /** Fires signal `i` at `price` (label.new: always; location.absolute: only when the price is not na). */
+  signalAt(i: number, price: number, always: boolean): void {
+    const finite = Number.isFinite(price);
+    if (!always && !finite) return;
+    this.sg[i] = 1;
+    if (finite) this.sp[i] = price;
   }
 
   fail(line: number, col: number, message: string): never {

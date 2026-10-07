@@ -218,20 +218,17 @@ export const UNSUPPORTED = new Map<string, string>([
   ['map', 'maps (map.*) are not supported in v1'],
   ['matrix', 'matrices (matrix.*) are not supported in v1'],
   ['line', 'drawing objects (line.*) are not supported in v1'],
-  ['label', 'drawing objects (label.*) are not supported in v1'],
+  ['label', 'label objects beyond label.new at the current bar are not supported'],
   ['box', 'drawing objects (box.*) are not supported in v1'],
   ['table', 'drawing objects (table.*) are not supported in v1'],
   ['linefill', 'drawing objects (linefill.*) are not supported in v1'],
   ['polyline', 'drawing objects (polyline.*) are not supported in v1'],
   ['alert', 'alerts (alert) are not supported in v1'],
-  ['alertcondition', 'alerts (alertcondition) are not supported in v1'],
   ['str', 'str.* is not supported in v1'],
   ['barstate', 'barstate.* is not supported in v1'],
   ['syminfo', 'syminfo.* is not supported in v1'],
   ['timeframe', 'timeframe.* is not supported in v1'],
-  ['plotshape', 'plotshape() is not supported in v1 (use plot)'],
-  ['plotchar', 'plotchar() is not supported in v1 (use plot)'],
-  ['plotarrow', 'plotarrow() is not supported in v1 (use plot)'],
+  ['plotarrow', 'plotarrow() is not supported (use plotshape(cond, style=shape.arrowup) for a signal)'],
   ['plotcandle', 'plotcandle() is not supported in v1 (use plot)'],
   ['plotbar', 'plotbar() is not supported in v1 (use plot)'],
 ]);
@@ -239,5 +236,5 @@ export const UNSUPPORTED = new Map<string, string>([
 /** Names a script cannot declare (built-ins and namespaces). */
 export function isReservedName(name: string): boolean {
   return BUILTIN_SERIES.has(name) || NAMESPACES.has(name) || UNSUPPORTED.has(name) || IGNORED_CALLS.has(name) ||
-    ['na', 'nz', 'plot', 'indicator', 'input'].includes(name);
+    ['na', 'nz', 'plot', 'indicator', 'input', 'plotshape', 'plotchar', 'alertcondition'].includes(name);
 }

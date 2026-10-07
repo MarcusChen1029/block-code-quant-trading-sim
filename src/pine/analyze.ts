@@ -1,5 +1,7 @@
 import { childBlocks, dottedName, stmtExprs, walkExpr, type CallExpr, type Expr, type Stmt } from './ast';
 import { bindArgs, INDICATOR_SIG, INPUT_SIGS, type Issue, PLOT_SIG, SOURCE_DEFAULTS } from './builtins';
+import { cleanName, LABEL_OBJECT_ERROR, readSignalCall, SIGNAL_FUNCTIONS, type SignalMarkerSpec, type SignalSite } from './signals';
+import type { PineVersion } from './version';
 
 export type InputKind = 'int' | 'float' | 'bool' | 'source';
 
@@ -21,6 +23,14 @@ export interface PlotInfo {
   call: CallExpr;
 }
 
+/** One signal output (one or more call sites: label.new sites with the same text share one). */
+export interface SignalInfo {
+  /** Unique display name. */
+  title: string;
+  marker: SignalMarkerSpec;
+  sites: SignalSite[];
+}
+
 export interface Header {
   title: string;
   shortTitle: string;
@@ -31,6 +41,9 @@ export interface Analysis {
   header: Header | null;
   inputs: InputInfo[];
   plots: PlotInfo[];
+  signals: SignalInfo[];
+  /** Signal call -> index into `signals` (only calls that became signals). */
+  signalIndex: Map<CallExpr, number>;
   /** Every name reassigned (:=, +=, ...) anywhere in the script. */
   reassigned: Set<string>;
   errors: Issue[];
@@ -57,7 +70,7 @@ const isInputCall = (e: Expr): boolean => {
  * Static pass over the AST: indicator() header, inputs (block params) and plots (block outputs), plus
  * placement errors for indicator / input / plot calls that are not where v1 needs them.
  */
-export function analyze(program: Stmt[], headerName: 'indicator' | 'study' = 'indicator'): Analysis {
+export function analyze(program: Stmt[], headerName: 'indicator' | 'study' = 'indicator', version: PineVersion = 5): Analysis {
   const errors: Issue[] = [];
   const inputs: InputInfo[] = [];
   const plots: PlotInfo[] = [];
@@ -83,24 +96,41 @@ export function analyze(program: Stmt[], headerName: 'indicator' | 'study' = 'in
     }
   }
 
-  const visitStmts = (stmts: Stmt[]) => {
+  const sites: SignalSite[] = [];
+  const visitStmts = (stmts: Stmt[], inFunc: boolean) => {
     for (const s of stmts) {
       if (s.k === 'assign') reassigned.add(s.name);
+      const signalName = s.k === 'expr' ? callName(s.expr) : null;
+      if (signalName !== null && SIGNAL_FUNCTIONS.has(signalName)) {
+        const call = (s as Extract<Stmt, { k: 'expr' }>).expr as CallExpr;
+        allowed.add(call);
+        if (inFunc) {
+          errors.push({ line: call.line, col: call.col, message: signalName === 'label.new'
+            ? `${LABEL_OBJECT_ERROR} (label.new inside user functions)`
+            : `${signalName}() inside user functions is not supported (call it at the script level or inside if / for)` });
+        } else {
+          const site = readSignalCall(signalName, call, version, sites.length + 1, errors);
+          if (site) sites.push(site);
+        }
+      }
       for (const e of stmtExprs(s)) {
         walkExpr(e, (x) => {
           if (x.k !== 'call' || allowed.has(x)) return;
           const name = dottedName(x.callee);
-          if (name === 'indicator') errors.push({ line: x.line, col: x.col, message: `${headerName}() must be a statement of its own at the top level` });
+          if (name === 'label.new') errors.push({ line: x.line, col: x.col, message: `${LABEL_OBJECT_ERROR} (call label.new(...) as a statement of its own, e.g. inside an if; it cannot be stored or passed on)` });
+          else if (name !== null && SIGNAL_FUNCTIONS.has(name)) errors.push({ line: x.line, col: x.col, message: `${name}() must be a statement of its own (it does not return a value)` });
+          else if (name === 'indicator') errors.push({ line: x.line, col: x.col, message: `${headerName}() must be a statement of its own at the top level` });
           else if (name === 'plot') errors.push({ line: x.line, col: x.col, message: 'plot() must be at the top level of the script (not inside if / for / functions / expressions)' });
           else if (name !== null && INPUT_SIGS.has(name)) {
             errors.push({ line: x.line, col: x.col, message: `${name}() must be assigned to a variable at the top level, e.g. len = ${name}(14)` });
           }
         });
       }
-      for (const b of childBlocks(s)) visitStmts(b);
+      for (const b of childBlocks(s)) visitStmts(b, inFunc || s.k === 'func');
     }
   };
-  visitStmts(program);
+  visitStmts(program, false);
+  const { signals, signalIndex } = groupSignals(sites);
 
   const otherHeader = program.some((s) => s.k === 'expr' && ['strategy', 'library'].includes(callName(s.expr) ?? ''));
   // A v4 study() in a v5/v6 script is reported where it is (see dialect.ts), not as a missing header.
@@ -108,8 +138,38 @@ export function analyze(program: Stmt[], headerName: 'indicator' | 'study' = 'in
   if (!header && !otherHeader && !v4Header) {
     errors.push({ line: 1, col: 1, message: `the script must declare ${headerName}("Title", overlay=true|false)` });
   }
-  if (plots.length === 0 && !otherHeader) errors.push({ line: 1, col: 1, message: 'the script has no plot(): each plot becomes an output of the block' });
-  return { header, inputs, plots, reassigned, errors };
+  if (plots.length === 0 && signals.length === 0 && !otherHeader) {
+    errors.push({ line: 1, col: 1, message: 'the script has no plot(): each plot becomes an output of the block (or add a signal: plotshape, plotchar, alertcondition or label.new)' });
+  }
+  return { header, inputs, plots, signals, signalIndex, reassigned, errors };
+}
+
+/**
+ * Signal outputs from call sites, in source order. label.new sites with the same text are ONE signal (true when
+ * any of them runs); every other site is its own signal, and repeated names get " (2)", " (3)" ...
+ */
+function groupSignals(sites: SignalSite[]): { signals: SignalInfo[]; signalIndex: Map<CallExpr, number> } {
+  const signals: SignalInfo[] = [];
+  const signalIndex = new Map<CallExpr, number>();
+  const byLabel = new Map<string, number>();
+  const used = new Set<string>();
+  for (const site of sites) {
+    const merged = site.mergeKey !== undefined ? byLabel.get(site.mergeKey) : undefined;
+    if (merged !== undefined) {
+      signals[merged].sites.push(site);
+      signalIndex.set(site.call, merged);
+      continue;
+    }
+    const base = cleanName(site.names[0] ?? site.fallback) || site.fallback;
+    let title = base;
+    for (let n = 2; used.has(title.toLowerCase()); n++) title = `${base} (${n})`;
+    used.add(title.toLowerCase());
+    const index = signals.length;
+    signals.push({ title, marker: site.marker, sites: [site] });
+    signalIndex.set(site.call, index);
+    if (site.mergeKey !== undefined) byLabel.set(site.mergeKey, index);
+  }
+  return { signals, signalIndex };
 }
 
 function readHeader(call: CallExpr, errors: Issue[], headerName: string): Header {

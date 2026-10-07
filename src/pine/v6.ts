@@ -214,6 +214,14 @@ class V6Checker {
         if ((name === 'na' || name === 'nz') && first && this.type(first) === 'bool') {
           this.error(e, `Pine v6: bool values cannot be na, so ${name}() does not accept a bool`);
         }
+        if (name === 'plotshape' || name === 'plotchar' || name === 'alertcondition') {
+          // The series is a bool in v6 (except plotshape/plotchar with location.absolute, where it is a price).
+          const pos = e.args.filter((a) => a.name === undefined);
+          const series = e.args.find((a) => a.name === 'series' || a.name === 'condition')?.value ?? pos[0]?.value;
+          const loc = e.args.find((a) => a.name === 'location')?.value ?? (name === 'alertcondition' ? undefined : pos[3]?.value);
+          const absolute = loc !== undefined && dottedName(loc) === 'location.absolute';
+          if (series && !absolute) this.requireBool(series, `${name} ${name === 'alertcondition' ? 'condition' : 'series'}`);
+        }
         if (name === 'plot' || name === 'hline') {
           // plot(series, title, color, linewidth, …) / hline(price, title, color, linestyle, linewidth, …)
           const positional = e.args.filter((a) => a.name === undefined)[name === 'plot' ? 3 : 4]?.value;
