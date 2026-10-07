@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ZoneEvent } from '../blocks/registry';
 import { syntheticCandles } from '../engine/syntheticCandles';
 import { blockIndicatorOverlays, defaultIndicatorUse, liveSessionOverlays, zoneToggleOverlays } from './blockOverlays';
+import { dedupeOverlaySignals } from './overlays';
 import { getIndicator } from '../blocks/registry';
 import { MAX_DRAWN_ZONES, ZoneStore, zoneColors, zoneRects, type ZoneViewport } from './zoneGeometry';
 
@@ -131,5 +132,20 @@ describe('zone overlays', () => {
     expect(swing.signals).toBeUndefined(); // the session already marks both BOS signals
     expect(swing.zoneKey).toBe(session[0].zoneKey);
     expect(out.map((d) => d.id)).toContain('zones-orderblock');
+  });
+});
+
+describe('signal markers are drawn once per distinct signal (backtest and live)', () => {
+  it('a strategy using swing BOS up plus the Swing structure toggle marks BOS up once; other settings stay separate', () => {
+    const swing = getIndicator('swing')!;
+    const strategy = blockIndicatorOverlays([{ ...defaultIndicatorUse(swing), signals: ['bos_up'] }]);
+    const other = blockIndicatorOverlays([{ ...defaultIndicatorUse(swing), params: { left: 3, right: 3 }, signals: ['bos_up'] }]);
+    const out = dedupeOverlaySignals([...strategy, ...other, ...zoneToggleOverlays()]);
+    const marked = out.flatMap((d) => (d.signals ?? []).map((s) => `${d.id}:${s.key}`));
+    expect(marked.filter((m) => m.endsWith(':bos_up'))).toHaveLength(2); // default 5/5 once + 3/3 once
+    expect(marked.filter((m) => m.endsWith(':bos_down'))).toEqual(['zones-swing:bos_down']);
+    // The toggle overlay stays (its zones are deduplicated by zoneKey in the chart), only without the duplicate marker.
+    expect(out.map((d) => d.id)).toContain('zones-swing');
+    expect(out.length).toBe(strategy.length + other.length + zoneToggleOverlays().length);
   });
 });

@@ -36,6 +36,11 @@ export interface OverlayDef {
   /** Identity of the zone indicator + settings: two overlays with the same key draw their zones once. */
   zoneKey?: string;
   /**
+   * Identity of the indicator instance behind its signals (indicator + settings, incl. signal-only ones): a signal
+   * with the same instance key and signal key is marked once (dedupeOverlaySignals). Default: the overlay id.
+   */
+  signalKey?: string;
+  /**
    * Returns a fresh stepper. Call it once per CLOSED candle; it returns one value per line key (NaN = na), 1/0 per
    * signal key, and for price-located signals the marker price under `signalPriceKey(key)`.
    */
@@ -119,4 +124,26 @@ export function computeOverlaySeries(
     for (const line of def.lines) out[line.key].push(overlayPoint(c.time, values[line.key]));
   }
   return out;
+}
+
+/**
+ * Drops signals another (earlier) overlay already marks: same instance identity (`signalKey`, else the overlay id)
+ * and signal key. Overlays keep their lines and zones. Used for backtest and live charts alike.
+ */
+export function dedupeOverlaySignals(defs: readonly OverlayDef[]): OverlayDef[] {
+  const seen = new Set<string>();
+  return defs.map((def) => {
+    if (!def.signals) return def;
+    const id = def.signalKey ?? def.id;
+    const signals = def.signals.filter((s) => {
+      const key = `${id}|${s.key}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    if (signals.length === def.signals.length) return def;
+    if (signals.length > 0) return { ...def, signals };
+    const { signals: _drop, ...rest } = def;
+    return rest;
+  });
 }

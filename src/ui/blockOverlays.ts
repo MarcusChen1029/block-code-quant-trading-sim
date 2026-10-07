@@ -75,6 +75,7 @@ export function blockIndicatorOverlays(
       lines: def.zones ? [] : def.outputs.map((o) => ({ key: o.key, color: COLORS[colorCursor++ % COLORS.length] })),
       ...(signals.length > 0 ? { signals } : {}),
       ...(def.zones ? { zones: def.zones.style, zoneKey: g.key } : {}),
+      signalKey: `${g.key}|${g.signalParams ?? ''}`,
       create() {
         // A Pine script can throw (bad parameter, loop budget): the chart then shows gaps instead of breaking.
         const gap = () => Object.fromEntries([...def.outputs.map((o) => [o.key, NaN]), ...signals.map((s) => [s.key, 0])]);

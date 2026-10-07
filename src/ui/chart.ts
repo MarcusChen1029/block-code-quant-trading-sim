@@ -15,7 +15,7 @@ import {
 import type { Candle } from '../data/types';
 import { DOWN_COLOR, UP_COLOR, candleToBar, candleToVolume } from './chartData';
 import { MAX_MARKERS_PER_SIGNAL, mergeMarkers, signalMarkers, type SignalHit } from './markers';
-import { computeOverlaySeries, overlayPoint, signalPriceKey, type OverlayDef, type OverlaySignal } from './overlays';
+import { computeOverlaySeries, dedupeOverlaySignals, overlayPoint, signalPriceKey, type OverlayDef, type OverlaySignal } from './overlays';
 import { ZoneStore, type ZoneRect } from './zoneGeometry';
 import { ZoneLayer } from './zonePrimitive';
 
@@ -134,7 +134,8 @@ export class ChartPanel {
 
     let nextPane = 1;
     const zoneKeys = new Set<string>();
-    for (const def of defs) {
+    // The same signal of the same indicator settings (e.g. a strategy's and a picked toggle's) is marked once.
+    for (const def of dedupeOverlaySignals(defs)) {
       // A sub-pane overlay without lines (a signal-only Pine script) gets no pane: its markers go on the candles.
       const paneIndex = def.pane === 'price' || def.lines.length === 0 ? 0 : nextPane++;
       const signals: ActiveSignal[] = (def.signals ?? []).map((signal) => ({ signal, hits: [] }));
