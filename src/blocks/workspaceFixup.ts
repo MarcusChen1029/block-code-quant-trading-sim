@@ -1,11 +1,22 @@
-import { getIndicator, INDICATOR_BLOCK_PREFIX, paramFieldName } from './registry';
+import { blockParams, getIndicator, INDICATOR_BLOCK_PREFIX, paramFieldName, SIGNAL_BLOCK_PREFIX, type IndicatorBlockDef } from './registry';
 import type { BlockState, ConnectionState } from './workspaceState';
+
+/** The definition behind an `ind_` / `sig_` block when that block kind still exists, else undefined. */
+function liveDef(type: string): { def: IndicatorBlockDef; kind: 'ind' | 'sig' } | undefined {
+  if (type.startsWith(INDICATOR_BLOCK_PREFIX)) {
+    const def = getIndicator(type.slice(INDICATOR_BLOCK_PREFIX.length));
+    return def && def.outputs.length > 0 ? { def, kind: 'ind' } : undefined;
+  }
+  const def = getIndicator(type.slice(SIGNAL_BLOCK_PREFIX.length));
+  return def && (def.signals ?? []).length > 0 ? { def, kind: 'sig' } : undefined;
+}
 
 /**
  * Prepares saved workspace JSON for Blockly after indicator definitions changed (a Pine script was edited or
- * deleted). Blockly throws on inputs a block no longer has, so indicator blocks keep only the inputs and fields
- * of their current definition; blocks whose indicator is gone keep only SOURCE (their placeholder has it).
- * Returns a cleaned copy plus the indicator block types that have no definition. Pure (no Blockly).
+ * deleted). Blockly throws on inputs a block no longer has, so indicator and signal blocks keep only the inputs
+ * and fields of their current definition; blocks whose indicator (or that kind of output) is gone keep only
+ * SOURCE (their placeholder has it). Returns a cleaned copy plus the block types that have no definition.
+ * Pure (no Blockly).
  */
 export function fixupIndicatorBlocks(workspace: unknown): { workspace: unknown; missingTypes: string[] } {
   const missing = new Set<string>();
@@ -18,17 +29,20 @@ export function fixupIndicatorBlocks(workspace: unknown): { workspace: unknown; 
   };
   const visit = (block: BlockState | undefined) => {
     if (!block || typeof block !== 'object' || typeof block.type !== 'string') return;
-    if (block.type.startsWith(INDICATOR_BLOCK_PREFIX)) {
-      const def = getIndicator(block.type.slice(INDICATOR_BLOCK_PREFIX.length));
+    if (block.type.startsWith(INDICATOR_BLOCK_PREFIX) || block.type.startsWith(SIGNAL_BLOCK_PREFIX)) {
+      const live = liveDef(block.type);
       const inputs = block.inputs && typeof block.inputs === 'object' ? block.inputs : {};
-      const keepSource = def ? def.source !== undefined : true;
+      const keepSource = live ? live.def.source !== undefined : true;
       block.inputs = keepSource && inputs.SOURCE ? { SOURCE: inputs.SOURCE } : {};
-      if (def) {
-        const allowed = new Set([...def.params.map(paramFieldName), ...(def.outputs.length > 1 ? ['OUT'] : [])]);
+      if (live) {
+        const { def, kind } = live;
+        const choice = kind === 'ind' ? (def.outputs.length > 1 ? 'OUT' : null) : 'SIGOUT';
+        const choices = kind === 'ind' ? def.outputs : def.signals ?? [];
+        const allowed = new Set([...blockParams(def, kind).map(paramFieldName), ...(choice ? [choice] : [])]);
         const fields = block.fields && typeof block.fields === 'object' ? block.fields : {};
         block.fields = Object.fromEntries(Object.entries(fields).filter(([k, v]) => {
           if (!allowed.has(k)) return false;
-          return k !== 'OUT' || def.outputs.some((o) => o.key === v);
+          return k !== choice || choices.some((o) => o.key === v);
         }));
       } else {
         missing.add(block.type);

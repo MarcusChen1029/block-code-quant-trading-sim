@@ -4,7 +4,8 @@ import {
   SIDE_OPTIONS, SIZE_UNIT_OPTIONS, type Options,
 } from './blockTypes';
 import {
-  getIndicator, INDICATOR_BLOCK_PREFIX, indicatorBlockType, listIndicators, missingIndicatorTitle, paramFieldName, type IndicatorBlockDef,
+  blockParams, getIndicator, INDICATOR_BLOCK_PREFIX, indicatorBlockType, listIndicators, missingIndicatorTitle, paramFieldName,
+  SIGNAL_BLOCK_PREFIX, signalBlockType, type IndicatorBlockDef,
 } from './registry';
 
 type Json = Record<string, unknown>;
@@ -96,7 +97,7 @@ export function indicatorBlockJson(def: IndicatorBlockDef): Json {
     label('of');
     arg({ type: 'input_value', name: 'SOURCE', check: 'Number' });
   }
-  for (const p of def.params) {
+  for (const p of blockParams(def, 'ind')) {
     label(p.label);
     arg({ type: 'field_number', name: paramFieldName(p), value: p.default, min: p.min, max: p.max, precision: p.integer ? 1 : undefined });
   }
@@ -105,6 +106,48 @@ export function indicatorBlockJson(def: IndicatorBlockDef): Json {
     output: 'Number', inputsInline: true,
     tooltip: blocklyText(`${def.tooltip} Updates on every bar, even inside an if that is not taken. Early bars return na while it warms up.`),
   };
+}
+
+/** Longest signal / indicator label shown on a block (user text from Pine titles can be long). */
+const MAX_LABEL = 60;
+const shortLabel = (text: string) => (text.length > MAX_LABEL ? `${text.slice(0, MAX_LABEL - 1)}…` : text);
+
+/**
+ * Blockly JSON for an indicator's signal block `sig_<id>`: a Boolean value (true on the bars where the chosen
+ * signal fires), same SOURCE input and parameters as the numeric block plus signal-only ones. Dropdown values
+ * are the signal keys (identifiers); labels are escaped user text.
+ */
+export function signalBlockJson(def: IndicatorBlockDef): Json {
+  const parts: string[] = [];
+  const args: unknown[] = [];
+  const arg = (value: unknown) => {
+    args.push(value);
+    parts.push(`%${args.length}`);
+  };
+  const label = (text: string) => arg({ type: 'field_label', text: blocklyText(text) });
+  label(shortLabel(def.label));
+  arg(dropdown('SIGOUT', (def.signals ?? []).map((s) => [blocklyText(shortLabel(s.label)), s.key] as const)));
+  if (def.source) {
+    label('of');
+    arg({ type: 'input_value', name: 'SOURCE', check: 'Number' });
+  }
+  for (const p of blockParams(def, 'sig')) {
+    label(p.label);
+    arg({ type: 'field_number', name: paramFieldName(p), value: p.default, min: p.min, max: p.max, precision: p.integer ? 1 : undefined });
+  }
+  return {
+    type: signalBlockType(def.id), style: 'indicator_blocks', message0: parts.join(' '), args0: args,
+    output: 'Boolean', inputsInline: true,
+    tooltip: blocklyText(`${def.tooltip} Signal: true on the bars where it fires, false otherwise. Updates on every bar, even inside an if that is not taken.`),
+  };
+}
+
+/** Every block definition of one indicator: the numeric block (if it has outputs) and the signal block (if it has signals). */
+function indicatorBlocks(def: IndicatorBlockDef): Json[] {
+  const out: Json[] = [];
+  if (def.outputs.length > 0) out.push(indicatorBlockJson(def));
+  if ((def.signals ?? []).length > 0) out.push(signalBlockJson(def));
+  return out;
 }
 
 /** Block type -> the JSON it was defined with (Pine blocks are redefined when their script changes). */
@@ -123,7 +166,14 @@ function define(jsons: Json[]): void {
 
 /** Registers all custom blocks plus one block per registered indicator (idempotent; call again after registering more). */
 export function defineBlocks(): void {
-  define([...CUSTOM_BLOCKS, ...listIndicators().map(indicatorBlockJson)]);
+  define([...CUSTOM_BLOCKS, ...listIndicators().flatMap(indicatorBlocks)]);
+}
+
+/** True when `type` is a defined block of a registered indicator (`ind_` with outputs, `sig_` with signals). */
+export function isLiveIndicatorType(type: string): boolean {
+  if (type.startsWith(INDICATOR_BLOCK_PREFIX)) return (getIndicator(type.slice(INDICATOR_BLOCK_PREFIX.length))?.outputs.length ?? 0) > 0;
+  if (type.startsWith(SIGNAL_BLOCK_PREFIX)) return (getIndicator(type.slice(SIGNAL_BLOCK_PREFIX.length))?.signals?.length ?? 0) > 0;
+  return false;
 }
 
 /**
@@ -131,20 +181,24 @@ export function defineBlocks(): void {
  * still uses it loads. It keeps a SOURCE input; the generator reports it as a missing script.
  */
 export function missingIndicatorBlockJson(type: string): Json {
-  const id = type.slice(INDICATOR_BLOCK_PREFIX.length);
+  const signal = type.startsWith(SIGNAL_BLOCK_PREFIX);
+  const id = type.slice(signal ? SIGNAL_BLOCK_PREFIX.length : INDICATOR_BLOCK_PREFIX.length);
   const name = missingIndicatorTitle(id) ?? id.replace(/^pine_/, '');
   return {
-    type, style: 'indicator_blocks', message0: '%1 %2', inputsInline: true, output: 'Number',
+    type, style: 'indicator_blocks', message0: '%1 %2', inputsInline: true, output: signal ? 'Boolean' : 'Number',
     args0: [{ type: 'field_label', text: blocklyText(`⚠ missing Pine script "${name}"`) }, { type: 'input_value', name: 'SOURCE', check: 'Number' }],
     tooltip: 'This Pine script was deleted or no longer compiles. Fix it in the Pine tab, or replace this block with one from the Pine toolbox category (a re-created script gets a new block).',
   };
 }
 
 /** Only well-formed Pine block types get a placeholder (the type text comes from saved, untrusted JSON). */
-const MISSING_PINE_TYPE = /^ind_pine_[a-z0-9_]{1,35}$/;
+const MISSING_PINE_TYPE = /^(?:ind|sig)_pine_[a-z0-9_]{1,35}$/;
 
-/** Defines placeholders for the given indicator block types that have no registered indicator. */
+/**
+ * Defines placeholders for the given indicator block types that have no live definition: the script is gone,
+ * or it no longer has that kind of output (numeric outputs for `ind_`, signals for `sig_`).
+ */
 export function defineMissingIndicatorBlocks(types: Iterable<string>): void {
-  const missing = [...new Set(types)].filter((t) => MISSING_PINE_TYPE.test(t) && !getIndicator(t.slice(INDICATOR_BLOCK_PREFIX.length)));
+  const missing = [...new Set(types)].filter((t) => MISSING_PINE_TYPE.test(t) && !isLiveIndicatorType(t));
   define(missing.map(missingIndicatorBlockJson));
 }

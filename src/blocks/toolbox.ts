@@ -1,6 +1,6 @@
 import { BT } from './blockTypes';
 import { PALETTE, type BlockStyleName } from './palette';
-import { indicatorBlockType, listIndicators, PINE_ID_PREFIX, type IndicatorBlockDef } from './registry';
+import { indicatorBlockType, listIndicators, PINE_ID_PREFIX, signalBlockType, type IndicatorBlockDef } from './registry';
 import type { BlockState, ConnectionState } from './workspaceState';
 
 /** Toolbox in Blockly's JSON format (kept as plain data so tests can check it without a DOM). */
@@ -41,8 +41,14 @@ const category = (name: string, style: BlockStyleName, contents: Array<ToolboxBl
   kind: 'category', name, colour: PALETTE[style][0], contents,
 });
 
-const indicatorBlock = (def: IndicatorBlockDef): ToolboxBlock =>
-  block(indicatorBlockType(def.id), def.source ? { inputs: { SOURCE: priceShadow(def.source) } } : {});
+/** The numeric block (when it has outputs) and the signal block (when it has signals) of one indicator. */
+const indicatorBlock = (def: IndicatorBlockDef): ToolboxBlock[] => {
+  const extra = def.source ? { inputs: { SOURCE: priceShadow(def.source) } } : {};
+  const out: ToolboxBlock[] = [];
+  if (def.outputs.length > 0) out.push(block(indicatorBlockType(def.id), extra));
+  if ((def.signals ?? []).length > 0) out.push(block(signalBlockType(def.id), extra));
+  return out;
+};
 
 /** Builds the toolbox; indicator blocks come from the registry, Pine-compiled ones in their own category. */
 export function buildToolbox(): Toolbox {
@@ -66,9 +72,9 @@ export function buildToolbox(): Toolbox {
         block(BT.balance), block(BT.equity), block(BT.positionIs), block(BT.positionSide), block(BT.positionSize),
         block(BT.entryPrice), block(BT.unrealizedPnl), block(BT.openOrders),
       ]),
-      category('Indicators', 'indicator_blocks', all.filter((d) => !d.id.startsWith(PINE_ID_PREFIX)).map(indicatorBlock)),
+      category('Indicators', 'indicator_blocks', all.filter((d) => !d.id.startsWith(PINE_ID_PREFIX)).flatMap(indicatorBlock)),
       category('Pine', 'indicator_blocks', pine.length > 0
-        ? pine.map(indicatorBlock)
+        ? pine.flatMap(indicatorBlock)
         : [{ kind: 'label', text: 'Compile a script in the Pine tab to get a block here.' }]),
       category('Logic', 'logic_blocks', [
         block('controls_if'),

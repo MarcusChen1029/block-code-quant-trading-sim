@@ -4,7 +4,8 @@ import {
 } from './blockTypes';
 import type { PriceSource } from './priceSource';
 import {
-  getIndicator, INDICATOR_BLOCK_PREFIX, missingIndicatorTitle, paramFieldName, PINE_ID_PREFIX, type IndicatorBlockDef,
+  blockParams, getIndicator, INDICATOR_BLOCK_PREFIX, missingIndicatorTitle, paramFieldName, PINE_ID_PREFIX, SIGNAL_BLOCK_PREFIX,
+  type IndicatorBlockDef,
 } from './registry';
 import { connected, isEnabled, type BlockState, type ConnectionState, type WorkspaceState } from './workspaceState';
 
@@ -23,6 +24,8 @@ export interface IndicatorUse {
   /** True when the UI can recompute it from candles alone (no computed source). */
   drawable: boolean;
   blockId: string;
+  /** Signal blocks: the signal keys it reads (the chart draws their markers). Absent for numeric blocks. */
+  signals?: string[];
 }
 
 /** Generated JS plus the side tables the runtime needs. */
@@ -227,7 +230,8 @@ class Generator {
   private describe(block: BlockState): string {
     if (HAT_LABEL[block.type]) return HAT_LABEL[block.type];
     if (block.type === BT.crosses) return block.fields?.OP === 'under' ? "'crosses under'" : "'crosses over'";
-    const ind = block.type.startsWith(INDICATOR_BLOCK_PREFIX) ? getIndicator(block.type.slice(INDICATOR_BLOCK_PREFIX.length)) : undefined;
+    const ind = block.type.startsWith(INDICATOR_BLOCK_PREFIX) ? getIndicator(block.type.slice(INDICATOR_BLOCK_PREFIX.length))
+      : block.type.startsWith(SIGNAL_BLOCK_PREFIX) ? getIndicator(block.type.slice(SIGNAL_BLOCK_PREFIX.length)) : undefined;
     return `'${ind ? ind.label : BLOCK_LABEL[block.type] ?? block.type.replace(/_/g, ' ')}'`;
   }
 
@@ -456,10 +460,20 @@ class Generator {
       case BT.crosses:
         return this.crosses(block, k);
       default: {
-        const def = block.type.startsWith(INDICATOR_BLOCK_PREFIX) ? getIndicator(block.type.slice(INDICATOR_BLOCK_PREFIX.length)) : undefined;
-        if (def) return this.indicator(block, k, def);
-        if (block.type.startsWith(INDICATOR_BLOCK_PREFIX + PINE_ID_PREFIX)) {
-          const id = block.type.slice(INDICATOR_BLOCK_PREFIX.length);
+        const isInd = block.type.startsWith(INDICATOR_BLOCK_PREFIX);
+        const isSig = block.type.startsWith(SIGNAL_BLOCK_PREFIX);
+        const def = isInd ? getIndicator(block.type.slice(INDICATOR_BLOCK_PREFIX.length))
+          : isSig ? getIndicator(block.type.slice(SIGNAL_BLOCK_PREFIX.length)) : undefined;
+        if (def && isInd && def.outputs.length > 0) return this.indicator(block, k, def);
+        if (def && isSig && (def.signals ?? []).length > 0) return this.signal(block, k, def);
+        if (def) {
+          this.error(isInd
+            ? `${def.label} has no numeric outputs any more (only signals): use its signal block from the toolbox`
+            : `${def.label} has no signals any more: use its numeric block from the toolbox`, block);
+          return 'NaN';
+        }
+        if (block.type.startsWith(INDICATOR_BLOCK_PREFIX + PINE_ID_PREFIX) || block.type.startsWith(SIGNAL_BLOCK_PREFIX + PINE_ID_PREFIX)) {
+          const id = block.type.slice((isSig ? SIGNAL_BLOCK_PREFIX : INDICATOR_BLOCK_PREFIX).length);
           const name = missingIndicatorTitle(id) ?? id.slice(PINE_ID_PREFIX.length);
           this.error(`Pine script "${name}" is missing: it was deleted or no longer compiles. Fix it in the Pine tab, or remove this block`, block);
           return 'NaN';
@@ -496,8 +510,33 @@ class Generator {
 
   /** Indicator call-site: one stateful instance, stepped in hoist() on EVERY bar; the expression reads the cache. */
   private indicator(block: BlockState, k: number, def: IndicatorBlockDef): string {
+    let output = def.outputs[0].key;
+    if (def.outputs.length > 1) {
+      const out = block.fields?.OUT;
+      if (def.outputs.some((o) => o.key === out)) output = out as string;
+      else if (out !== undefined) this.error(`${def.label}: unknown output "${String(out)}"`, block);
+    }
+    return `C[${this.instance(block, k, def, 'ind')}][${jsString(output)}]`;
+  }
+
+  /**
+   * Signal call-site (`sig_` block): exactly like an indicator block (own instance, hoisted, stepped every bar,
+   * so its state updates even inside an if that is not taken); reads true when the chosen signal fired.
+   * An `ind_` and a `sig_` block of the same script each get their own instance (duplicate work, same values).
+   */
+  private signal(block: BlockState, k: number, def: IndicatorBlockDef): string {
+    const signals = def.signals ?? [];
+    let key = signals[0].key;
+    const chosen = block.fields?.SIGOUT;
+    if (signals.some((s) => s.key === chosen)) key = chosen as string;
+    else if (chosen !== undefined) this.error(`${def.label}: unknown signal "${String(chosen)}"`, block);
+    return `(C[${this.instance(block, k, def, 'sig', key)}][${jsString(key)}] === 1)`;
+  }
+
+  /** Creates the hoisted instance of an indicator / signal block; returns its cache slot. */
+  private instance(block: BlockState, k: number, def: IndicatorBlockDef, kind: 'ind' | 'sig', signalKey?: string): number {
     const params: Record<string, number> = {};
-    for (const p of def.params) {
+    for (const p of blockParams(def, kind)) {
       const raw = block.fields?.[paramFieldName(p)];
       const v = raw === undefined ? p.default : toNumber(raw);
       const okRange = Number.isFinite(v) && (p.min === undefined || v >= p.min) && (p.max === undefined || v <= p.max);
@@ -521,22 +560,18 @@ class Generator {
         sourceField = 'volume';
       }
     }
-    let output = def.outputs[0].key;
-    if (def.outputs.length > 1) {
-      const out = block.fields?.OUT;
-      if (def.outputs.some((o) => o.key === out)) output = out as string;
-      else if (out !== undefined) this.error(`${def.label}: unknown output "${String(out)}"`, block);
-    }
     const inst = this.instances.length;
     // `rt.at(k)` first, so an error while creating the instance (e.g. a bad length) names this block.
-    this.instances.push(`(rt.at(${k}), rt.indicator(${jsString(def.id)}, { ${def.params.map((p) => `${p.name}: ${jsNumber(params[p.name])}`).join(', ')} }))`);
+    this.instances.push(`(rt.at(${k}), rt.indicator(${jsString(def.id)}, { ${Object.keys(params).map((name) => `${name}: ${jsNumber(params[name])}`).join(', ')} }))`);
     const slot = this.cacheSlots++;
     this.hoisted.push(`rt.at(${k}); C[${slot}] = I[${inst}].step(${source}, ctx.candle);`);
-    this.uses.push({
+    const use: IndicatorUse = {
       indicatorId: def.id, params, source: sourceField,
       drawable: !def.source || sourceField !== null, blockId: this.blockIds[k],
-    });
-    return `C[${slot}][${jsString(output)}]`;
+    };
+    if (signalKey !== undefined) use.signals = [signalKey];
+    this.uses.push(use);
+    return slot;
   }
 
   /** crosses over/under call-site: hoisted like an indicator; keeps both sides' previous-bar values. */

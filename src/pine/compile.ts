@@ -83,7 +83,7 @@ export type PineCompileResult =
   | { ok: true; script: PineScript; warnings: PineDiagnostic[] }
   | { ok: false; errors: PineDiagnostic[]; warnings: PineDiagnostic[] };
 
-const RESERVED_PARAM_NAMES = new Set(['out', 'source']);
+const RESERVED_PARAM_NAMES = new Set(['out', 'source', 'sigout']);
 
 /** A lowercase identifier for the registry from arbitrary text, unique within `taken`. */
 export function slugIdentifier(text: string, fallback: string, taken: Set<string>, maxLength = 40): string {
