@@ -56,7 +56,7 @@ export function createPineEditor(container: HTMLElement, options: PineEditorOpti
     h('div', { class: 'pine-editor' }, gutter, textarea),
     status,
     problems,
-    h('div', { class: 'pine-note' }, 'Pine v5 subset: indicator(), inputs, ta.*, math.*, var, if/for, functions, plot(). Each plot is an output of the block (toolbox › Pine). Warm-up bars may differ slightly from TradingView.'),
+    h('div', { class: 'pine-note' }, 'Pine v4 / v5 / v6 subset (//@version=4, 5 or 6): indicator() (v4: study()), inputs, ta.*, math.*, var, if/for, functions, plot(). Each plot is an output of the block (toolbox › Pine). Warm-up bars may differ slightly from TradingView.'),
   );
 
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -108,7 +108,7 @@ export function createPineEditor(container: HTMLElement, options: PineEditorOpti
     const result = compilePine(textarea.value);
     showDiagnostics(result.ok ? [] : result.errors, result.warnings);
     const unsaved = dirty() ? ' (unsaved changes)' : '';
-    if (result.ok) setStatus(`Compiles: "${result.script.title}", ${result.script.plots.length} output${result.script.plots.length === 1 ? '' : 's'}${unsaved}`, 'ok');
+    if (result.ok) setStatus(`Compiles as Pine v${result.script.version}: "${result.script.title}", ${result.script.plots.length} output${result.script.plots.length === 1 ? '' : 's'}${unsaved}`, 'ok');
     else setStatus(`${result.errors.length} error${result.errors.length === 1 ? '' : 's'}${unsaved}`, 'error');
     return result;
   };

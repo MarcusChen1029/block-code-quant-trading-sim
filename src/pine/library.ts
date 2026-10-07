@@ -31,9 +31,9 @@ export function isPineId(id: unknown): id is string {
   return typeof id === 'string' && PINE_ID.test(id);
 }
 
-/** Title from `indicator("...")` without compiling (script lists, tombstones). */
+/** Title from `indicator("...")` (or v4 `study("...")`) without compiling (script lists, tombstones). */
 export function scriptTitle(source: string, fallback: string): string {
-  const m = /indicator\s*\(\s*(?:title\s*=\s*)?(["'])((?:(?!\1)[^\\\n]|\\.)*)\1/.exec(source);
+  const m = /(?:indicator|study)\s*\(\s*(?:title\s*=\s*)?(["'])((?:(?!\1)[^\\\n]|\\.)*)\1/.exec(source);
   return m && m[2].trim() !== '' ? m[2].trim().slice(0, 200) : fallback;
 }
 
