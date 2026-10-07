@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { accountSummary } from './accountSummary';
+import { overlayBadge } from './overlayPicker';
 import { clampFraction, fractionForKey, fractionFromPointer, fractionRange, parseStoredFraction, SPLIT } from './splitter';
 import { isEmptyWorkspace, LAST_STARTER_KEY, PREVIOUS_WORKSPACE_KEY, StarterMemory, type KeyValueStore } from './starterMemory';
 
@@ -26,6 +27,14 @@ describe('accountSummary', () => {
 
   it('mentions the built-in strategy choice', () => {
     expect(accountSummary(DEF, true)).toEqual({ text: 'Leverage 1x · fees 0.04%/0.02% · slippage 2 bps · runs the built-in SMA cross', nonDefault: true });
+  });
+});
+
+describe('overlayBadge', () => {
+  it('counts the overlays that are on, nothing when none', () => {
+    expect(overlayBadge(0)).toBe('');
+    expect(overlayBadge(1)).toBe('1 on');
+    expect(overlayBadge(3)).toBe('3 on');
   });
 });
 

@@ -63,7 +63,7 @@ export function createBlockEditor(
     trashcan: true,
     sounds: false,
     grid: { spacing: 24, length: 2, colour: '#2a2e39', snap: true },
-    zoom: { controls: true, wheel: true, startScale: 0.65, maxScale: 2, minScale: 0.3, scaleSpeed: 1.15 },
+    zoom: { controls: true, wheel: true, startScale: 0.65, maxScale: 2, minScale: 0.2, scaleSpeed: 1.15 },
     move: { scrollbars: true, drag: true, wheel: false },
     maxInstances: { ...HAT_MAX_INSTANCES },
   });
@@ -107,6 +107,26 @@ export function createBlockEditor(
     ws.highlightBlock(null);
     if (persist) saveJson(WORKSPACE_STORAGE_KEY, json);
     onChange(json);
+  };
+
+  /** A fit asked for while the pane had no size (hidden tab / window); done on the next resize that gives it one. */
+  let pendingFit = false;
+  /** Pixels kept free on each side after a fit, so blocks clear the scrollbars (zoomToFit measures under them). */
+  const FIT_PAD_PX = 24;
+  const fit = () => {
+    if (ws.getTopBlocks(false).length === 0) return;
+    if (container.clientWidth === 0 || container.clientHeight === 0) {
+      pendingFit = true;
+      return;
+    }
+    pendingFit = false;
+    Blockly.svgResize(ws);
+    Blockly.renderManagement.triggerQueuedRenders(ws); // renders are queued on animation frames, which stall while hidden
+    ws.zoomToFit();
+    const view = ws.getMetricsManager().getViewMetrics();
+    const room = Math.min((view.width - 2 * FIT_PAD_PX) / view.width, (view.height - 2 * FIT_PAD_PX) / view.height);
+    const target = Math.min(1, ws.scale * Math.max(0.5, room));
+    ws.zoomCenter(Math.log(target / ws.scale) / Math.log(ws.options.zoomOptions.scaleSpeed));
   };
 
   let restored: BlockEditor['restored'] = 'storage';
@@ -161,7 +181,10 @@ export function createBlockEditor(
       ws.highlightBlock(blockId);
       block.setWarningText(message, ISSUE_WARNING_ID);
     },
-    resize: () => Blockly.svgResize(ws),
+    resize() {
+      Blockly.svgResize(ws);
+      if (pendingFit) fit();
+    },
     resetToExample(example = 'smaCross') {
       if (!load(example === 'zones' ? zoneExampleWorkspace() : defaultWorkspace()).ok) return;
       persist = true;
@@ -177,16 +200,7 @@ export function createBlockEditor(
       emit();
       return true;
     },
-    fit() {
-      if (container.clientWidth === 0 || container.clientHeight === 0 || ws.getTopBlocks(false).length === 0) return;
-      Blockly.svgResize(ws);
-      Blockly.renderManagement.triggerQueuedRenders(ws); // renders are queued on animation frames, which stall while hidden
-      ws.zoomToFit();
-      if (ws.scale > 1) {
-        ws.setScale(1);
-        ws.scrollCenter();
-      }
-    },
+    fit,
     refreshIndicators() {
       const json = Blockly.serialization.workspaces.save(ws);
       const { scrollX, scrollY } = ws;

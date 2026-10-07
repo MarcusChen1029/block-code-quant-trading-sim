@@ -63,6 +63,8 @@ button.run:disabled { opacity: 0.6; cursor: progress; }
 #layout { flex: 1; display: flex; min-height: 0; }
 #left { width: var(--left-width, 45%); min-width: 320px; max-width: calc(100% - 420px); flex: none; display: flex; flex-direction: column; min-height: 0; }
 .splitter { flex: none; width: 6px; cursor: col-resize; background: #1e222d; border-left: 1px solid #2a2e39; border-right: 1px solid #2a2e39; touch-action: none; }
+.splitter { position: relative; z-index: 4; }
+.splitter::after { content: ''; position: absolute; top: 0; bottom: 0; left: -4px; right: -4px; } /* 14px grab area */
 .splitter:hover, .splitter.dragging { background: #2962ff66; }
 .splitter:focus-visible { outline: 2px solid #2962ff; outline-offset: -2px; }
 body.resizing { cursor: col-resize; user-select: none; }
@@ -143,12 +145,13 @@ body:not([data-left-tab='pine']) #pine { display: none; }
 body[data-mode='live'] #verdict { display: none; }
 
 #stats { border-top: 1px solid #2a2e39; display: flex; height: 260px; }
-.stats-left { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.stats-left { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .stats-right { width: 50%; display: flex; flex-direction: column; border-left: 1px solid #2a2e39; min-width: 0; }
-.stat-cards { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; }
-.card { background: #1e222d; border-radius: 4px; padding: 4px 8px; min-width: 92px; }
-.card .label { font-size: 11px; color: #787b86; }
-.card .value { font-size: 15px; font-weight: 600; }
+/* Cards scroll inside the panel rather than pushing the equity chart out of it (it keeps at least 90px). */
+.stat-cards { display: flex; flex-wrap: wrap; gap: 5px; padding: 5px 6px; flex: none; max-height: calc(100% - 90px); overflow-y: auto; }
+.card { background: #1e222d; border-radius: 4px; padding: 3px 7px; min-width: 86px; }
+.card .label { font-size: 11px; color: #787b86; white-space: nowrap; }
+.card .value { font-size: 14px; font-weight: 600; }
 .card.wiped { font-weight: 700; align-self: center; }
 .equity-wrap { flex: 1; min-height: 90px; position: relative; display: flex; }
 .equity { flex: 1; min-height: 90px; min-width: 0; }
