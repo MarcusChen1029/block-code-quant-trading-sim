@@ -185,6 +185,43 @@ plot(on ? m * k + n : na, "v", color.red, 2, plot.style_line, false, 50)
     expect(out.x).toEqual(closes.slice(0, 3).map((c) => c * 3 + 2));
   });
 
+  describe('shadowing of v4 built-in names is scope-aware (Pine scoping)', () => {
+    const trueRange = () => {
+      const tr = new TrueRange(false);
+      return CANDLES.map((c) => tr.update(c));
+    };
+
+    it('a parameter shadows only inside its function; outside, tr is still the built-in', () => {
+      const out = runPine(compileOk(v4('f(tr) =>\n    tr * 2\nplot(f(close) + tr, "x")')), CANDLES);
+      expectSeriesEqual(out.x, trueRange().map((t, i) => closes[i] * 2 + t), 1e-9, 'x');
+    });
+
+    it('a loop variable shadows only inside its loop', () => {
+      const out = runPine(compileOk(v4('s = 0.0\nfor tr = 0 to 2\n    s += tr\nplot(s + tr, "x")')), CANDLES);
+      expectSeriesEqual(out.x, trueRange().map((t) => 3 + t), 1e-9, 'x');
+    });
+
+    it('a variable shadows only from its declaration on', () => {
+      const out = runPine(compileOk(v4('a = tr\ntr = 5.0\nplot(a + tr, "x")')), CANDLES);
+      expectSeriesEqual(out.x, trueRange().map((t) => t + 5), 1e-9, 'x');
+    });
+
+    it('the same name declared in one branch is not visible in the other', () => {
+      // The else-branch tr is the built-in (a conditional ta.tr call site), exactly as the v5 spelling.
+      const out = equivalent('x = 0.0\nif close > open\n    tr = 1.0\n    x := tr\nelse\n    x := tr\nplot(x, "x")',
+        'x = 0.0\nif close > open\n    t = 1.0\n    x := t\nelse\n    x := ta.tr\nplot(x, "x")');
+      expect(out.x.some((v, i) => CANDLES[i].close <= CANDLES[i].open && v !== 1 && !Number.isNaN(v))).toBe(true);
+    });
+
+    it('a user function shadows a built-in call only from its definition on; a parameter never hides a call', () => {
+      const out = runPine(compileOk(v4('a = sma(close, 3)\nsma(x, n) => x * n\nplot(a + sma(close, 2), "x")')), CANDLES);
+      const ref = run(new Sma(3));
+      expectSeriesEqual(out.x, ref.map((v, i) => v + closes[i] * 2), 1e-9, 'x');
+      const g = runPine(compileOk(v4('g(max) =>\n    max + max(1, 2)\nplot(g(close), "x")')), CANDLES.slice(0, 3));
+      expect(g.x).toEqual(closes.slice(0, 3).map((c) => c + 2));
+    });
+  });
+
   it('the shipped v4 template compiles as v4 and plots RSI and its MA', () => {
     const s = compileOk(RSI_MA_V4_SOURCE);
     expect([s.version, s.title, s.warnings]).toEqual([4, 'RSI + MA (v4)', []]);

@@ -1,4 +1,4 @@
-import { childBlocks, dottedName, type Arg, type CallExpr, type Expr, type Pos, type Stmt } from './ast';
+import { dottedName, type Arg, type CallExpr, type Expr, type Pos, type Stmt } from './ast';
 import { literalNumber } from './analyze';
 import { bindArgs, type Issue, SOURCE_DEFAULTS, type Signature } from './builtins';
 import { V4_INPUT_TYPES, V4_MATH_FUNCTIONS, V4_OTHER_INPUT_TYPES, V4_TA_FUNCTIONS, V4_UNSUPPORTED } from './dialect';
@@ -47,26 +47,31 @@ function named(params: readonly string[], bound: (Expr | undefined)[], skip: Rea
 class V4Normalizer {
   readonly errors: Issue[] = [];
   readonly warnings: Issue[] = [];
-  /** Names the script defines itself: a user function or variable always wins over a v4 built-in spelling. */
+  /**
+   * Names the script defines itself win over a v4 built-in spelling, with Pine scoping: a user function from
+   * its definition on (functions are top level); a variable from its declaration to the end of its block; a
+   * parameter inside its function; a loop variable inside its loop. Functions and variables are separate
+   * namespaces: only functions hide built-in calls, only variables hide built-in values (`tr`).
+   */
   private readonly userFunctions = new Set<string>();
-  private readonly userVariables = new Set<string>();
-
-  constructor(program: Stmt[]) {
-    const collect = (list: Stmt[]) => {
-      for (const s of list) {
-        if (s.k === 'func') {
-          this.userFunctions.add(s.name);
-          for (const p of s.params) this.userVariables.add(p.name);
-        } else if (s.k === 'decl' || s.k === 'for') this.userVariables.add(s.name);
-        else if (s.k === 'tupleDecl') for (const n of s.names) this.userVariables.add(n.name);
-        for (const b of childBlocks(s)) collect(b);
-      }
-    };
-    collect(program);
-  }
+  private readonly scopes: Set<string>[] = [new Set()];
 
   private error(at: Pos, message: string): void {
     this.errors.push({ line: at.line, col: at.col, message });
+  }
+
+  private isVariable(name: string): boolean {
+    return this.scopes.some((scope) => scope.has(name));
+  }
+
+  /** Statements of a nested block (if / else / for / function body) in a new scope seeded with `names`. */
+  private block(list: Stmt[], names: readonly string[] = []): Stmt[] {
+    this.scopes.push(new Set(names));
+    try {
+      return this.stmts(list, false);
+    } finally {
+      this.scopes.pop();
+    }
   }
 
   stmts(list: Stmt[], topLevel: boolean): Stmt[] {
@@ -74,22 +79,31 @@ class V4Normalizer {
   }
 
   private stmt(s: Stmt, topLevel: boolean): Stmt {
+    const declare = (name: string) => this.scopes[this.scopes.length - 1].add(name);
     switch (s.k) {
       case 'decl': {
+        // The initial value is read before the new name exists (`tr = tr * 2` reads the built-in).
         const init = this.expr(s.init);
+        declare(s.name);
         const isInput = topLevel && init.k === 'call' && init.callee.k === 'ident' && init.callee.name === 'input' && !this.userFunctions.has('input');
         return { ...s, init: isInput ? this.input(init as CallExpr) : init };
       }
-      case 'tupleDecl':
-        return { ...s, init: this.expr(s.init) };
+      case 'tupleDecl': {
+        const init = this.expr(s.init);
+        for (const n of s.names) declare(n.name);
+        return { ...s, init };
+      }
       case 'assign':
         return { ...s, value: this.expr(s.value) };
       case 'if':
-        return { ...s, cond: this.expr(s.cond), then: this.stmts(s.then, false), else: s.else ? this.stmts(s.else, false) : null };
+        return { ...s, cond: this.expr(s.cond), then: this.block(s.then), else: s.else ? this.block(s.else) : null };
       case 'for':
-        return { ...s, from: this.expr(s.from), to: this.expr(s.to), by: s.by ? this.expr(s.by) : null, body: this.stmts(s.body, false) };
-      case 'func':
-        return { ...s, body: this.stmts(s.body, false) };
+        return { ...s, from: this.expr(s.from), to: this.expr(s.to), by: s.by ? this.expr(s.by) : null, body: this.block(s.body, [s.name]) };
+      case 'func': {
+        const body = this.block(s.body, s.params.map((p) => p.name));
+        this.userFunctions.add(s.name);
+        return { ...s, body };
+      }
       case 'expr':
         return { ...s, expr: this.expr(s.expr) };
       default:
@@ -101,7 +115,7 @@ class V4Normalizer {
   private expr(e: Expr): Expr {
     switch (e.k) {
       case 'ident':
-        if (e.name === 'tr' && !this.userVariables.has('tr')) return dotted('ta', 'tr', e);
+        if (e.name === 'tr' && !this.isVariable('tr')) return dotted('ta', 'tr', e);
         return e;
       case 'member':
         return this.member(e);
@@ -223,6 +237,6 @@ class V4Normalizer {
 
 /** Normalises a parsed Pine v4 script to the v5 AST. */
 export function normalizeV4(program: Stmt[]): V4Result {
-  const n = new V4Normalizer(program);
+  const n = new V4Normalizer();
   return { program: n.stmts(program, true), errors: n.errors, warnings: n.warnings };
 }
