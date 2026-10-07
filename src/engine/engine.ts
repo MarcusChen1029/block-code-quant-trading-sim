@@ -1,5 +1,6 @@
 import type { Candle, Timeframe } from '../data/types';
-import { Broker } from './broker';
+import { buyAndHold, type Benchmark } from './benchmark';
+import { Broker, type NotFilledReason } from './broker';
 import { computeStats, type EquityPoint, type Stats } from './stats';
 import { StrategyError, type EntryRequest, type PriceField, type Strategy, type StrategyContext } from './strategy';
 import type { BrokerConfig, Fill, LogEntry, PositionView, Side, Trade } from './types';
@@ -22,6 +23,20 @@ export interface BacktestResult {
   barsProcessed: number;
   /** Position still open after the last bar (not counted in trades). */
   finalPosition: PositionView;
+  /** What the strategy tried to do (diagnostics for "why no trades?"); never affects the run. */
+  activity: EngineActivity;
+  /** Buy & hold over the same bars (runBacktest only). */
+  benchmark?: Benchmark | null;
+}
+
+/** Counters of what the strategy did on the trading bars (warm-up bars excluded). */
+export interface EngineActivity {
+  /** Trading bars on which the bar handler ran. */
+  barsRun: number;
+  /** Orders queued: buy / sell requests plus close-position requests that queued an order. */
+  orderRequests: number;
+  /** Orders that reached their fill bar but did not fill, by reason. */
+  notFilled: Record<NotFilledReason, number>;
 }
 
 /**
@@ -40,6 +55,8 @@ export class Engine {
   /** Set by the first pushCandle; warm-up bars are refused afterwards. */
   private trading = false;
   private warmupSuppressed = 0;
+  private barsRun = 0;
+  private orderRequests = 0;
 
   constructor(private readonly strategy: Strategy, readonly config: EngineConfig) {
     this.broker = new Broker(config.broker);
@@ -83,6 +100,7 @@ export class Engine {
     if (this.broker.position.qty !== 0) this.barsInPosition++;
     this.equityCurve.push({ time: candle.time, equity });
 
+    this.barsRun++;
     this.runStrategy(this.context(bar, candle, false), bar);
     return true;
   }
@@ -153,7 +171,12 @@ export class Engine {
       wiped: this.isWiped,
       barsProcessed: this.candles.length,
       finalPosition: this.broker.position,
+      activity: this.activity,
     };
+  }
+
+  get activity(): EngineActivity {
+    return { barsRun: this.barsRun, orderRequests: this.orderRequests, notFilled: { ...this.broker.notFilledCounts } };
   }
 
   private context(bar: number, candle: Candle, warmup: boolean): StrategyContext {
@@ -165,12 +188,15 @@ export class Engine {
       }
       return value;
     };
-    const order = (side: Side, req: EntryRequest) =>
-      broker.placeOrder(
+    const order = (side: Side, req: EntryRequest) => {
+      const id = broker.placeOrder(
         { side, type: req.type ?? 'market', size: req.size, unit: req.unit ?? 'percentEquity', price: req.price },
         bar,
         candle.time,
       );
+      this.orderRequests++;
+      return id;
+    };
     return {
       symbol: this.config.symbol,
       timeframe: this.config.timeframe,
@@ -191,11 +217,13 @@ export class Engine {
       closePosition: warmup ? suppressed(null) : (): number | null => {
         const qty = broker.position.qty;
         if (qty === 0) return null;
-        return broker.placeOrder(
+        const id = broker.placeOrder(
           { side: qty > 0 ? 'sell' : 'buy', type: 'market', size: Infinity, unit: 'qty', reduceOnly: true },
           bar,
           candle.time,
         );
+        this.orderRequests++;
+        return id;
       },
       cancelOrders: warmup ? suppressed(undefined) : () => broker.cancelAll(),
       setStopLoss: warmup ? suppressed(undefined) : (price) => broker.setStopLoss(price),
@@ -205,11 +233,14 @@ export class Engine {
   }
 }
 
-/** Runs a strategy over historical closed candles. Deterministic: same inputs -> identical result. */
+/**
+ * Runs a strategy over historical closed candles, plus the buy & hold benchmark over all of them (it keeps going
+ * after a wipe). Deterministic: same inputs -> identical result.
+ */
 export function runBacktest(candles: readonly Candle[], strategy: Strategy, config: EngineConfig): BacktestResult {
   const engine = new Engine(strategy, config);
   for (const candle of candles) {
     if (!engine.pushCandle(candle)) break;
   }
-  return engine.result();
+  return { ...engine.result(), benchmark: buyAndHold(candles, config.broker) };
 }

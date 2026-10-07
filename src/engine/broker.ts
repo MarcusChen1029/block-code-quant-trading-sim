@@ -11,6 +11,9 @@ import type {
   Trade,
 } from './types';
 
+/** Why an order that reached its fill bar did not fill. */
+export type NotFilledReason = 'insufficient margin' | 'nothing to reduce';
+
 /** Hard cap so a strategy that logs inside a loop cannot exhaust memory before the worker timeout. */
 const MAX_LOG_ENTRIES = 5000;
 
@@ -37,6 +40,8 @@ export class Broker {
   private takeProfit: number | null = null;
   private orders: Order[] = [];
   private nextOrderId = 1;
+  /** Orders that reached their fill bar but did not fill, by reason (diagnostics only; never affects fills). */
+  private readonly notFilled: Record<NotFilledReason, number> = { 'insufficient margin': 0, 'nothing to reduce': 0 };
 
   constructor(readonly config: BrokerConfig) {
     this.cash = config.initialBalance;
@@ -59,6 +64,11 @@ export class Broker {
 
   get openOrders(): readonly Order[] {
     return this.orders;
+  }
+
+  /** Count of orders rejected ('insufficient margin') or skipped ('nothing to reduce') so far. */
+  get notFilledCounts(): Readonly<Record<NotFilledReason, number>> {
+    return { ...this.notFilled };
   }
 
   unrealizedPnl(markPrice: number): number {
@@ -177,11 +187,13 @@ export class Broker {
   private execute(order: Order, price: number, feeRate: number, reason: FillReason, bar: number, time: number): void {
     const qty = this.resolveQty(order, price, feeRate);
     if (!(qty > 0)) {
+      this.notFilled['nothing to reduce']++;
       this.addLog(bar, time, 'warn', `order #${order.id} skipped: nothing to reduce`);
       return;
     }
     const margin = this.marginCheck(order.side, qty, price, feeRate);
     if (!margin.ok) {
+      this.notFilled['insufficient margin']++;
       this.addLog(
         bar, time, 'warn',
         `order #${order.id} rejected: insufficient margin (needs ${margin.required.toFixed(2)}, free ${margin.free.toFixed(2)})`,

@@ -1,5 +1,3 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { createBlockStrategy } from '../blocks/compiler';
 import { defaultWorkspace } from '../blocks/defaultWorkspace';
@@ -11,13 +9,15 @@ import { createSmaCross, DEFAULT_SMA_CROSS } from './strategies/smaCross';
 import type { Strategy } from './strategy';
 import { syntheticCandles } from './syntheticCandles';
 import { DEFAULT_BROKER_CONFIG } from './types';
+import recordedText from './__fixtures__/backtest-baseline.json?raw';
 
 /**
  * Regression guard: trades, fills and equity curves of fixed strategies on fixed fixtures must stay byte-identical
  * to the baseline recorded BEFORE the UX work (benchmark, activity counters) was added. Regenerate only on purpose:
  * UPDATE_BASELINE=1 npx vitest run src/engine/baseline.test.ts
  */
-const BASELINE = fileURLToPath(new URL('./__fixtures__/backtest-baseline.json', import.meta.url));
+const BASELINE = new URL('./__fixtures__/backtest-baseline.json', import.meta.url);
+const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 
 const CONFIG: EngineConfig = { symbol: 'BTCUSDT', timeframe: '1h', broker: DEFAULT_BROKER_CONFIG };
 const LEVERED: EngineConfig = { ...CONFIG, broker: { ...DEFAULT_BROKER_CONFIG, leverage: 3, slippageBps: 5 } };
@@ -69,11 +69,15 @@ function snapshot(): Record<string, unknown> {
 }
 
 describe('backtest output baseline (byte-identical)', () => {
-  it('matches the recorded trades, fills and equity of every case', () => {
+  it('matches the recorded trades, fills and equity of every case', async () => {
     const now = snapshot();
-    if (process.env.UPDATE_BASELINE === '1') writeFileSync(BASELINE, `${JSON.stringify(now)}\n`);
-    expect(existsSync(BASELINE), 'baseline file missing: it must be recorded before engine changes').toBe(true);
-    const recorded = readFileSync(BASELINE, 'utf8').trim();
+    if (env.UPDATE_BASELINE === '1') {
+      const fsModule = 'node:fs'; // a variable specifier: the app's tsconfig has no Node types
+      const fs = (await import(/* @vite-ignore */ fsModule)) as { writeFileSync(path: URL, data: string): void };
+      fs.writeFileSync(BASELINE, `${JSON.stringify(now)}\n`);
+      return;
+    }
+    const recorded = recordedText.trim();
     expect(JSON.stringify(now)).toBe(recorded); // exact text: every float must be bit-identical
     for (const name of Object.keys(now)) expect((now[name] as { fills: unknown[] }).fills.length).toBeGreaterThan(0);
   });
