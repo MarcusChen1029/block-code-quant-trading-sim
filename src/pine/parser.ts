@@ -469,7 +469,8 @@ class Parser {
     }
     do {
       const t = this.peek();
-      if (t.kind === 'ident' && this.isOp('=', 1)) {
+      // `type` is a keyword (user-defined types) but also the name of Pine v4's input(type=...) argument.
+      if ((t.kind === 'ident' || (t.kind === 'kw' && t.value === 'type')) && this.isOp('=', 1)) {
         this.i += 2;
         out.push({ name: t.value, value: this.expression(), ...pos(t) });
       } else {
