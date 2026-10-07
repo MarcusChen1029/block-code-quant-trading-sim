@@ -14,21 +14,42 @@ import {
 } from 'lightweight-charts';
 import type { Candle } from '../data/types';
 import { DOWN_COLOR, UP_COLOR, candleToBar, candleToVolume } from './chartData';
-import { computeOverlaySeries, overlayPoint, type OverlayDef } from './overlays';
+import { MAX_MARKERS_PER_SIGNAL, mergeMarkers, signalMarkers, type SignalHit } from './markers';
+import { computeOverlaySeries, overlayPoint, signalPriceKey, type OverlayDef, type OverlaySignal } from './overlays';
+
+interface ActiveSignal {
+  signal: OverlaySignal;
+  hits: SignalHit[];
+}
 
 interface ActiveOverlay {
   def: OverlayDef;
   step: (candle: Candle) => Record<string, number>;
   series: Record<string, ISeriesApi<'Line'>>;
+  signals: ActiveSignal[];
+  /** Where its signal markers go: its first line series (sub-pane overlays), else the candles. */
+  markerSeries: ISeriesApi<'Line'> | null;
 }
 
-/** Thin wrapper around a lightweight-charts v5 chart: candles + volume on pane 0, overlays on pane 0 or sub-panes. */
+const GLYPH = new Map([['arrowUp', '▲'], ['arrowDown', '▼'], ['circle', '●'], ['square', '■']]);
+
+/**
+ * Thin wrapper around a lightweight-charts v5 chart: candles + volume on pane 0, overlays on pane 0 or sub-panes.
+ * Markers: trade fills and price-pane signals share the candle series (merged by time); sub-pane signals sit on
+ * their indicator's first line. A small legend names each drawn signal and, under the crosshair, what fired.
+ */
 export class ChartPanel {
   private readonly chart: IChartApi;
   private readonly candles: ISeriesApi<'Candlestick'>;
   private readonly volume: ISeriesApi<'Histogram'>;
   private overlays: ActiveOverlay[] = [];
   private markers: ISeriesMarkersPluginApi<Time> | null = null;
+  /** Trade (fill) markers, kept apart from signal markers so either can be replaced alone. */
+  private tradeMarkers: SeriesMarker<UTCTimestamp>[] = [];
+  /** Marker plugins of sub-pane line series that carry signal markers. */
+  private readonly paneMarkers = new Map<ISeriesApi<'Line'>, ISeriesMarkersPluginApi<Time>>();
+  private readonly legend: HTMLElement;
+  private hoverTime: number | null = null;
   private lastTime = -Infinity;
 
   constructor(private readonly container: HTMLElement) {
@@ -47,6 +68,16 @@ export class ChartPanel {
     });
     this.volume = this.chart.addSeries(HistogramSeries, { priceScaleId: '', priceFormat: { type: 'volume' } });
     this.volume.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+    this.legend = document.createElement('div');
+    this.legend.className = 'signal-legend';
+    this.legend.hidden = true;
+    container.append(this.legend);
+    this.chart.subscribeCrosshairMove((param) => {
+      const t = typeof param.time === 'number' ? param.time * 1000 : null;
+      if (t === this.hoverTime) return;
+      this.hoverTime = t;
+      this.renderLegend();
+    });
   }
 
   /** Replaces all candles and fits the view. Call setOverlays afterwards to recompute overlays. */
@@ -87,12 +118,23 @@ export class ChartPanel {
   setOverlays(defs: readonly OverlayDef[], candles: readonly Candle[]): void {
     for (const o of this.overlays) for (const s of Object.values(o.series)) this.chart.removeSeries(s);
     this.overlays = [];
+    this.paneMarkers.clear(); // their series are gone
     while (this.chart.panes().length > 1) this.chart.removePane(this.chart.panes().length - 1);
 
     let nextPane = 1;
     for (const def of defs) {
-      const paneIndex = def.pane === 'price' ? 0 : nextPane++;
-      const step = def.create();
+      // A sub-pane overlay without lines (a signal-only Pine script) gets no pane: its markers go on the candles.
+      const paneIndex = def.pane === 'price' || def.lines.length === 0 ? 0 : nextPane++;
+      const signals: ActiveSignal[] = (def.signals ?? []).map((signal) => ({ signal, hits: [] }));
+      const create = def.create();
+      // Records signal hits while the lines are computed (one pass over the candles; live bars use the same step).
+      const step = (candle: Candle) => {
+        const values = create(candle);
+        for (const s of signals) {
+          if (values[s.signal.key] === 1) s.hits.push({ time: candle.time, price: values[signalPriceKey(s.signal.key)] ?? NaN });
+        }
+        return values;
+      };
       const points = computeOverlaySeries(def, candles, step);
       const series: Record<string, ISeriesApi<'Line'>> = {};
       for (const line of def.lines) {
@@ -109,27 +151,95 @@ export class ChartPanel {
         );
         series[line.key].setData(points[line.key]);
       }
-      this.overlays.push({ def, step, series });
+      const first = def.lines[0] ? series[def.lines[0].key] : undefined;
+      this.overlays.push({ def, step, series, signals, markerSeries: paneIndex > 0 && first ? first : null });
     }
     const panes = this.chart.panes();
     if (panes.length > 1) panes[0].setStretchFactor(3);
+    this.refreshMarkers();
   }
 
   /** Replaces the trade markers on the candle series (empty array clears them). Markers must be sorted by time. */
   setMarkers(markers: SeriesMarker<UTCTimestamp>[]): void {
-    if (this.markers === null) this.markers = createSeriesMarkers(this.candles, markers);
-    else this.markers.setMarkers(markers);
+    this.tradeMarkers = markers;
+    this.refreshMarkers();
   }
 
-  /** Feeds one newly CLOSED candle to every overlay (O(1) per overlay). */
+  /** Feeds one newly CLOSED candle to every overlay (O(1) per overlay; markers redrawn only when a signal fired). */
   updateOverlays(candle: Candle): void {
+    let fired = false;
     for (const o of this.overlays) {
+      const before = o.signals.reduce((n, s) => n + s.hits.length, 0);
       const values = o.step(candle);
       for (const line of o.def.lines) o.series[line.key].update(overlayPoint(candle.time, values[line.key]));
+      if (o.signals.reduce((n, s) => n + s.hits.length, 0) !== before) fired = true;
     }
+    if (fired) this.refreshMarkers();
+  }
+
+  /** Number of signal markers drawn per signal label (inspection / tests in the browser). */
+  signalCounts(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const o of this.overlays) for (const s of o.signals) out[s.signal.label] = s.hits.length;
+    return out;
   }
 
   destroy(): void {
     this.chart.remove();
+  }
+
+  /** Signal markers per target series (the candles' are merged with the trade markers), then the legend. */
+  private refreshMarkers(): void {
+    const onCandles: SeriesMarker<UTCTimestamp>[][] = [this.tradeMarkers];
+    const onPanes = new Map<ISeriesApi<'Line'>, SeriesMarker<UTCTimestamp>[][]>();
+    this.overlays.forEach((o, i) => {
+      for (const s of o.signals) {
+        const list = signalMarkers(s.signal.marker, s.hits, `sig${i}:${s.signal.key}`);
+        if (o.markerSeries === null) onCandles.push(list);
+        else onPanes.set(o.markerSeries, [...(onPanes.get(o.markerSeries) ?? []), list]);
+      }
+    });
+    const candleMarkers = mergeMarkers(...onCandles);
+    if (this.markers === null) this.markers = createSeriesMarkers(this.candles, candleMarkers);
+    else this.markers.setMarkers(candleMarkers);
+    for (const [series, lists] of onPanes) {
+      const merged = mergeMarkers(...lists);
+      const plugin = this.paneMarkers.get(series);
+      if (plugin) plugin.setMarkers(merged);
+      else this.paneMarkers.set(series, createSeriesMarkers(series, merged));
+    }
+    this.renderLegend();
+  }
+
+  /** Each drawn signal (shape, colour, name, count) and, under the crosshair, the signals that fired on that bar. */
+  private renderLegend(): void {
+    const rows: HTMLElement[] = [];
+    const firing: string[] = [];
+    for (const o of this.overlays) {
+      for (const s of o.signals) {
+        const row = document.createElement('div');
+        row.className = 'sig-row';
+        const glyph = document.createElement('span');
+        glyph.className = 'sig-glyph';
+        glyph.style.color = s.signal.marker.color ?? '#2962ff';
+        glyph.textContent = GLYPH.get(s.signal.marker.shape) ?? '●';
+        const count = document.createElement('span');
+        count.className = 'sig-count';
+        const capped = s.hits.length > MAX_MARKERS_PER_SIGNAL ? `, last ${MAX_MARKERS_PER_SIGNAL} shown` : '';
+        count.textContent = ` (${s.hits.length}${capped})`;
+        row.append(glyph, document.createTextNode(s.signal.label), count);
+        row.title = s.signal.label;
+        rows.push(row);
+        if (this.hoverTime !== null && s.hits.some((h) => h.time === this.hoverTime)) firing.push(s.signal.label);
+      }
+    }
+    if (firing.length > 0) {
+      const hover = document.createElement('div');
+      hover.className = 'sig-hover';
+      hover.textContent = `This bar: ${firing.join(' · ')}`;
+      rows.push(hover);
+    }
+    this.legend.replaceChildren(...rows);
+    this.legend.hidden = rows.length === 0;
   }
 }

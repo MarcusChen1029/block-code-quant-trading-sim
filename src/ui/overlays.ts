@@ -1,4 +1,5 @@
 import type { LineData, UTCTimestamp, WhitespaceData } from 'lightweight-charts';
+import type { SignalMarker } from '../blocks/registry';
 import type { Candle } from '../data/types';
 import { Ema, Sma } from '../indicators/averages';
 import { BollingerBands } from '../indicators/bands';
@@ -12,15 +13,31 @@ export interface OverlayLine {
   color: string;
 }
 
+/** A signal drawn as chart markers: the stepper returns 1 under `key` on bars where it fires. */
+export interface OverlaySignal {
+  key: string;
+  /** Legend name, e.g. "Supertrend 10 3: Buy (trend flips up)". */
+  label: string;
+  marker: SignalMarker;
+}
+
 /** A chart overlay: which pane it lives in, its lines, and an incremental stepper factory. */
 export interface OverlayDef {
   id: string;
   label: string;
   pane: 'price' | 'sub';
   lines: OverlayLine[];
-  /** Returns a fresh stepper. Call it once per CLOSED candle; it returns one value per line key (NaN = na). */
+  /** Signals to mark on the chart (on the price series, or on this overlay's own pane when it has one). */
+  signals?: OverlaySignal[];
+  /**
+   * Returns a fresh stepper. Call it once per CLOSED candle; it returns one value per line key (NaN = na), 1/0 per
+   * signal key, and for price-located signals the marker price under `signalPriceKey(key)`.
+   */
   create(): (candle: Candle) => Record<string, number>;
 }
+
+/** Where a stepper reports a signal's marker price (not an identifier, so it never collides with an output key). */
+export const signalPriceKey = (key: string) => `price:${key}`;
 
 export type OverlayPoint = LineData<UTCTimestamp> | WhitespaceData<UTCTimestamp>;
 

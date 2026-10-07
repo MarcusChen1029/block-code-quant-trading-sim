@@ -23,6 +23,18 @@ export function savePineRecords(records: readonly PineSourceRecord[]): boolean {
   return saveJson(PINE_SCRIPTS_KEY, records);
 }
 
+export const PINE_SHOWN_KEY = 'quant-sim.pine.shown.v1';
+
+/** Saved scripts drawn on the chart with their defaults ("Show on chart"), by id. */
+export function loadPineShown(): string[] {
+  const raw = loadJson(PINE_SHOWN_KEY);
+  return Array.isArray(raw) ? [...new Set(raw.filter(isPineId))] : [];
+}
+
+export function savePineShown(ids: readonly string[]): boolean {
+  return saveJson(PINE_SHOWN_KEY, ids);
+}
+
 /** The text in the editor (may not compile yet), so a reload does not lose work. `id` null = a new script. */
 export interface PineDraft {
   id: string | null;

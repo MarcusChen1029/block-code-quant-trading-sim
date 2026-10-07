@@ -11,6 +11,9 @@ export interface PineEditorOptions {
   retired: PineRetired[];
   /** Saved scripts changed: register them and refresh the blocks; returns per-script results. */
   onChange(records: PineSourceRecord[], retired: PineRetired[]): PineSyncResult[];
+  /** Saved scripts drawn on the chart with their defaults (lines + all signals), without a strategy. */
+  shown: string[];
+  onShowChange(ids: string[]): void;
 }
 
 export interface PineEditor {
@@ -47,16 +50,19 @@ export function createPineEditor(container: HTMLElement, options: PineEditorOpti
     ...PINE_TEMPLATES.map((t) => h('option', { value: t.id }, t.label)));
   const saveButton = h('button', { type: 'button', class: 'run pine-save', title: 'Compile; if it compiles, save it and update its block (Ctrl+S)' }, 'Compile & save');
   const deleteButton = h('button', { type: 'button', class: 'pine-delete', title: 'Delete this saved script' }, 'Delete');
+  let shown = options.shown.filter((id) => records.some((r) => r.id === id));
+  const showBox = h('input', { type: 'checkbox', class: 'pine-show-input' });
+  const showToggle = h('label', { class: 'pine-show', title: 'Draw this saved script on the chart (default inputs): its plots and its signal markers, without wiring a strategy' }, showBox, ' Show on chart');
   const gutter = h('pre', { class: 'pine-gutter', 'aria-hidden': 'true' });
   const textarea = h('textarea', { class: 'pine-code', spellcheck: 'false', autocomplete: 'off', autocapitalize: 'off', wrap: 'off', 'aria-label': 'Pine Script source' });
   const status = h('div', { class: 'pine-status' });
   const problems = h('ul', { class: 'problems pine-problems' });
   container.append(
-    h('div', { class: 'pine-toolbar' }, scriptSelect, templateSelect, saveButton, deleteButton),
+    h('div', { class: 'pine-toolbar' }, scriptSelect, templateSelect, saveButton, deleteButton, showToggle),
     h('div', { class: 'pine-editor' }, gutter, textarea),
     status,
     problems,
-    h('div', { class: 'pine-note' }, 'Pine v4 / v5 / v6 subset (//@version=4, 5 or 6): indicator() (v4: study()), inputs, ta.*, math.*, var, if/for, functions, plot(). Each plot is an output of the block (toolbox › Pine). Warm-up bars may differ slightly from TradingView.'),
+    h('div', { class: 'pine-note' }, 'Pine v4 / v5 / v6 subset (//@version=4, 5 or 6): indicator() (v4: study()), inputs, ta.*, math.*, var, if/for, functions, plot(). Each plot is an output of the block (toolbox › Pine). plotshape / plotchar / alertcondition / label.new(bar_index, y, "Text") become true/false signals: a "sig" block and chart markers. Warm-up bars may differ slightly from TradingView.'),
   );
 
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -70,6 +76,14 @@ export function createPineEditor(container: HTMLElement, options: PineEditorOpti
     );
     scriptSelect.value = currentId ?? NEW_ID;
     deleteButton.disabled = currentId === null;
+    showBox.disabled = currentId === null;
+    showBox.checked = currentId !== null && shown.includes(currentId);
+    showToggle.classList.toggle('disabled', currentId === null);
+  };
+
+  const setShown = (next: string[]) => {
+    shown = next.filter((id) => records.some((r) => r.id === id));
+    options.onShowChange([...shown]);
   };
 
   const renderGutter = () => {
@@ -108,7 +122,11 @@ export function createPineEditor(container: HTMLElement, options: PineEditorOpti
     const result = compilePine(textarea.value);
     showDiagnostics(result.ok ? [] : result.errors, result.warnings);
     const unsaved = dirty() ? ' (unsaved changes)' : '';
-    if (result.ok) setStatus(`Compiles as Pine v${result.script.version}: "${result.script.title}", ${result.script.plots.length} output${result.script.plots.length === 1 ? '' : 's'}${unsaved}`, 'ok');
+    const n = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+    if (result.ok) {
+      setStatus(`Compiles as Pine v${result.script.version}: "${result.script.title}", ${n(result.script.plots.length, 'output')}` +
+        `${result.script.signals.length > 0 ? `, ${n(result.script.signals.length, 'signal')}` : ''}${unsaved}`, 'ok');
+    }
     else setStatus(`${result.errors.length} error${result.errors.length === 1 ? '' : 's'}${unsaved}`, 'error');
     return result;
   };
@@ -159,6 +177,7 @@ export function createPineEditor(container: HTMLElement, options: PineEditorOpti
     savePineRecords(records);
     savePineRetired(retired);
     options.onChange(records, retired);
+    if (shown.includes(currentId)) setShown(shown.filter((id) => id !== currentId));
     const next = records[0];
     if (next) open(next.id, next.source);
     else open(null, PINE_TEMPLATES[0].source);
@@ -189,6 +208,11 @@ export function createPineEditor(container: HTMLElement, options: PineEditorOpti
     }
   });
   saveButton.addEventListener('click', save);
+  showBox.addEventListener('change', () => {
+    if (currentId === null) return;
+    const id = currentId;
+    setShown(showBox.checked ? [...shown.filter((x) => x !== id), id] : shown.filter((x) => x !== id));
+  });
   deleteButton.addEventListener('click', remove);
   scriptSelect.addEventListener('change', () => {
     const id = scriptSelect.value;

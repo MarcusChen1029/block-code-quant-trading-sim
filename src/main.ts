@@ -7,13 +7,13 @@ import { BinanceFuturesAdapter } from './data/binance';
 import type { Candle } from './data/types';
 import { DEFAULT_SMA_CROSS } from './engine/strategies/smaCross';
 import { createBlockEditor } from './ui/blockEditor';
-import { blockIndicatorOverlays } from './ui/blockOverlays';
+import { blockIndicatorOverlays, defaultIndicatorUse } from './ui/blockOverlays';
 import { ChartPanel } from './ui/chart';
 import { h } from './ui/dom';
 import { createProblemsView, createStrategyPicker, setupLayout, type LeftTab } from './ui/layout';
 import { syncPineIndicators } from './pine/library';
 import { createPineEditor } from './ui/pineEditor';
-import { loadPineRecords, loadPineRetired } from './ui/pineStore';
+import { loadPineRecords, loadPineRetired, loadPineShown, savePineShown } from './ui/pineStore';
 import { fillsToMarkers } from './ui/markers';
 import { renderOverlayPicker } from './ui/overlayPicker';
 import { OVERLAYS, smaOverlay, type OverlayDef } from './ui/overlays';
@@ -63,8 +63,22 @@ let blockIndicators: IndicatorUse[] = [];
 let blockOverlayKey = '';
 let compileState: { errors: CompileIssue[]; warnings: CompileIssue[] } = { errors: [], warnings: [] };
 
+/** Saved Pine scripts drawn on the chart from the Pine tab ("Show on chart"). */
+let pineShown = loadPineShown();
+
+/** "Show on chart" scripts as indicator uses (defaults, every signal); unregistered ones are skipped. */
+function shownUses(): IndicatorUse[] {
+  return pineShown.flatMap((id) => {
+    const def = getIndicator(id);
+    return def ? [defaultIndicatorUse(def)] : [];
+  });
+}
+
 function strategyOverlays(): OverlayDef[] {
-  return strategyChoice === 'smaCross' ? SMA_CROSS_OVERLAYS : blockIndicatorOverlays(blockIndicators);
+  // Merged with the strategy's uses, so a shown script that the strategy also uses is drawn once.
+  return strategyChoice === 'smaCross'
+    ? [...SMA_CROSS_OVERLAYS, ...blockIndicatorOverlays(shownUses())]
+    : blockIndicatorOverlays([...blockIndicators, ...shownUses()]);
 }
 
 function applyOverlays(): void {
@@ -120,7 +134,14 @@ const pineEditor = createPineEditor(document.getElementById('pine')!, {
     const results = syncPineIndicators(records, retired);
     blockOverlayKey = ''; // same parameters may now mean different code: redraw
     editor.refreshIndicators();
+    applyOverlays(); // shown scripts may have changed code
     return results;
+  },
+  shown: pineShown,
+  onShowChange(ids) {
+    pineShown = ids;
+    savePineShown(ids);
+    applyOverlays();
   },
 });
 
@@ -240,7 +261,7 @@ const liveSessions = new LiveMode(document.getElementById('live')!, {
   setStatus,
   highlightBlock: (blockId, message) => editor.highlightError(blockId, message),
   sessionBase,
-  extraOverlays: () => OVERLAYS.filter((d) => pickedOverlayIds.includes(d.id)),
+  extraOverlays: () => [...blockIndicatorOverlays(shownUses()), ...OVERLAYS.filter((d) => pickedOverlayIds.includes(d.id))],
   confirm: (message) => window.confirm(message),
   now: () => Date.now(),
 });

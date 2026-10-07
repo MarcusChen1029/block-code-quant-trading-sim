@@ -73,7 +73,19 @@ body:not([data-left-tab='pine']) #pine { display: none; }
 }
 
 #main { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
-#chart { flex: 1; min-height: 300px; }
+#chart { flex: 1; min-height: 300px; position: relative; }
+.pine-show { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #d1d4dc; cursor: pointer; white-space: nowrap; }
+.pine-show.disabled { opacity: 0.45; cursor: not-allowed; }
+.signal-legend {
+  position: absolute; top: 6px; left: 8px; z-index: 3; max-width: 60%; pointer-events: none;
+  font: 11px/1.4 -apple-system, 'Segoe UI', sans-serif; color: #d1d4dc; background: rgba(19, 23, 34, 0.78);
+  border-radius: 4px; padding: 3px 6px;
+}
+.signal-legend[hidden] { display: none; }
+.signal-legend .sig-row { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.signal-legend .sig-glyph { display: inline-block; width: 1.1em; }
+.signal-legend .sig-count { color: #787b86; }
+.signal-legend .sig-hover { color: #f5c542; border-top: 1px solid #2a2e39; margin-top: 2px; padding-top: 2px; }
 
 #stats { border-top: 1px solid #2a2e39; display: flex; height: 260px; }
 .stats-left { flex: 1; display: flex; flex-direction: column; min-width: 0; }
