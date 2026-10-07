@@ -95,7 +95,11 @@ export const BUILTIN_INDICATORS: IndicatorBlockDef[] = [
     id: 'bb', label: 'Bollinger', tooltip: 'Bollinger Bands: SMA ± mult × stdev (ta.bb).', pane: 'price', source: 'close',
     params: [length(20), { name: 'mult', label: 'mult', default: 2, min: 0.001, max: 100 }],
     outputs: [{ key: 'upper', label: 'upper' }, { key: 'middle', label: 'middle' }, { key: 'lower', label: 'lower' }],
-    signals: [sellSignal('above_upper', 'close crosses above upper', 'BB upper'), buySignal('below_lower', 'close crosses below lower', 'BB lower')],
+    // Breakout events, not trade advice: neutral blue triangles (up above the bar / down below it).
+    signals: [
+      { key: 'above_upper', label: 'Close above upper band', marker: { shape: 'arrowUp', location: 'aboveBar', color: '#42a5f5', text: 'Above upper' } },
+      { key: 'below_lower', label: 'Close below lower band', marker: { shape: 'arrowDown', location: 'belowBar', color: '#42a5f5', text: 'Below lower' } },
+    ],
     create(p) {
       const bb = new BollingerBands(p.length, p.mult);
       const over = new CrossOver();

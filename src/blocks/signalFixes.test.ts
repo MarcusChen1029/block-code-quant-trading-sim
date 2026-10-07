@@ -10,6 +10,17 @@ const CANDLES = syntheticCandles(600).map((c, i) => ({ ...c, close: c.close + (i
 const crossUp = (a: number[], b: number[]) => a.map((v, i) => (i > 0 && a[i - 1] <= b[i - 1] && v > b[i] ? 1 : 0));
 const crossDown = (a: number[], b: number[]) => a.map((v, i) => (i > 0 && a[i - 1] >= b[i - 1] && v < b[i] ? 1 : 0));
 
+describe('finding 6: Bollinger breakouts are described and coloured neutrally (not as buy / sell)', () => {
+  it('labels describe the event; markers are neutral triangles (up above the bar, down below it)', () => {
+    const signals = getIndicator('bb')!.signals!;
+    expect(signals.map((s) => [s.key, s.label])).toEqual([['above_upper', 'Close above upper band'], ['below_lower', 'Close below lower band']]);
+    expect(signals.map((s) => s.marker)).toEqual([
+      { shape: 'arrowUp', location: 'aboveBar', color: '#42a5f5', text: 'Above upper' },
+      { shape: 'arrowDown', location: 'belowBar', color: '#42a5f5', text: 'Below lower' },
+    ]);
+  });
+});
+
 describe('finding 1: Bollinger signals cross the SOURCE value, not the close', () => {
   const run = (src: number[]) => {
     const inst = getIndicator('bb')!.create({ length: 20, mult: 2 });
