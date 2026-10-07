@@ -373,6 +373,9 @@ export interface FvgOptions extends ZoneBookOptions {
   minGapPct: number;
 }
 
+/** Relative tolerance (of the close) for the minimum gap comparison. */
+export const GAP_EPSILON = 1e-9;
+
 export const FVG_DEFAULTS: FvgOptions = { minGapPct: 0.05, maxActive: 5, maxAgeBars: 300 };
 
 /**
@@ -399,7 +402,9 @@ export class FairValueGaps {
     const made = { bullish: false, bearish: false };
     const { a, b } = this;
     if (a && b) {
-      const min = (this.options.minGapPct / 100) * Math.abs(c.close);
+      // Relative tolerance of 1e-9 of the price: a gap exactly at the (decimal) minimum counts despite float rounding
+      // (100 - 99.9 = 0.09999999999999432 is 0.1 % of 100).
+      const min = (this.options.minGapPct / 100) * Math.abs(c.close) - GAP_EPSILON * Math.abs(c.close);
       const big = (size: number) => size > 0 && size >= min;
       if (a.high < c.low && big(c.low - a.high)) {
         this.book.add('bullish', c.low, a.high, b.time, c, this.index, 'FVG+', events);

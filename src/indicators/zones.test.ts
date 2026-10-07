@@ -180,7 +180,7 @@ function refFvg(b: ZoneBar[], o: FvgOptions) {
   return refBook(b, o.maxActive, o.maxAgeBars, (t) => {
     if (t < 2) return [];
     const a = b[t - 2], c = b[t];
-    const min = (o.minGapPct / 100) * Math.abs(c.close);
+    const min = (o.minGapPct / 100) * Math.abs(c.close) - 1e-9 * Math.abs(c.close);
     if (a.high < c.low && c.low - a.high >= min) return [{ kind: 'bullish', top: c.low, bottom: a.high, start: t - 1, known: t, end: null }];
     if (a.low > c.high && a.low - c.high >= min) return [{ kind: 'bearish', top: a.low, bottom: c.high, start: t - 1, known: t, end: null }];
     return [];
@@ -457,6 +457,18 @@ describe('fair value gap definition', () => {
     const small = bars([[9, 10, 8, 9.5], [9.5, 12, 9.4, 11.8], [11.8, 12.5, 10.1, 12]]); // gap 0.1 = 0.83 % of 12
     expect(run(() => new FairValueGaps(opts({ minGapPct: 1 })), small).zones.size).toBe(0);
     expect(run(() => new FairValueGaps(opts({ minGapPct: 0.8 })), small).zones.size).toBe(1);
+  });
+
+  it('a gap exactly at the minimum (decimal) counts despite float rounding; bullish and bearish', () => {
+    // 100 - 99.9 = 0.09999999999999432 in floating point, exactly 0.1 % of the close 100.
+    const bull = bars([[99.5, 99.9, 99.4, 99.8], [99.8, 100.3, 99.7, 100.2], [100.2, 100.5, 100, 100]]);
+    expect([...run(() => new FairValueGaps(opts({ minGapPct: 0.1 })), bull).zones.values()]).toMatchObject([{ kind: 'bullish', bottom: 99.9, top: 100 }]);
+    // 100.1 - 100 = 0.09999999999999432 as well.
+    const bear = bars([[100.5, 100.6, 100.1, 100.2], [100.2, 100.3, 99.8, 99.9], [99.9, 100, 99.5, 100]]);
+    expect([...run(() => new FairValueGaps(opts({ minGapPct: 0.1 })), bear).zones.values()]).toMatchObject([{ kind: 'bearish', bottom: 100, top: 100.1 }]);
+    // Clearly below the minimum is still rejected.
+    const small = bars([[99.5, 99.91, 99.4, 99.8], [99.8, 100.3, 99.7, 100.2], [100.2, 100.5, 100, 100]]);
+    expect(run(() => new FairValueGaps(opts({ minGapPct: 0.1 })), small).zones.size).toBe(0);
   });
 
   it('overlapping gaps on consecutive bars are separate zones, both active and both counted for "inside"', () => {
