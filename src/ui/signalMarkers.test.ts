@@ -20,7 +20,7 @@ const hits = (n: number) => Array.from({ length: n }, (_, i) => ({ time: i * 3_6
 describe('signal markers', () => {
   it('map shape / location / colour / text; price-located markers sit at their price', () => {
     const [below] = signalMarkers({ shape: 'arrowUp', location: 'belowBar', color: '#26a69a', text: 'Buy' }, hits(1), 's');
-    expect(below).toEqual({ time: 0, position: 'belowBar', shape: 'arrowUp', color: '#26a69a', size: 0.8, id: 's@0', text: 'Buy' });
+    expect(below).toEqual({ time: 0, position: 'belowBar', shape: 'arrowUp', color: '#26a69a', size: 0.8, id: 's@0', text: '◇ Buy' });
     const [up, down, mid] = [
       signalMarkers({ shape: 'arrowUp', location: 'price' }, hits(1), 'a')[0],
       signalMarkers({ shape: 'arrowDown', location: 'price' }, hits(1), 'b')[0],
@@ -37,7 +37,7 @@ describe('signal markers', () => {
     expect(many.length).toBe(MAX_MARKERS_PER_SIGNAL);
     expect(many[0].time).toBe((500 * 3_600_000) / 1000);
     expect(many.every((m) => m.text === undefined)).toBe(true);
-    expect(signalMarkers({ shape: 'circle', location: 'aboveBar', text: 'x' }, hits(MAX_TEXT_MARKERS), 'm').every((m) => m.text === 'x')).toBe(true);
+    expect(signalMarkers({ shape: 'circle', location: 'aboveBar', text: 'x' }, hits(MAX_TEXT_MARKERS), 'm').every((m) => m.text === '◇ x')).toBe(true);
   });
 
   it('merging with trade markers keeps every marker, sorted by time, trades first on ties', () => {

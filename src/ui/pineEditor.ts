@@ -51,7 +51,7 @@ export function createPineEditor(container: HTMLElement, options: PineEditorOpti
   const saveButton = h('button', { type: 'button', class: 'run pine-save', title: 'Compile; if it compiles, save it and update its block (Ctrl+S)' }, 'Compile & save');
   const deleteButton = h('button', { type: 'button', class: 'pine-delete', title: 'Delete this saved script' }, 'Delete');
   let shown = options.shown.filter((id) => records.some((r) => r.id === id));
-  const showBox = h('input', { type: 'checkbox', class: 'pine-show-input' });
+  const showBox = h('input', { type: 'checkbox', class: 'pine-show-input', 'aria-label': 'Show this script on the chart' });
   const showToggle = h('label', { class: 'pine-show', title: 'Draw this saved script on the chart (default inputs): its plots and its signal markers, without wiring a strategy' }, showBox, ' Show on chart');
   const gutter = h('pre', { class: 'pine-gutter', 'aria-hidden': 'true' });
   const textarea = h('textarea', { class: 'pine-code', spellcheck: 'false', autocomplete: 'off', autocapitalize: 'off', wrap: 'off', 'aria-label': 'Pine Script source' });
