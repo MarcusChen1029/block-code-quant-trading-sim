@@ -100,12 +100,14 @@ function noTrades(input: VerdictInput): Verdict {
   if (w?.known && bars < w.bars) {
     return {
       tone: 'warn',
-      text: `Not enough history: ${w.label} needs ${plural(w.bars, 'bar')} before the first order can fill, but only ${plural(bars, 'bar')} ${bars === 1 ? 'was' : 'were'} loaded — move the start date earlier.`,
+      text: `Not enough history: ${w.label} needs ${w.atLeast ? 'at least ' : ''}${plural(w.bars, 'bar')} before the first order can fill, but only ${plural(bars, 'bar')} ${bars === 1 ? 'was' : 'were'} loaded — move the start date earlier.`,
     };
   }
   const tail = versus(input, false);
   if (!a || a.orderRequests === 0) {
-    const hint = w && !w.known
+    const hint = w?.known && w.atLeast
+      ? `Your strategy ran on ${plural(bars, 'bar')} but never placed an order. Zone indicators only have values once the price forms a zone, so ${plural(bars, 'bar')} may not be enough — try an earlier start date; otherwise check your conditions.`
+      : w && !w.known
       ? `Your strategy ran on ${plural(bars, 'bar')} but never placed an order. Only ${plural(bars, 'bar')} ${bars === 1 ? 'was' : 'were'} loaded — if it needs a long warm-up, try an earlier start date; otherwise check your conditions.`
       : `Your strategy ran on ${plural(bars, 'bar')} but never placed an order — check your conditions.`;
     return { tone: 'warn', text: `No trades.${tail}`, hint };

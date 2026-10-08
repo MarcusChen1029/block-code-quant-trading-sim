@@ -58,6 +58,18 @@ describe('buildVerdict', () => {
     });
   });
 
+  it('not enough history for a zone indicator: an "at least" number', () => {
+    const warmup = { known: true as const, label: 'Order block (swing 5)', bars: 13, atLeast: true as const };
+    expect(v({ fillCount: 0, tradeCount: 0, barsProcessed: 10, barsLoaded: 10, activity: activity(10, 0), warmup }).text).toBe(
+      'Not enough history: Order block (swing 5) needs at least 13 bars before the first order can fill, but only 10 bars were loaded — move the start date earlier.');
+  });
+
+  it('zones: enough bars for the minimum but no order: the hint says zones may need more history', () => {
+    const warmup = { known: true as const, label: 'Fair value gap', bars: 4, atLeast: true as const };
+    expect(v({ fillCount: 0, tradeCount: 0, barsProcessed: 50, barsLoaded: 50, activity: activity(50, 0), warmup }).hint).toBe(
+      'Your strategy ran on 50 bars but never placed an order. Zone indicators only have values once the price forms a zone, so 50 bars may not be enough — try an earlier start date; otherwise check your conditions.');
+  });
+
   it('ran but never placed an order', () => {
     expect(v({ fillCount: 0, tradeCount: 0, totalReturnPct: 0, activity: activity(2000, 0) })).toEqual({
       tone: 'warn', text: 'No trades. Buy & hold: +3.10% over the same bars.',
