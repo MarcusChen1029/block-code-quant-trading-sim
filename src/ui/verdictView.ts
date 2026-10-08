@@ -6,17 +6,21 @@ import type { Verdict } from './verdict';
 export class VerdictView {
   private readonly text: HTMLElement;
   private readonly hint: HTMLElement;
+  private readonly info: HTMLElement;
 
   constructor(private readonly el: HTMLElement) {
     this.text = h('div', { class: 'verdict-text' });
     this.hint = h('div', { class: 'verdict-hint' });
-    const info = h('span', { class: 'verdict-info', title: BENCHMARK_DEFINITION, 'aria-label': BENCHMARK_DEFINITION, role: 'note' }, 'ⓘ');
+    const info = this.info = h('span', { class: 'verdict-info', title: BENCHMARK_DEFINITION, 'aria-label': BENCHMARK_DEFINITION, role: 'note' }, 'ⓘ');
     el.setAttribute('role', 'status');
     el.append(h('div', { class: 'verdict-row' }, this.text, info), this.hint);
     this.clear();
   }
 
-  show(verdict: Verdict): void {
+  /** `benchmarkInfo`: the tooltip for the benchmark that was compared against (it names the leverage). */
+  show(verdict: Verdict, benchmarkInfo = BENCHMARK_DEFINITION): void {
+    this.info.title = benchmarkInfo;
+    this.info.setAttribute('aria-label', benchmarkInfo);
     this.text.textContent = verdict.text;
     this.hint.textContent = verdict.hint ?? '';
     this.hint.hidden = !verdict.hint;

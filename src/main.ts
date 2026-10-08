@@ -20,6 +20,7 @@ import { buildVerdict } from './ui/verdict';
 import { VerdictView } from './ui/verdictView';
 import { smaCrossHistoryNeed, strategyHistoryNeed, type HistoryNeed } from './ui/warmup';
 import type { BacktestResult } from './engine/engine';
+import { benchmarkDefinition, benchmarkLabel } from './engine/benchmark';
 import { syncPineIndicators } from './pine/library';
 import { createPineEditor } from './ui/pineEditor';
 import { loadPineRecords, loadPineRetired, loadPineShown, savePineShown } from './ui/pineStore';
@@ -254,7 +255,9 @@ function verdictFor(result: BacktestResult, barsLoaded: number, warmup: HistoryN
     wiped: result.wiped,
     barsProcessed: result.barsProcessed,
     barsLoaded,
-    benchmark: result.benchmark ? { returnPct: result.benchmark.returnPct, maxDrawdownPct: result.benchmark.maxDrawdownPct } : null,
+    benchmark: result.benchmark
+      ? { returnPct: result.benchmark.returnPct, maxDrawdownPct: result.benchmark.maxDrawdownPct, label: benchmarkLabel(result.benchmark.leverage) }
+      : null,
     activity: result.activity ?? null,
     warmup,
   });
@@ -289,7 +292,7 @@ async function run(): Promise<void> {
     });
     chart.setMarkers(fillsToMarkers(result.fills));
     stats.render(result);
-    verdict.show(verdictFor(result, candles.length, strategyWarmup(spec)));
+    verdict.show(verdictFor(result, candles.length, strategyWarmup(spec)), benchmarkDefinition(result.benchmark?.leverage ?? 1));
     setStatus(
       `Backtest done (${spec.id === 'blocks' ? 'block strategy' : 'built-in SMA cross'}): ${result.barsProcessed} bars, ${result.trades.length} trades` +
         (result.wiped ? ' (ACCOUNT WIPED)' : '') +

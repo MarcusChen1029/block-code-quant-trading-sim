@@ -1,5 +1,5 @@
 import { ColorType, LineSeries, LineStyle, createChart, type IChartApi, type ISeriesApi } from 'lightweight-charts';
-import { BENCHMARK_DEFINITION, type Benchmark } from '../engine/benchmark';
+import { BENCHMARK_DEFINITION, benchmarkDefinition, benchmarkLabel, type Benchmark } from '../engine/benchmark';
 import type { BacktestResult } from '../engine/engine';
 import type { EquityPoint, Stats } from '../engine/stats';
 import type { LogEntry, Trade } from '../engine/types';
@@ -11,10 +11,11 @@ import { loadText, saveText } from './storage';
 export const BENCHMARK_LINE_STORAGE_KEY = 'quant-sim.benchmark-line';
 
 /** Buy & hold cards, shown right after the strategy's max drawdown. */
-export function benchmarkRows(b: Pick<Benchmark, 'returnPct' | 'maxDrawdownPct'>): StatRow[] {
+export function benchmarkRows(b: Pick<Benchmark, 'returnPct' | 'maxDrawdownPct'> & { leverage?: number }): StatRow[] {
+  const name = benchmarkLabel(b.leverage ?? 1);
   return [
-    { label: 'Buy & hold return', value: fmtPct(b.returnPct), tone: b.returnPct > 0 ? 'pos' : b.returnPct < 0 ? 'neg' : 'neutral' },
-    { label: 'Buy & hold max DD', value: fmtPct(b.maxDrawdownPct), tone: b.maxDrawdownPct > 0 ? 'neg' : 'neutral' },
+    { label: `${name} return`, value: fmtPct(b.returnPct), tone: b.returnPct > 0 ? 'pos' : b.returnPct < 0 ? 'neg' : 'neutral' },
+    { label: `${name} max DD`, value: fmtPct(b.maxDrawdownPct), tone: b.maxDrawdownPct > 0 ? 'neg' : 'neutral' },
   ];
 }
 
@@ -28,6 +29,7 @@ export class StatsPanel {
   private readonly benchSeries: ISeriesApi<'Line'>;
   private readonly benchToggle: HTMLInputElement;
   private readonly benchLabel: HTMLElement;
+  private readonly benchLabelText: Text;
   private readonly trades: HTMLElement;
   private readonly log: HTMLElement;
 
@@ -36,7 +38,7 @@ export class StatsPanel {
     const equityEl = h('div', { class: 'equity' });
     this.benchToggle = h('input', { type: 'checkbox' });
     this.benchToggle.checked = loadText(BENCHMARK_LINE_STORAGE_KEY) !== '0';
-    this.benchLabel = h('label', { class: 'bench-toggle', title: BENCHMARK_DEFINITION }, this.benchToggle, 'Buy & hold line');
+    this.benchLabel = h('label', { class: 'bench-toggle', title: BENCHMARK_DEFINITION }, this.benchToggle, (this.benchLabelText = document.createTextNode('Buy & hold line')));
     this.benchLabel.hidden = true;
     this.trades = h('div', { class: 'trades' });
     this.log = h('div', { class: 'log' });
@@ -88,7 +90,8 @@ export class StatsPanel {
     const cards = rows.map((row) => card(row));
     if (benchmark) {
       const at = rows.findIndex((r) => r.label === 'Max drawdown') + 1;
-      cards.splice(at, 0, ...benchmarkRows(benchmark).map((row) => card(row, ' bench', BENCHMARK_DEFINITION)));
+      const info = benchmarkDefinition(benchmark.leverage ?? 1);
+      cards.splice(at, 0, ...benchmarkRows(benchmark).map((row) => card(row, ' bench', info)));
     }
     this.cards.replaceChildren(...cards);
     if (wiped) this.cards.append(h('div', { class: 'card neg wiped' }, 'ACCOUNT WIPED'));
@@ -98,6 +101,11 @@ export class StatsPanel {
   setBenchmark(benchmark: Benchmark | null): void {
     this.benchSeries.setData(benchmark ? benchmark.equityCurve.map((p) => ({ time: toChartTime(p.time), value: p.equity })) : []);
     this.benchLabel.hidden = benchmark === null;
+    // Named after the leverage it was sized at: 'Buy & hold (3x)' in the legend, toggle and tooltip.
+    const name = benchmarkLabel(benchmark?.leverage ?? 1);
+    this.benchSeries.applyOptions({ title: name });
+    this.benchLabelText.textContent = `${name} line`;
+    this.benchLabel.title = benchmarkDefinition(benchmark?.leverage ?? 1);
   }
 
   setEquity(points: readonly EquityPoint[]): void {

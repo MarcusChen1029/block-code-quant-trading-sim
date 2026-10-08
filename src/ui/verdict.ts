@@ -17,7 +17,8 @@ export interface VerdictInput {
   barsProcessed: number;
   /** Bars loaded for the run. */
   barsLoaded: number;
-  benchmark: { returnPct: number; maxDrawdownPct: number } | null;
+  /** label: what to call it ('Buy & hold (3x)' at 3x leverage); 'Buy & hold' when absent. */
+  benchmark: { returnPct: number; maxDrawdownPct: number; label?: string } | null;
   activity: EngineActivity | null;
   /** Bars needed before the first order can fill (known), or unknown; null when not analysed. */
   warmup: HistoryNeed | null;
@@ -77,7 +78,7 @@ export function topReason(a: EngineActivity): NotFilledReason | null {
 function versus(input: VerdictInput, compare: boolean): string {
   const b = input.benchmark;
   if (!b || !Number.isFinite(b.returnPct)) return '';
-  const head = ` Buy & hold: ${signedPct(b.returnPct)}`;
+  const head = ` ${b.label ?? 'Buy & hold'}: ${signedPct(b.returnPct)}`;
   if (!compare || !Number.isFinite(input.totalReturnPct)) return `${head} over the same bars.`;
   // Compare what the reader sees: two returns that both display as +5.01% are a tie.
   const diff = shownPct(shownPct(input.totalReturnPct) - shownPct(b.returnPct));
