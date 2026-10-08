@@ -125,17 +125,28 @@ export interface SwingValue {
   lastLow: number;
   highConfirmed: boolean;
   lowConfirmed: boolean;
-  /** A close went above the last confirmed, not yet broken swing high (fires once per level). */
+  /**
+   * A close went above the last confirmed, not yet broken swing high (fires once per level) while the structure was
+   * not bearish (the previous break was up, or there was none): break of structure. Down mirrored.
+   */
   bosUp: boolean;
   bosDown: boolean;
+  /**
+   * Change of character: the same break, but against the structure (bullish CHoCH = a break up while the previous
+   * break was down). Exactly one of bosUp / chochUp is true on a bar with an upward break.
+   */
+  chochUp: boolean;
+  chochDown: boolean;
   /** Zone lifecycle events of this bar (swing levels). */
   events: Zone[];
 }
 
 /**
- * Swing structure: pivots (PivotDetector) and break of structure. The BOS reference is the most recently
- * confirmed swing high; a close strictly above it fires `bosUp` once and the level is spent until a newer swing
- * high is confirmed (a newer one replaces an unbroken older one: 'superseded'). Lows mirrored.
+ * Swing structure: pivots (PivotDetector), break of structure and change of character. The break reference is the
+ * most recently confirmed swing high; a close strictly above it is an upward break, once, and the level is spent
+ * until a newer swing high is confirmed (a newer one replaces an unbroken older one: 'superseded'). Lows mirrored.
+ * The structure is the direction of the last break: a break in that direction (or the first break) is a BOS, a break
+ * against it a CHoCH. An upward break is evaluated before a downward one on the same bar.
  */
 export class SwingStructure {
   private readonly pivots: PivotDetector;
@@ -144,6 +155,8 @@ export class SwingStructure {
   private high: Zone | null = null;
   private low: Zone | null = null;
   private nextId = 1;
+  /** Direction of the last break (null until the first one). */
+  private trend: 'up' | 'down' | null = null;
 
   constructor(readonly left = 5, readonly right = 5) {
     this.pivots = new PivotDetector(left, right);
@@ -172,19 +185,25 @@ export class SwingStructure {
       this.lastLow = low.price;
       this.low = level(low, 'bullish');
     }
-    let bosUp = false;
-    let bosDown = false;
+    let [bosUp, bosDown, chochUp, chochDown] = [false, false, false, false];
     if (this.high && bar.close > this.high.top) {
-      bosUp = true;
+      if (this.trend === 'down') chochUp = true;
+      else bosUp = true;
+      this.trend = 'up';
       end(this.high, 'broken');
       this.high = null;
     }
     if (this.low && bar.close < this.low.bottom) {
-      bosDown = true;
+      if (this.trend === 'up') chochDown = true;
+      else bosDown = true;
+      this.trend = 'down';
       end(this.low, 'broken');
       this.low = null;
     }
-    return { lastHigh: this.lastHigh, lastLow: this.lastLow, highConfirmed: high !== null, lowConfirmed: low !== null, bosUp, bosDown, events };
+    return {
+      lastHigh: this.lastHigh, lastLow: this.lastLow, highConfirmed: high !== null, lowConfirmed: low !== null, bosUp, bosDown, chochUp, chochDown,
+      events,
+    };
   }
 }
 
@@ -309,7 +328,7 @@ class ZoneBook {
 export interface OrderBlockOptions extends ZoneBookOptions {
   /** Pivot length (left = right) of the swing structure whose breaks form order blocks. */
   swingLength: number;
-  /** How many bars before the BOS bar are searched for the last opposite candle. */
+  /** How many bars before the break bar (BOS or CHoCH) are searched for the last opposite candle. */
   lookback: number;
   /** false: the candle's full range [low, high]; true: its body [min(open, close), max(open, close)]. */
   useBody: boolean;
@@ -318,7 +337,7 @@ export interface OrderBlockOptions extends ZoneBookOptions {
 export const ORDER_BLOCK_DEFAULTS: OrderBlockOptions = { swingLength: 5, lookback: 10, useBody: false, maxActive: 5, maxAgeBars: 300 };
 
 /**
- * SMC order blocks. Bullish: on a bullish break of structure (close above the last confirmed, unbroken swing high,
+ * SMC order blocks. Bullish: on a bullish break, BOS or CHoCH (close above the last confirmed, unbroken swing high,
  * SwingStructure with left = right = swingLength), the LAST bearish candle (close < open) among the `lookback` bars
  * before the BOS bar; zone = its range (or body). Known at the BOS bar's close. Bearish mirrored (last bullish
  * candle, close > open, before a bearish BOS). A candle that is already the origin of an active zone of the same
@@ -357,8 +376,9 @@ export class OrderBlocks {
         return;
       }
     };
-    if (s.bosUp) form('bullish');
-    if (s.bosDown) form('bearish');
+    // Every break forms a block, whether it is a BOS or a CHoCH (unchanged from before CHoCH existed).
+    if (s.bosUp || s.chochUp) form('bullish');
+    if (s.bosDown || s.chochDown) form('bearish');
     this.recent.push(bar);
     return { ...this.book.read(bar), newBull: made.bullish, newBear: made.bearish, bullMitigated: mitigated.bull, bearMitigated: mitigated.bear, events };
   }

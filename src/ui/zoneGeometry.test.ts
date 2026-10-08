@@ -119,17 +119,17 @@ describe('zone overlays', () => {
     expect(toggles.map((d) => [d.id, d.label, d.zones])).toEqual([
       ['zones-orderblock', 'Order blocks', 'orderBlock'], ['zones-fvg', 'FVG', 'fvg'], ['zones-swing', 'Swing structure', 'swing'],
     ]);
-    expect(toggles[2].signals?.map((s) => s.key)).toEqual(['bos_up', 'bos_down']);
+    expect(toggles[2].signals?.map((s) => s.key)).toEqual(['bos_up', 'bos_down', 'choch_up', 'choch_down']);
     // Same zone key as a strategy's default-settings use: the chart draws those zones once.
     const [strategy] = blockIndicatorOverlays([defaultIndicatorUse(getIndicator('fvg')!)]);
     expect(toggles[1].zoneKey).toBe(strategy.zoneKey);
   });
 
   it('live session overlays keep a zone toggle next to the session\'s own (its zones are deduplicated by the chart)', () => {
-    const session = blockIndicatorOverlays([{ ...defaultIndicatorUse(getIndicator('swing')!), signals: ['bos_up', 'bos_down'] }]);
+    const session = blockIndicatorOverlays([{ ...defaultIndicatorUse(getIndicator('swing')!), signals: ['bos_up', 'bos_down', 'choch_up', 'choch_down'] }]);
     const out = liveSessionOverlays(session, zoneToggleOverlays());
     const swing = out.find((d) => d.id === 'zones-swing')!;
-    expect(swing.signals).toBeUndefined(); // the session already marks both BOS signals
+    expect(swing.signals).toBeUndefined(); // the session already marks all BOS / CHoCH signals
     expect(swing.zoneKey).toBe(session[0].zoneKey);
     expect(out.map((d) => d.id)).toContain('zones-orderblock');
   });
