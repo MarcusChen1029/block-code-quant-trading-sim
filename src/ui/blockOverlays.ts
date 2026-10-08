@@ -1,7 +1,7 @@
 import type { IndicatorUse } from '../blocks/generator';
 import { priceOf } from '../blocks/priceSource';
 import type { Candle } from '../data/types';
-import { getIndicator, type IndicatorBlockDef } from '../blocks/registry';
+import { getIndicator, PINE_ID_PREFIX, type IndicatorBlockDef } from '../blocks/registry';
 import { signalPriceKey, type OverlayDef, type OverlaySignal } from './overlays';
 
 const COLORS = ['#f5c542', '#42a5f5', '#ef5350', '#26a69a', '#ab47bc', '#ff9800', '#8d6e63', '#ec407a'];
@@ -72,7 +72,12 @@ export function blockIndicatorOverlays(
       indicatorId: def.id,
       pane: def.pane,
       // Zone indicators are drawn as boxes / levels; their numeric outputs (nearest zone edges) are not drawn as lines.
-      lines: def.zones ? [] : def.outputs.map((o) => ({ key: o.key, color: COLORS[colorCursor++ % COLORS.length] })),
+      // Pine plots are named by their plot titles ("Up trend"); built-ins keep their short keys ("macd", "hist").
+      lines: def.zones ? [] : def.outputs.map((o) => ({
+        key: o.key,
+        color: COLORS[colorCursor++ % COLORS.length],
+        ...(def.id.startsWith(PINE_ID_PREFIX) ? { title: o.label } : {}),
+      })),
       ...(signals.length > 0 ? { signals } : {}),
       ...(def.zones ? { zones: def.zones.style, zoneKey: g.key } : {}),
       signalKey: `${g.key}|${g.signalParams ?? ''}`,

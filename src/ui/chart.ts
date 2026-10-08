@@ -15,7 +15,7 @@ import {
 import type { Candle } from '../data/types';
 import { DOWN_COLOR, UP_COLOR, candleToBar, candleToVolume } from './chartData';
 import { MAX_MARKERS_PER_SIGNAL, mergeMarkers, signalMarkers, type SignalHit } from './markers';
-import { computeOverlaySeries, dedupeOverlaySignals, overlayPoint, signalPriceKey, type OverlayDef, type OverlaySignal } from './overlays';
+import { computeOverlaySeries, dedupeOverlaySignals, lineTitle, overlayPoint, signalPriceKey, type OverlayDef, type OverlaySignal } from './overlays';
 import { ZoneStore, type ZoneRect } from './zoneGeometry';
 import { ZoneLayer } from './zonePrimitive';
 
@@ -163,7 +163,7 @@ export class ChartPanel {
             lineWidth: 1,
             priceLineVisible: false,
             lastValueVisible: false,
-            title: line.key === 'value' ? def.label : line.key,
+            title: lineTitle(def, line),
           },
           paneIndex,
         );
