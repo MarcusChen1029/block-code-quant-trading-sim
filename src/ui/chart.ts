@@ -14,7 +14,8 @@ import {
 } from 'lightweight-charts';
 import type { Candle } from '../data/types';
 import { DOWN_COLOR, UP_COLOR, candleToBar, candleToVolume } from './chartData';
-import { MAX_MARKERS_PER_SIGNAL, mergeMarkers, signalMarkers, type SignalHit } from './markers';
+import { MarkerSet } from './markerSet';
+import { MAX_MARKERS_PER_SIGNAL, MAX_TEXT_MARKERS, signalMarkers, type SignalHit } from './markers';
 import { computeOverlaySeries, dedupeOverlaySignals, overlayPoint, signalPriceKey, type OverlayDef, type OverlaySignal } from './overlays';
 import { ZoneStore, type ZoneRect } from './zoneGeometry';
 import { ZoneLayer } from './zonePrimitive';
@@ -22,6 +23,9 @@ import { ZoneLayer } from './zonePrimitive';
 interface ActiveSignal {
   signal: OverlaySignal;
   hits: SignalHit[];
+  /** Marker group (and id prefix) of this signal, and its rank: at one time, trades come first, then signals in overlay order. */
+  group: string;
+  rank: number;
 }
 
 interface ActiveOverlay {
@@ -50,8 +54,11 @@ export class ChartPanel {
   private markers: ISeriesMarkersPluginApi<Time> | null = null;
   /** Trade (fill) markers, kept apart from signal markers so either can be replaced alone. */
   private tradeMarkers: SeriesMarker<UTCTimestamp>[] = [];
-  /** Marker plugins of sub-pane line series that carry signal markers. */
+  /** Candle-series markers (trades + price-pane signals), maintained incrementally. */
+  private readonly candleSet = new MarkerSet();
+  /** Marker plugins (and their marker sets) of sub-pane line series that carry signal markers. */
   private readonly paneMarkers = new Map<ISeriesApi<'Line'>, ISeriesMarkersPluginApi<Time>>();
+  private readonly paneSets = new Map<ISeriesApi<'Line'>, MarkerSet>();
   private readonly legend: HTMLElement;
   private hoverTime: number | null = null;
   private lastTime = -Infinity;
@@ -130,15 +137,18 @@ export class ChartPanel {
     for (const o of this.overlays) for (const s of Object.values(o.series)) this.chart.removeSeries(s);
     this.overlays = [];
     this.paneMarkers.clear(); // their series are gone
+    this.paneSets.clear();
     while (this.chart.panes().length > 1) this.chart.removePane(this.chart.panes().length - 1);
 
     let nextPane = 1;
+    let rank = 0; // trades are rank 0
     const zoneKeys = new Set<string>();
     // The same signal of the same indicator settings (e.g. a strategy's and a picked toggle's) is marked once.
     for (const def of dedupeOverlaySignals(defs)) {
       // A sub-pane overlay without lines (a signal-only Pine script) gets no pane: its markers go on the candles.
       const paneIndex = def.pane === 'price' || def.lines.length === 0 ? 0 : nextPane++;
-      const signals: ActiveSignal[] = (def.signals ?? []).map((signal) => ({ signal, hits: [] }));
+      const index = this.overlays.length;
+      const signals: ActiveSignal[] = (def.signals ?? []).map((signal) => ({ signal, hits: [], group: `sig${index}:${signal.key}`, rank: ++rank }));
       const create = def.create();
       // Zones identical to an earlier overlay's (a strategy's and a picked toggle) are drawn once.
       const key = def.zoneKey ?? def.id;
@@ -180,20 +190,47 @@ export class ChartPanel {
 
   /** Replaces the trade markers on the candle series (empty array clears them). Markers must be sorted by time. */
   setMarkers(markers: SeriesMarker<UTCTimestamp>[]): void {
-    this.tradeMarkers = markers;
-    this.refreshMarkers();
+    this.tradeMarkers = [...markers];
+    this.candleSet.setGroup('trades', 0, this.tradeMarkers);
+    this.pushCandleMarkers();
   }
 
-  /** Feeds one newly CLOSED candle to every overlay (O(1) per overlay; markers redrawn only when a signal fired). */
+  /** Adds trade markers (new fills of a live session) without rebuilding the others. */
+  appendMarkers(markers: readonly SeriesMarker<UTCTimestamp>[]): void {
+    if (markers.length === 0) return;
+    this.tradeMarkers.push(...markers);
+    this.candleSet.append('trades', 0, markers);
+    this.pushCandleMarkers();
+  }
+
+  /**
+   * Feeds one newly CLOSED candle to every overlay (O(1) per overlay). A signal that fired adds its new markers to
+   * its target's marker set (nothing else is rebuilt); only crossing the text limit redraws that one signal.
+   */
   updateOverlays(candle: Candle): void {
-    let fired = false;
+    let candleDirty = false;
+    const paneDirty = new Set<ISeriesApi<'Line'>>();
     for (const o of this.overlays) {
-      const before = o.signals.reduce((n, s) => n + s.hits.length, 0);
+      const before = o.signals.map((s) => s.hits.length);
       const values = o.step(candle);
       for (const line of o.def.lines) o.series[line.key].update(overlayPoint(candle.time, values[line.key]));
-      if (o.signals.reduce((n, s) => n + s.hits.length, 0) !== before) fired = true;
+      o.signals.forEach((s, i) => {
+        const after = s.hits.length;
+        if (after === before[i]) return;
+        const set = o.markerSeries === null ? this.candleSet : this.paneSet(o.markerSeries);
+        const style = s.signal.marker;
+        if (before[i] <= MAX_TEXT_MARKERS && after > MAX_TEXT_MARKERS && style.text) {
+          set.setGroup(s.group, s.rank, signalMarkers(style, s.hits, s.group));
+        } else {
+          set.append(s.group, s.rank, signalMarkers(style, s.hits.slice(before[i]), s.group, after), MAX_MARKERS_PER_SIGNAL);
+        }
+        if (o.markerSeries === null) candleDirty = true;
+        else paneDirty.add(o.markerSeries);
+      });
     }
-    if (fired) this.refreshMarkers();
+    if (candleDirty) this.pushCandleMarkers(false);
+    for (const series of paneDirty) this.pushPaneMarkers(series);
+    if (candleDirty || paneDirty.size > 0) this.renderLegend();
     // Active zones grow to the new bar and events may have arrived: redraw the layer (no series are recreated).
     if (this.overlays.some((o) => o.zones)) this.zoneLayer.update();
   }
@@ -235,27 +272,42 @@ export class ChartPanel {
     this.chart.remove();
   }
 
-  /** Signal markers per target series (the candles' are merged with the trade markers), then the legend. */
+  /** Rebuilds every marker set (trades + all signals) from scratch, then the legend. */
   private refreshMarkers(): void {
-    const onCandles: SeriesMarker<UTCTimestamp>[][] = [this.tradeMarkers];
-    const onPanes = new Map<ISeriesApi<'Line'>, SeriesMarker<UTCTimestamp>[][]>();
-    this.overlays.forEach((o, i) => {
+    this.candleSet.clear();
+    this.candleSet.setGroup('trades', 0, this.tradeMarkers);
+    for (const o of this.overlays) {
       for (const s of o.signals) {
-        const list = signalMarkers(s.signal.marker, s.hits, `sig${i}:${s.signal.key}`);
-        if (o.markerSeries === null) onCandles.push(list);
-        else onPanes.set(o.markerSeries, [...(onPanes.get(o.markerSeries) ?? []), list]);
+        const set = o.markerSeries === null ? this.candleSet : this.paneSet(o.markerSeries);
+        set.setGroup(s.group, s.rank, signalMarkers(s.signal.marker, s.hits, s.group));
       }
-    });
-    const candleMarkers = mergeMarkers(...onCandles);
-    if (this.markers === null) this.markers = createSeriesMarkers(this.candles, candleMarkers);
-    else this.markers.setMarkers(candleMarkers);
-    for (const [series, lists] of onPanes) {
-      const merged = mergeMarkers(...lists);
-      const plugin = this.paneMarkers.get(series);
-      if (plugin) plugin.setMarkers(merged);
-      else this.paneMarkers.set(series, createSeriesMarkers(series, merged));
     }
+    this.pushCandleMarkers(false);
+    for (const series of this.paneSets.keys()) this.pushPaneMarkers(series);
     this.renderLegend();
+  }
+
+  private paneSet(series: ISeriesApi<'Line'>): MarkerSet {
+    let set = this.paneSets.get(series);
+    if (!set) {
+      set = new MarkerSet();
+      this.paneSets.set(series, set);
+    }
+    return set;
+  }
+
+  private pushCandleMarkers(legend = true): void {
+    const list = this.candleSet.list();
+    if (this.markers === null) this.markers = createSeriesMarkers(this.candles, list);
+    else this.markers.setMarkers(list);
+    if (legend) this.renderLegend();
+  }
+
+  private pushPaneMarkers(series: ISeriesApi<'Line'>): void {
+    const list = this.paneSet(series).list();
+    const plugin = this.paneMarkers.get(series);
+    if (plugin) plugin.setMarkers(list);
+    else this.paneMarkers.set(series, createSeriesMarkers(series, list));
   }
 
   /** Each drawn signal (shape, colour, name, count) and, under the crosshair, the signals that fired on that bar. */

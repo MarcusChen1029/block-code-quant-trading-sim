@@ -39,10 +39,13 @@ export interface SignalMarkerStyle {
 const DEFAULT_SIGNAL_COLOR = '#2962ff';
 export const SIGNAL_TEXT_PREFIX = '◇ ';
 
-/** Lightweight-charts markers for one signal's hits (capped to the most recent; text dropped when dense). */
-export function signalMarkers(style: SignalMarkerStyle, hits: readonly SignalHit[], idPrefix: string): SeriesMarker<UTCTimestamp>[] {
+/**
+ * Lightweight-charts markers for one signal's hits (capped to the most recent; text dropped when dense).
+ * `totalHits`: the signal's hit count when `hits` are only its newest ones (live appends), for the text rule.
+ */
+export function signalMarkers(style: SignalMarkerStyle, hits: readonly SignalHit[], idPrefix: string, totalHits = hits.length): SeriesMarker<UTCTimestamp>[] {
   const shown = hits.length > MAX_MARKERS_PER_SIGNAL ? hits.slice(hits.length - MAX_MARKERS_PER_SIGNAL) : hits;
-  const withText = hits.length <= MAX_TEXT_MARKERS && style.text !== undefined && style.text !== '';
+  const withText = totalHits <= MAX_TEXT_MARKERS && style.text !== undefined && style.text !== '';
   const color = style.color ?? DEFAULT_SIGNAL_COLOR;
   // "◇" marks a signal, so a script's own "Buy" never reads as a trade fill ("Buy" without it).
   const text = `${SIGNAL_TEXT_PREFIX}${style.text}`;

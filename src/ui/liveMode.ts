@@ -59,7 +59,7 @@ interface SessionView {
   halt: HaltInfo | null;
   stopWaiters: Array<() => void>;
   /** What the chart/stats already show, for incremental drawing. */
-  drawn: { candles: number; fills: number; trades: number; equity: number; log: number; chartTime: number };
+  drawn: { candles: number; fills: number; trades: number; equity: number; log: number; chartTime: number; startMarked: boolean };
   /** Bars whose FINAL (closed) websocket update is already on the chart. */
   closedTicked: Set<number>;
 }
@@ -362,7 +362,7 @@ export class LiveMode {
     const view: SessionView = {
       record, mode, client: null, candles: [], fills: [], trades: [], equity: [], log: [], stats: null, wiped: false,
       status: null, forming: null, markEquity: null, indicators: null, overlays: null, halt: null, stopWaiters: [],
-      drawn: { candles: 0, fills: 0, trades: 0, equity: 0, log: 0, chartTime: -Infinity }, closedTicked: new Set(),
+      drawn: { candles: 0, fills: 0, trades: 0, equity: 0, log: 0, chartTime: -Infinity, startMarked: false }, closedTicked: new Set(),
     };
     view.client = new LiveWorkerClient(record, mode, (event) => this.onEvent(view, event), (message) => {
       this.deps.setStatus(`Live worker failed: ${message}. Reload the page to resume.`, true);
@@ -507,10 +507,14 @@ export class LiveMode {
     return view.overlays;
   }
 
+  private hasStartMarker(view: SessionView): boolean {
+    const firstBar = view.candles[0]?.time;
+    return firstBar !== undefined && view.record.startTime >= firstBar && view.record.warmupBars > 0;
+  }
+
   private markers(view: SessionView) {
     const markers = fillsToMarkers(view.fills);
-    const firstBar = view.candles[0]?.time;
-    if (firstBar !== undefined && view.record.startTime >= firstBar && view.record.warmupBars > 0) markers.push(sessionStartMarker(view.record.startTime));
+    if (this.hasStartMarker(view)) markers.push(sessionStartMarker(view.record.startTime));
     return markers.sort((a, b) => a.time - b.time);
   }
 
@@ -542,7 +546,14 @@ export class LiveMode {
       chart.updateOverlays(c);
     }
     d.candles = view.candles.length;
-    if (view.fills.length !== d.fills || fresh.length > 0) chart.setMarkers(this.markers(view));
+    // Trade markers: new fills are appended (signal markers were appended by updateOverlays); the full set only
+    // once, when the session-start marker can first be placed.
+    if (!d.startMarked && this.hasStartMarker(view)) {
+      chart.setMarkers(this.markers(view));
+      d.startMarked = true;
+    } else if (view.fills.length > d.fills) {
+      chart.appendMarkers(fillsToMarkers(view.fills.slice(d.fills)));
+    }
     d.fills = view.fills.length;
     if (view.stats) stats.showStats(view.stats, view.wiped);
     stats.appendEquity(view.equity.slice(d.equity));
@@ -584,7 +595,10 @@ export class LiveMode {
       stats.setTrades(view.trades);
       stats.appendLog(view.log);
     }
-    view.drawn = { candles: view.candles.length, fills: view.fills.length, trades: view.trades.length, equity: view.equity.length, log: view.log.length, chartTime };
+    view.drawn = {
+      candles: view.candles.length, fills: view.fills.length, trades: view.trades.length, equity: view.equity.length, log: view.log.length, chartTime,
+      startMarked: this.hasStartMarker(view),
+    };
     view.closedTicked.clear();
     this.updateBadge();
   }
