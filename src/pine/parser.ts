@@ -488,7 +488,8 @@ class Parser {
     switch (t.kind) {
       case 'num':
         this.next();
-        return { k: 'num', value: t.num!, ...pos(t) };
+        // `1.0` / `1e3` are float literals although their value is integral (it decides int / int division).
+        return { k: 'num', value: t.num!, ...(Number.isInteger(t.num!) && /[.eE]/.test(t.value) ? { float: true } : {}), ...pos(t) };
       case 'str':
         this.next();
         return { k: 'str', value: t.value, ...pos(t) };

@@ -200,6 +200,47 @@ export class PineRuntime {
     return 'color';
   }
 
+  // ---- arithmetic and conversions (Pine semantics, see docs/superpowers/specs/2026-10-07-pine-versions.md) ----
+
+  /** `a / b`: division by zero is na (not ±Infinity). */
+  div(a: unknown, b: unknown): number {
+    const d = this.num(b);
+    return d === 0 ? NaN : this.num(a) / d;
+  }
+
+  /** Integer `a / b` (both operands int, see the note): the quotient truncated toward zero; by zero -> na. */
+  idiv(a: unknown, b: unknown): number {
+    const d = this.num(b);
+    return d === 0 ? NaN : Math.trunc(this.num(a) / d);
+  }
+
+  /** `a % b`: truncated remainder (sign of the dividend, as JS `%`); by zero -> na. */
+  mod(a: unknown, b: unknown): number {
+    const d = this.num(b);
+    return d === 0 ? NaN : this.num(a) % d;
+  }
+
+  /** int(x): na stays na, otherwise truncated toward zero. */
+  toInt(x: unknown): number {
+    return Math.trunc(this.num(x));
+  }
+
+  /** float(x): na stays na. */
+  toFloat(x: unknown): number {
+    return this.num(x);
+  }
+
+  /**
+   * bool(x). v6: false for na, false and 0, true otherwise (a bool is never na). v4/v5: na stays na (a bool can be
+   * na there; na reads as false in conditions), 0 is false, any other number true.
+   */
+  toBool(x: unknown, neverNa: boolean): boolean | number {
+    if (typeof x === 'boolean') return x;
+    const n = this.num(x);
+    if (Number.isNaN(n)) return neverNa ? false : NaN;
+    return n !== 0;
+  }
+
   // ---- loops ---------------------------------------------------------------------------------------
 
   loop(line: number, col: number): void {

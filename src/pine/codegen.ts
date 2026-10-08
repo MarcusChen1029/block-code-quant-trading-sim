@@ -8,6 +8,7 @@ import {
 import { dialectFor, v4SpellingHint, type Dialect } from './dialect';
 import { MAX_HISTORY } from './runtime';
 import { SIGNAL_FUNCTIONS, type SignalSite } from './signals';
+import { CONVERSIONS, type PineType } from './v6';
 
 /** How an input declaration is wired: a numeric/bool block param (`param` = index into P) or a series source. */
 export interface InputBinding {
@@ -29,9 +30,12 @@ export interface CodegenInput {
   signals?: ReadonlyMap<CallExpr, { index: number; site: SignalSite }>;
   /** v6: `x[n]` expressions of bool type (history before the first bar is false, not na). */
   boolHistory?: ReadonlySet<Expr>;
+  /** Inferred expression types (decides integer division, see v6.ts); absent = every division is fractional. */
+  typeOf?: (e: Expr) => PineType | 'na';
 }
 
 const IFF_SIG = { params: ['condition', 'then', 'else'], required: 3 } as const;
+const CONVERSION_SIG = { params: ['x'], required: 1 } as const;
 
 export interface CodegenResult {
   /** Body of `new Function('rt', 'P', ...)`; returns `{ step() }`. */
@@ -356,7 +360,15 @@ class Codegen {
     else if (sym.loopVar) this.error(s, `loop variable "${s.name}" cannot be changed`);
     else if (this.func && sym.owner !== this.func) this.error(s, `user functions cannot change the global variable "${s.name}" (Pine rule)`);
     const op = COMPOUND.get(s.op);
-    return op ? `${sym.js} = (${sym.js} ${op} ${value});` : `${sym.js} = ${value};`;
+    if (op) {
+      const left: Expr = { k: 'ident', name: s.name, line: s.line, col: s.col };
+      return `${sym.js} = ${this.arith({ k: 'binary', op, left, right: s.value, line: s.line, col: s.col }, sym.js, value)};`;
+    }
+    // v6: a bool is never na; `b := na` stores false (the migration guide only forbids na as a bool's default value).
+    if (this.dialect.boolNeverNa && s.value.k === 'ident' && s.value.name === 'na' && this.typeOf({ k: 'ident', name: s.name, line: s.line, col: s.col }) === 'bool') {
+      return `${sym.js} = false;`;
+    }
+    return `${sym.js} = ${value};`;
   }
 
   private forLoop(s: Extract<Stmt, { k: 'for' }>): string {
@@ -501,7 +513,7 @@ class Codegen {
         }
         const b = this.scalar(e.right);
         if (e.op === 'and' || e.op === 'or') return one(`rt.${e.op}(${a}, ${b})`);
-        return one(`(${a} ${ARITHMETIC.get(e.op)} ${b})`);
+        return one(this.arith(e, a, b));
       }
       case 'ternary': {
         const c = this.scalar(e.cond);
@@ -593,6 +605,10 @@ class Codegen {
         const args = bindArgs('iff', IFF_SIG, e.args, { line: e.line, col: e.col }, this.errors).map((a) => (a ? this.scalar(a) : 'NaN'));
         return one(`rt.iff(${args.join(', ')})`);
       }
+      if (CONVERSIONS.has(name)) {
+        const [x] = bindArgs(name, CONVERSION_SIG, e.args, e, this.errors);
+        return one(this.conversion(name, x ? this.scalar(x) : 'NaN'));
+      }
       if (this.lookup(name)) this.error(e, `"${name}" is a variable, not a function`);
       else this.error(e, this.hint(name, true) ?? `unknown function "${name}"`);
       return one('NaN');
@@ -618,6 +634,28 @@ class Codegen {
     }
     this.memberError(e, name, true);
     return one('NaN');
+  }
+
+  private typeOf(e: Expr): PineType | 'na' {
+    return this.input.typeOf ? this.input.typeOf(e) : 'unknown';
+  }
+
+  /**
+   * Code for an arithmetic / comparison operator. `/` and `%` by zero are na (not ±Infinity; see the version note);
+   * `/` is integer division (truncated toward zero) only when the inference types the expression as int.
+   */
+  private arith(e: Extract<Expr, { k: 'binary' }>, a: string, b: string): string {
+    if (e.op === '/') return `rt.${this.typeOf(e) === 'int' ? 'idiv' : 'div'}(${a}, ${b})`;
+    if (e.op === '%') return `rt.mod(${a}, ${b})`;
+    return `(${a} ${ARITHMETIC.get(e.op)} ${b})`;
+  }
+
+  /** int(x) / float(x) / bool(x), all versions (bool(na) is false in v6 and stays na in v4/v5). */
+  private conversion(name: string, x: string): string {
+    const kind = CONVERSIONS.get(name);
+    if (kind === 'int') return `rt.toInt(${x})`;
+    if (kind === 'float') return `rt.toFloat(${x})`;
+    return `rt.toBool(${x}, ${this.dialect.boolNeverNa})`;
   }
 
   private userCall(e: CallExpr, fn: FuncSym): Val {
@@ -761,7 +799,7 @@ class Codegen {
         const a = this.simple(e.left);
         const b = this.simple(e.right);
         if (a === null || b === null) return null;
-        return e.op === 'and' || e.op === 'or' ? `rt.${e.op}(${a}, ${b})` : `(${a} ${ARITHMETIC.get(e.op)} ${b})`;
+        return e.op === 'and' || e.op === 'or' ? `rt.${e.op}(${a}, ${b})` : this.arith(e, a, b);
       }
       case 'ternary': {
         const [c, a, b] = [this.simple(e.cond), this.simple(e.then), this.simple(e.else)];
@@ -769,6 +807,10 @@ class Codegen {
       }
       case 'call': {
         const name = dottedName(e.callee);
+        if (name !== null && CONVERSIONS.has(name) && !this.funcs.has(name) && e.args.length === 1 && e.args[0].name === undefined) {
+          const x = this.simple(e.args[0].value);
+          return x === null ? null : this.conversion(name, x);
+        }
         const info = name?.startsWith('math.') ? MATH_FUNCTIONS.get(name.slice(5)) : undefined;
         if (!info) return null;
         const args = bindArgs(name!, info.sig, e.args, e, []);
