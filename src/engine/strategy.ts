@@ -42,6 +42,11 @@ export interface StrategyContext {
   setStopLoss(price: number | null): void;
   setTakeProfit(price: number | null): void;
   log(message: string): void;
+  /**
+   * A warning in the run log (e.g. an action skipped because its value was na). Returns false when it was dropped
+   * (live warm-up bars, like every other action there). Optional: hand-written contexts may leave it out.
+   */
+  warn?(message: string): boolean;
 }
 
 /**

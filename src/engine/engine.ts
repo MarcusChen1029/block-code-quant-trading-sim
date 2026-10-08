@@ -229,6 +229,10 @@ export class Engine {
       setStopLoss: warmup ? suppressed(undefined) : (price) => broker.setStopLoss(price),
       setTakeProfit: warmup ? suppressed(undefined) : (price) => broker.setTakeProfit(price),
       log: warmup ? () => {} : (message) => broker.addLog(bar, candle.time, 'info', message),
+      warn: warmup ? () => false : (message) => {
+        broker.addLog(bar, candle.time, 'warn', message);
+        return true;
+      },
     };
   }
 }
