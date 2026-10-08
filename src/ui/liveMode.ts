@@ -2,13 +2,14 @@ import type { IndicatorUse } from '../blocks/generator';
 import { getIndicator, PINE_ID_PREFIX, type IndicatorBlockDef } from '../blocks/registry';
 import { timeframeToMs, type Candle, type Timeframe } from '../data/types';
 import type { EquityPoint, Stats } from '../engine/stats';
-import type { BrokerConfig, Fill, LogEntry, Trade } from '../engine/types';
-import { LiveWorkerClient } from '../live/client';
+import type { EngineActivity } from '../engine/engine';
+import type { BrokerConfig, Fill, LogEntry, PositionView, Trade } from '../engine/types';
 import type { LiveEvent } from '../live/host';
 import type { HaltInfo, LiveStatus } from '../live/runner';
 import { MAX_WARMUP_BARS, newSessionRecord, type LiveSessionRecord, type StrategySnapshot } from '../live/session';
 import { browserLocks, claimSession, waitForSession, type SessionLock } from '../live/ownership';
 import { openSessionStore, type SessionStore } from '../live/store';
+import { LiveWorkerSupervisor } from '../live/supervisor';
 import { compilePine } from '../pine/compile';
 import { pineIndicatorDef } from '../pine/library';
 import { blockIndicatorOverlays, liveSessionOverlays } from './blockOverlays';
@@ -63,7 +64,7 @@ export interface LiveModeDeps {
 interface SessionView {
   record: LiveSessionRecord;
   mode: 'live' | 'replay';
-  client: LiveWorkerClient | null;
+  client: LiveWorkerSupervisor | null;
   candles: Candle[];
   fills: Fill[];
   trades: Trade[];
@@ -84,6 +85,11 @@ interface SessionView {
   closedTicked: Set<number>;
   /** The view stored for this session before a reload, shown once its bars are loaded. */
   pendingView: SavedView | null;
+  /** Shown instead of the status badge (worker restarting) until the session is live again. */
+  notice: string | null;
+  /** From the last delta: open position and order diagnostics (verdict). */
+  position: PositionView | null;
+  activity: EngineActivity | null;
 }
 
 const PERSIST_EVERY_MS = 2000;
@@ -132,6 +138,21 @@ export class LiveMode {
     });
     window.addEventListener('online', resync);
     deps.chart.onVisibleRangeChange(() => this.scheduleViewSave());
+    if (import.meta.env.DEV) {
+      // Dev-only checks from the console / browser automation: simulate a worker crash or hang, read the state.
+      (window as unknown as { __quantLive?: unknown }).__quantLive = {
+        crashWorker: (action: 'throw' | 'hang' = 'throw') => this.running?.client?.debug(action),
+        state: () => {
+          const v = this.viewed;
+          return v && {
+            id: v.record.id, mode: v.mode, status: v.status?.state ?? null, notice: v.notice, halt: v.halt, recordStatus: v.record.status,
+            error: v.record.error ?? null, candles: v.candles.length, fills: v.fills.length, lastBarTime: v.record.lastBarTime,
+            visibleRange: this.deps.chart.visibleRange(), barTimes: this.deps.chart.barTimes().length,
+            zones: this.deps.chart.zoneCounts(), zoneRects: this.deps.chart.zoneRects().length, signals: this.deps.chart.signalCounts(),
+          };
+        },
+      };
+    }
     this.channel?.addEventListener('message', (ev: MessageEvent<{ id?: unknown }>) => {
       if (typeof ev.data?.id === 'string') void this.onRemoteChange(ev.data.id);
     });
@@ -402,14 +423,46 @@ export class LiveMode {
       record, mode, client: null, candles: [], fills: [], trades: [], equity: [], log: [], stats: null, wiped: false,
       status: null, forming: null, markEquity: null, indicators: null, overlays: null, halt: null, stopWaiters: [],
       drawn: { candles: 0, fills: 0, trades: 0, equity: 0, log: 0, chartTime: -Infinity, startMarked: false }, closedTicked: new Set(),
-      pendingView: parseSavedView(loadSavedViews()[record.id]),
+      pendingView: parseSavedView(loadSavedViews()[record.id]), notice: null, position: null, activity: null,
     };
-    view.client = new LiveWorkerClient(record, mode, (event) => this.onEvent(view, event), (message) => {
-      this.deps.setStatus(`Live worker failed: ${message}. Reload the page to resume.`, true);
-      this.panel.setBadge({ text: 'WORKER ERROR', tone: 'error', detail: message });
+    view.client = new LiveWorkerSupervisor(record, mode, {
+      event: (event) => this.onEvent(view, event),
+      restarting: (message) => this.onWorkerRestart(view, message),
+      fatal: (message) => this.onWorkerFatal(view, message),
     });
     if (mode === 'live') this.running = view;
     this.show(view);
+  }
+
+  /**
+   * The session's worker crashed and a new one replays the session from its definition: everything this view
+   * received is dropped (the new worker sends it all again, identically); the zoom is kept for when it is back.
+   */
+  private onWorkerRestart(view: SessionView, message: string): void {
+    if (view === this.viewed && this.chartShows === view) {
+      view.pendingView = saveView(this.deps.chart.barTimes(), this.deps.chart.visibleRange()) ?? view.pendingView;
+    }
+    Object.assign(view, {
+      candles: [], fills: [], trades: [], equity: [], log: [], stats: null, wiped: false, status: null, forming: null, markEquity: null,
+      position: null, activity: null,
+      drawn: { candles: 0, fills: 0, trades: 0, equity: 0, log: 0, chartTime: -Infinity, startMarked: false },
+      notice: `worker crashed — restarting (${message})`,
+    });
+    view.closedTicked.clear();
+    this.deps.setStatus(`Live session "${view.record.name}": its worker crashed (${message}); restarting it — the session replays its bars.`, true);
+    if (view === this.viewed && this.active) this.fullRender();
+    else this.updateBadge();
+  }
+
+  /** The worker crashed again (or while stopping): the session stops, with the error stored and shown. */
+  private onWorkerFatal(view: SessionView, message: string): void {
+    view.client = null;
+    if (view.stopWaiters.length > 0) {
+      this.onHalt(view, { reason: 'stopped', lastBarTime: view.record.lastBarTime });
+      return;
+    }
+    view.notice = null;
+    this.onHalt(view, { reason: 'error', message: `live worker crashed twice: ${message}`, lastBarTime: view.record.lastBarTime }, true);
   }
 
   private show(view: SessionView): void {
@@ -439,6 +492,8 @@ export class LiveMode {
         view.log.push(...d.log);
         view.stats = d.stats;
         view.wiped = d.wiped;
+        view.position = d.position;
+        view.activity = d.activity;
         if (view.mode === 'live') {
           view.record.lastBarTime = d.lastBarTime;
           view.record.summary = { equity: d.stats.finalEquity, returnPct: d.stats.totalReturnPct, tradeCount: d.stats.tradeCount, bars: d.barsProcessed };
@@ -463,6 +518,7 @@ export class LiveMode {
       }
       case 'status':
         view.status = event.status;
+        if (view.notice && event.status.state === 'live') view.notice = null; // the restarted worker caught up
         if (view === this.viewed) this.updateBadge();
         break;
       case 'halt':
@@ -471,9 +527,10 @@ export class LiveMode {
     }
   }
 
-  private onHalt(view: SessionView, halt: HaltInfo): void {
+  private onHalt(view: SessionView, halt: HaltInfo, workerCrash = false): void {
     if (view.halt) return;
     view.halt = halt;
+    view.notice = null;
     view.client?.terminate();
     view.client = null;
     const record = view.record;
@@ -495,7 +552,9 @@ export class LiveMode {
       if (this.running === view) this.running = null;
       if (halt.reason === 'error') {
         if (halt.blockId) this.deps.highlightBlock(halt.blockId, halt.message ?? 'error');
-        this.deps.setStatus(`Live session "${record.name}" halted by its strategy: ${halt.message}`, true);
+        this.deps.setStatus(workerCrash
+          ? `Live session "${record.name}" stopped: ${halt.message}. The error is saved with the session; View replays it.`
+          : `Live session "${record.name}" halted by its strategy: ${halt.message}`, true);
       } else if (halt.reason === 'wiped') {
         this.deps.setStatus(`Live session "${record.name}": ACCOUNT WIPED (equity <= 0). The session is stopped.`, true);
       } else {
@@ -679,6 +738,9 @@ export class LiveMode {
     const status: LiveStatus = view.status ?? { state: view.mode === 'live' ? 'connecting' : 'catching-up', lastBarTime: null, barsProcessed: 0, behindBars: 0 };
     const replay = view.mode === 'replay' || view.halt !== null;
     let badge = liveBadge(view.halt && view.halt.reason !== 'complete' ? { ...status, state: 'stopped' } : status, replay);
+    if (view.notice) badge = { ...badge, text: 'WORKER CRASHED — RESTARTING', tone: 'warn', detail: `${view.notice} · ${badge.detail}` };
+    const stoppedWithError = view.record.status === 'stopped' && view.record.stopReason === 'error' && view.record.error;
+    if (stoppedWithError && (view.halt || view.mode === 'replay')) badge = { ...badge, text: `STOPPED · error: ${view.record.error!.message}`, tone: 'error' };
     if (view.mode === 'replay' && view.record.status === 'running' && view.halt) {
       badge = { ...badge, text: 'RUNNING IN ANOTHER TAB · read-only (up to its last saved bar)', tone: 'busy' };
     }

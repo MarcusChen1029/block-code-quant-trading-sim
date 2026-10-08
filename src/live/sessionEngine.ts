@@ -1,5 +1,5 @@
 import { timeframeToMs, type Candle } from '../data/types';
-import { Engine, type BacktestResult } from '../engine/engine';
+import { Engine, type BacktestResult, type EngineActivity } from '../engine/engine';
 import type { EquityPoint, Stats } from '../engine/stats';
 import { StrategyError, type Strategy } from '../engine/strategy';
 import type { Fill, LogEntry, PositionView, Trade } from '../engine/types';
@@ -19,6 +19,8 @@ export interface SessionDelta {
   /** Bars processed so far, warm-up included. */
   barsProcessed: number;
   wiped: boolean;
+  /** What the strategy tried on the trading bars (the verdict's "why no trades"). */
+  activity: EngineActivity;
 }
 
 export type PushOutcome =
@@ -137,6 +139,7 @@ export class SessionEngine {
       lastBarTime: this.last,
       barsProcessed: e.barsProcessed,
       wiped: e.wiped,
+      activity: e.activity,
     };
     this.pendingCandles = [];
     this.sent = { fills: e.fills.length, trades: e.trades.length, equity: e.equityPoints.length, log: e.log.length };

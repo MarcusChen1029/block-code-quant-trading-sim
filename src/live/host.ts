@@ -14,7 +14,9 @@ export type LiveCommand =
   | { type: 'start'; session: LiveSessionRecord; mode: 'live' | 'replay' }
   | { type: 'stop' }
   /** The page became visible again / came back online: re-check for bars that closed meanwhile. */
-  | { type: 'resync' };
+  | { type: 'resync' }
+  /** Dev builds only (the worker ignores it otherwise): simulate a crash ('throw') or a hung worker ('hang'). */
+  | { type: 'debug'; action: 'throw' | 'hang' };
 
 /** Live worker -> page. */
 export type LiveEvent =
@@ -23,7 +25,9 @@ export type LiveEvent =
   | { type: 'delta'; delta: SessionDelta }
   | { type: 'tick'; candle: Candle; markEquity: number; closed: boolean }
   | { type: 'status'; status: LiveStatus }
-  | { type: 'halt'; halt: HaltInfo };
+  | { type: 'halt'; halt: HaltInfo }
+  /** Posted by the worker every few seconds: it is alive (the page detects a hung or dead worker by its absence). */
+  | { type: 'heartbeat' };
 
 export type RunnerTuning = Omit<RunnerOptions, 'mode' | 'symbol' | 'timeframe'>;
 
@@ -85,6 +89,9 @@ export function createLiveHost(post: (event: LiveEvent) => void, adapter: Market
         case 'resync':
           runner?.resync();
           break;
+        case 'debug':
+          break; // handled (in dev builds only) by the worker glue
+
       }
     },
     async idle() {
