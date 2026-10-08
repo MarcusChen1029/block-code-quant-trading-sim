@@ -17,6 +17,7 @@ import { DOWN_COLOR, UP_COLOR, candleToBar, candleToVolume } from './chartData';
 import { MarkerSet } from './markerSet';
 import { MAX_MARKERS_PER_SIGNAL, MAX_TEXT_MARKERS, signalMarkers, type SignalHit } from './markers';
 import { computeOverlaySeries, dedupeOverlaySignals, overlayPoint, signalPriceKey, type OverlayDef, type OverlaySignal } from './overlays';
+import type { LogicalRange } from './viewRange';
 import { ZoneStore, type ZoneRect } from './zoneGeometry';
 import { ZoneLayer } from './zonePrimitive';
 
@@ -65,6 +66,8 @@ export class ChartPanel {
   /** Open times (ms) of the bars on the chart, ascending: logical index lookup for the zone layer. */
   private times: number[] = [];
   private readonly zoneLayer: ZoneLayer;
+  /** Bumped by every explicit view change, so a fit still waiting for a frame never overrides it. */
+  private viewToken = 0;
 
   constructor(private readonly container: HTMLElement) {
     this.chart = createChart(container, {
@@ -96,13 +99,38 @@ export class ChartPanel {
     });
   }
 
-  /** Replaces all candles and fits the view. Call setOverlays afterwards to recompute overlays. */
-  setCandles(candles: readonly Candle[]): void {
+  /**
+   * Replaces all candles and fits the view (`fit` false: the caller restores a view instead, see showRange).
+   * Call setOverlays afterwards to recompute overlays.
+   */
+  setCandles(candles: readonly Candle[], fit = true): void {
     this.candles.setData(candles.map(candleToBar));
     this.volume.setData(candles.map(candleToVolume));
     this.lastTime = candles.length > 0 ? candles[candles.length - 1].time : -Infinity;
     this.times = candles.map((c) => c.time);
-    this.fit();
+    if (fit) this.fit();
+  }
+
+  /** The visible logical range (bar indexes), or null when nothing is laid out yet. */
+  visibleRange(): LogicalRange | null {
+    const r = this.chart.timeScale().getVisibleLogicalRange();
+    return r ? { from: r.from, to: r.to } : null;
+  }
+
+  /** Shows `range` (bar indexes); cancels a fit that is still waiting for a frame. */
+  showRange(range: LogicalRange): void {
+    this.viewToken++;
+    this.chart.timeScale().setVisibleLogicalRange(range);
+  }
+
+  /** Open times of the bars on the chart (forming bar included), ascending. Do not mutate. */
+  barTimes(): readonly number[] {
+    return this.times;
+  }
+
+  /** Called whenever the visible range changes (user zoom/scroll, or programmatic). */
+  onVisibleRangeChange(listener: () => void): void {
+    this.chart.timeScale().subscribeVisibleLogicalRangeChange(() => listener());
   }
 
   /**
@@ -110,7 +138,10 @@ export class ChartPanel {
    * autoSize applies the real width asynchronously and fitContent on a zero-width chart is a no-op.
    */
   fit(): void {
-    const fitNow = () => requestAnimationFrame(() => this.chart.timeScale().fitContent());
+    const token = ++this.viewToken;
+    const fitNow = () => requestAnimationFrame(() => {
+      if (token === this.viewToken) this.chart.timeScale().fitContent();
+    });
     if (this.container.clientWidth > 0) {
       fitNow();
       return;

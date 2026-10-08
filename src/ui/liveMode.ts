@@ -21,6 +21,26 @@ import { fillsToMarkers, sessionStartMarker } from './markers';
 import { smaOverlay, type OverlayDef } from './overlays';
 import { MAX_BARS } from './settings';
 import type { StatsPanel } from './statsPanel';
+import { loadJson, saveJson } from './storage';
+import { parseSavedView, preserveRange, restoreSavedView, saveView, type SavedView } from './viewRange';
+
+/** Per-session chart views (zoom / scroll by bar time), so a reload shows the session as it was left. */
+export const LIVE_VIEWS_STORAGE_KEY = 'quant-sim.live-views';
+const MAX_SAVED_VIEWS = 50;
+
+function loadSavedViews(): Record<string, unknown> {
+  const raw = loadJson(LIVE_VIEWS_STORAGE_KEY);
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+}
+
+function storeSavedView(id: string, view: SavedView | null): void {
+  const all = loadSavedViews();
+  delete all[id];
+  if (view) all[id] = view;
+  const ids = Object.keys(all);
+  for (const old of ids.slice(0, Math.max(0, ids.length - MAX_SAVED_VIEWS))) delete all[old];
+  saveJson(LIVE_VIEWS_STORAGE_KEY, all);
+}
 
 export type SessionBase =
   | { ok: true; symbol: string; timeframe: Timeframe; brokerConfig: BrokerConfig; strategy: StrategySnapshot }
@@ -62,6 +82,8 @@ interface SessionView {
   drawn: { candles: number; fills: number; trades: number; equity: number; log: number; chartTime: number; startMarked: boolean };
   /** Bars whose FINAL (closed) websocket update is already on the chart. */
   closedTicked: Set<number>;
+  /** The view stored for this session before a reload, shown once its bars are loaded. */
+  pendingView: SavedView | null;
 }
 
 const PERSIST_EVERY_MS = 2000;
@@ -84,6 +106,9 @@ export class LiveMode {
   private active = false;
   private renderQueued = false;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The session whose bars the chart shows right now (null: none, or Backtest mode drew over it). */
+  private chartShows: SessionView | null = null;
+  private viewSaveTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly panel: LivePanel;
   /** Start is guarded synchronously: a double submit never starts two sessions (two workers). */
   private readonly startOnce = exclusive((form: LiveForm) => this.start(form));
@@ -106,6 +131,7 @@ export class LiveMode {
       if (document.visibilityState === 'visible') resync();
     });
     window.addEventListener('online', resync);
+    deps.chart.onVisibleRangeChange(() => this.scheduleViewSave());
     this.channel?.addEventListener('message', (ev: MessageEvent<{ id?: unknown }>) => {
       if (typeof ev.data?.id === 'string') void this.onRemoteChange(ev.data.id);
     });
@@ -253,6 +279,18 @@ export class LiveMode {
 
   deactivate(): void {
     this.active = false;
+    this.chartShows = null; // Backtest mode draws its own bars
+  }
+
+  /** Remembers the viewed session's zoom/scroll (debounced), for the next reload. */
+  private scheduleViewSave(): void {
+    if (!this.active || this.viewSaveTimer !== null) return;
+    this.viewSaveTimer = setTimeout(() => {
+      this.viewSaveTimer = null;
+      const view = this.viewed;
+      if (!this.active || !view || this.chartShows !== view || view.pendingView) return;
+      storeSavedView(view.record.id, saveView(this.deps.chart.barTimes(), this.deps.chart.visibleRange()));
+    }, 500);
   }
 
   /** Overlay choice or block indicators changed: redraw the session (its own overlays come from its snapshot). */
@@ -354,6 +392,7 @@ export class LiveMode {
       this.panel.setNotice(`Could not delete the saved session: ${err instanceof Error ? err.message : String(err)}`);
     }
     this.releaseOwnership(id);
+    storeSavedView(id, null);
     this.announce(id);
     this.renderList();
   }
@@ -363,6 +402,7 @@ export class LiveMode {
       record, mode, client: null, candles: [], fills: [], trades: [], equity: [], log: [], stats: null, wiped: false,
       status: null, forming: null, markEquity: null, indicators: null, overlays: null, halt: null, stopWaiters: [],
       drawn: { candles: 0, fills: 0, trades: 0, equity: 0, log: 0, chartTime: -Infinity, startMarked: false }, closedTicked: new Set(),
+      pendingView: parseSavedView(loadSavedViews()[record.id]),
     };
     view.client = new LiveWorkerClient(record, mode, (event) => this.onEvent(view, event), (message) => {
       this.deps.setStatus(`Live worker failed: ${message}. Reload the page to resume.`, true);
@@ -578,14 +618,19 @@ export class LiveMode {
       stats.clear('Live mode: start a paper-trading session above, or open one from the list.');
       this.panel.setBadge(null);
       this.panel.setMark(null);
+      this.chartShows = null;
       return;
     }
-    chart.setCandles(view.candles);
+    // Redrawing the session already on screen (gap fill, new program, halt): keep the user's zoom/scroll.
+    const before = this.chartShows === view ? { times: [...chart.barTimes()], range: chart.visibleRange() } : null;
+    chart.setCandles(view.candles, false);
     let chartTime = view.candles[view.candles.length - 1]?.time ?? -Infinity;
     if (view.forming && view.forming.time > chartTime) {
       chart.updateCandle(view.forming);
       chartTime = view.forming.time;
     }
+    this.chartShows = view;
+    this.placeView(view, before);
     chart.setOverlays(liveSessionOverlays(this.overlaysFor(view), this.deps.extraOverlays()), view.candles);
     chart.setMarkers(this.markers(view));
     stats.clear(view.stats ? '' : `Session "${view.record.name}": loading ${view.record.symbol} ${view.record.timeframe} bars…`);
@@ -601,6 +646,27 @@ export class LiveMode {
     };
     view.closedTicked.clear();
     this.updateBadge();
+  }
+
+  /**
+   * After the session's bars were (re)drawn: the view saved before a reload once its bars are there, else the
+   * user's current view kept across the redraw (preserveRange), else fit everything.
+   */
+  private placeView(view: SessionView, before: { times: number[]; range: ReturnType<ChartPanel['visibleRange']> } | null): void {
+    const { chart } = this.deps;
+    if (view.pendingView) {
+      const range = restoreSavedView(view.pendingView, chart.barTimes());
+      if (range) {
+        view.pendingView = null;
+        chart.showRange(range);
+      } else {
+        chart.fit();
+      }
+      return;
+    }
+    const choice = before ? preserveRange(before.times, before.range, chart.barTimes()) : ({ kind: 'fit' } as const);
+    if (choice.kind === 'range') chart.showRange(choice);
+    else chart.fit();
   }
 
   private updateBadge(): void {
