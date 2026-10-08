@@ -17,6 +17,7 @@ import { StarterMemory } from './ui/starterMemory';
 import { pickStarter as pickStarterFlow, restorePrevious as restorePreviousFlow, type FlowDeps } from './ui/starterFlow';
 import { createStarterPicker } from './ui/starterPicker';
 import { buildVerdict } from './ui/verdict';
+import { ResultTracker, STALE_NOTE, type RunKey } from './ui/resultFreshness';
 import { VerdictView } from './ui/verdictView';
 import { smaCrossHistoryNeed, strategyHistoryNeed, type HistoryNeed } from './ui/warmup';
 import type { BacktestResult } from './engine/engine';
@@ -75,6 +76,11 @@ const chart = new ChartPanel(document.getElementById('chart')!);
 const stats = new StatsPanel(document.getElementById('stats')!);
 const verdict = new VerdictView(document.getElementById('verdict')!);
 const starterMemory = new StarterMemory({ get: loadJson, set: saveJson });
+/** Which strategy + settings the results on screen were run with (stale / cleared handling). */
+const results = new ResultTracker();
+const staleNote = h('div', { class: 'stale-note', role: 'status' });
+staleNote.hidden = true;
+document.getElementById('verdict')!.before(staleNote);
 let candles: Candle[] = [];
 let live: CandleSubscription | null = null;
 let pickedOverlayIds: string[] = loadPickedOverlays();
@@ -117,6 +123,7 @@ const problems = createProblemsView(document.getElementById('problems')!, (block
 
 /** Recompiles on every workspace edit: problems list, warning icons, status line, auto-drawn indicators. */
 function onWorkspaceChange(json: unknown): void {
+  refreshFreshness(); // an edit makes the shown results stale (an undo back to what ran makes them fresh again)
   const result = compileBlocks(json);
   const hadErrors = compileState.errors.length > 0;
   compileState = result.ok ? { errors: [], warnings: result.warnings } : { errors: result.errors, warnings: result.warnings };
@@ -161,6 +168,7 @@ const pineEditor = createPineEditor(document.getElementById('pine')!, {
     blockOverlayKey = ''; // same parameters may now mean different code: redraw
     editor.refreshIndicators();
     applyOverlays(); // shown scripts may have changed code
+    refreshFreshness();
     return results;
   },
   shown: pineShown,
@@ -234,6 +242,33 @@ function strategySpec(): StrategySpec | null {
   return { id: 'blocks', workspace, pineScripts: pineRecords, pineRetired };
 }
 
+/** What the next Run would depend on, as comparable strings (see resultFreshness.ts). */
+function currentRunKey(): RunKey {
+  const strategy = strategyChoice === 'smaCross'
+    ? 'smaCross'
+    : `blocks:${JSON.stringify(editor.save())}|pine:${JSON.stringify([pineRecords, pineRetired])}`;
+  return { strategy, settings: JSON.stringify(topBar.read()) };
+}
+
+/** Dims the shown results (with a note) once the strategy or settings differ from what produced them. */
+function refreshFreshness(): void {
+  // Nothing shown (also during startup, before the top bar exists): nothing can be stale.
+  const f = mode === 'backtest' && results.showing ? results.check(currentRunKey()) : null;
+  const note = f?.status === 'stale' ? STALE_NOTE[f.reason] : '';
+  for (const id of ['verdict', 'stats']) document.getElementById(id)!.classList.toggle('stale', note !== '');
+  staleNote.textContent = note;
+  staleNote.hidden = note === '';
+}
+
+/** Removes the previous run's verdict, benchmark, stats and trade markers (another strategy was loaded). */
+function clearResults(): void {
+  stats.clear();
+  verdict.clear();
+  chart.setMarkers([]);
+  results.discard();
+  refreshFreshness();
+}
+
 const EMPTY_VERDICT_INPUT = {
   tradeCount: 0, openPosition: false, fillCount: 0, totalReturnPct: 0, maxDrawdownPct: 0, wiped: false,
   barsProcessed: 0, barsLoaded: 0, benchmark: null, activity: null, warmup: null,
@@ -274,9 +309,9 @@ async function run(): Promise<void> {
   const spec = strategySpec();
   if (!spec) return;
   const settings = parsed.settings;
+  const runKey = currentRunKey();
   topBar.setRunning(true);
-  stats.clear();
-  verdict.clear();
+  clearResults();
   try {
     await loadMarket(settings);
     if (candles.length < 2) {
@@ -292,12 +327,14 @@ async function run(): Promise<void> {
     });
     chart.setMarkers(fillsToMarkers(result.fills));
     stats.render(result);
+    results.ranWith(runKey);
     verdict.show(verdictFor(result, candles.length, strategyWarmup(spec)), benchmarkDefinition(result.benchmark?.leverage ?? 1));
     setStatus(
       `Backtest done (${spec.id === 'blocks' ? 'block strategy' : 'built-in SMA cross'}): ${result.barsProcessed} bars, ${result.trades.length} trades` +
         (result.wiped ? ' (ACCOUNT WIPED)' : '') +
         '. Indicator warm-up bars may differ slightly from TradingView.',
     );
+    refreshFreshness(); // edits made while it ran already make it stale
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (err instanceof BacktestError && err.blockId) {
@@ -346,6 +383,8 @@ function switchMode(next: AppMode): void {
   topBar.setMode(next);
   saveText(MODE_STORAGE_KEY, next);
   verdict.clear(); // backtest-only (live sessions keep their own stats; no benchmark there)
+  results.discard();
+  refreshFreshness();
   if (next === 'live') {
     live?.close(); // the backtest chart's own stream
     live = null;
@@ -373,7 +412,10 @@ function setStrategyChoice(choice: StrategyChoice): void {
   saveText(STRATEGY_STORAGE_KEY, choice);
   topBar.refreshSummary();
   applyOverlays();
+  refreshFreshness();
 }
+// Any top-bar field (product, timeframe, dates, account settings) edited after a run makes its results stale.
+for (const type of ['input', 'change']) document.getElementById('topbar')!.addEventListener(type, () => refreshFreshness());
 
 const flowDeps: FlowDeps = {
   editor,
@@ -387,6 +429,7 @@ const flowDeps: FlowDeps = {
 function pickStarter(id: StarterId): void {
   const starter = getStarter(id);
   if (!starter || !pickStarterFlow(flowDeps, starter)) return;
+  clearResults(); // the previous run's verdict and stats describe a strategy that is gone
   if (strategyChoice !== 'blocks') setStrategyChoice('blocks'); // Run must test the strategy just loaded
   fitSoon();
 }
@@ -394,6 +437,7 @@ function pickStarter(id: StarterId): void {
 /** Brings previous workspace `id` back; the blocks it replaces take its place in the list. */
 function restorePrevious(id: string): void {
   if (!restorePreviousFlow(flowDeps, id)) return;
+  clearResults();
   if (strategyChoice !== 'blocks') setStrategyChoice('blocks');
   fitSoon();
 }
