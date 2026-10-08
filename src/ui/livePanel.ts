@@ -1,6 +1,8 @@
 import { DEFAULT_WARMUP_BARS } from '../live/session';
 import { h } from './dom';
 import { toUtcDateTimeValue, type Badge, type SessionRow } from './liveFormat';
+import type { Verdict } from './verdict';
+import { VerdictView } from './verdictView';
 
 export interface LiveForm {
   name: string;
@@ -24,6 +26,8 @@ export interface LivePanel {
   setNotice(text: string | null): void;
   setSessions(rows: SessionRow[], viewedId: string | null): void;
   setBusy(busy: boolean): void;
+  /** The session's plain-language verdict (same wording as a backtest); null hides it. */
+  setVerdict(verdict: Verdict | null): void;
 }
 
 /** The Live-mode strip: start form, status badge and the session list. */
@@ -58,10 +62,13 @@ export function createLivePanel(container: HTMLElement, handlers: LivePanelHandl
   const mark = h('span', { class: 'live-mark', hidden: '' });
   const notice = h('div', { class: 'live-notice', hidden: '' });
   const list = h('div', { class: 'live-sessions' });
+  const verdictEl = h('div', { class: 'verdict live-verdict' });
+  const verdict = new VerdictView(verdictEl);
 
   container.append(
     h('div', { class: 'live-row' }, honesty),
     h('div', { class: 'live-row' }, form, h('div', { class: 'live-status' }, badge, badgeDetail, mark)),
+    verdictEl,
     notice,
     list,
   );
@@ -85,6 +92,10 @@ export function createLivePanel(container: HTMLElement, handlers: LivePanelHandl
     },
     setBusy(busy) {
       start.disabled = busy;
+    },
+    setVerdict(v) {
+      if (v) verdict.show(v);
+      else verdict.clear();
     },
     setSessions(rows, viewedId) {
       if (rows.length === 0) {

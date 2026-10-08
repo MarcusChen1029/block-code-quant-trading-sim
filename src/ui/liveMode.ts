@@ -1,6 +1,7 @@
 import type { IndicatorUse } from '../blocks/generator';
 import { getIndicator, PINE_ID_PREFIX, type IndicatorBlockDef } from '../blocks/registry';
 import { timeframeToMs, type Candle, type Timeframe } from '../data/types';
+import type { Benchmark } from '../engine/benchmark';
 import type { EquityPoint, Stats } from '../engine/stats';
 import type { EngineActivity } from '../engine/engine';
 import type { BrokerConfig, Fill, LogEntry, PositionView, Trade } from '../engine/types';
@@ -15,7 +16,7 @@ import { pineIndicatorDef } from '../pine/library';
 import { blockIndicatorOverlays, liveSessionOverlays } from './blockOverlays';
 import type { ChartPanel } from './chart';
 import { fmtNum } from './format';
-import { liveBadge, parseUtcDateTime, sessionRow } from './liveFormat';
+import { liveBadge, liveVerdict, parseUtcDateTime, sessionRow } from './liveFormat';
 import { exclusive } from './exclusive';
 import { createLivePanel, type LiveForm, type LivePanel } from './livePanel';
 import { fillsToMarkers, sessionStartMarker } from './markers';
@@ -90,9 +91,13 @@ interface SessionView {
   /** From the last delta: open position and order diagnostics (verdict). */
   position: PositionView | null;
   activity: EngineActivity | null;
+  /** Buy & hold over the trading bars so far (refreshed with the verdict, throttled). */
+  benchmark: Benchmark | null;
 }
 
 const PERSIST_EVERY_MS = 2000;
+/** The verdict + buy & hold of the session on screen are recomputed at most this often (closed bars only). */
+const VERDICT_EVERY_MS = 1000;
 const STOP_TIMEOUT_MS = 3000;
 
 /**
@@ -115,6 +120,7 @@ export class LiveMode {
   /** The session whose bars the chart shows right now (null: none, or Backtest mode drew over it). */
   private chartShows: SessionView | null = null;
   private viewSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private verdictTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly panel: LivePanel;
   /** Start is guarded synchronously: a double submit never starts two sessions (two workers). */
   private readonly startOnce = exclusive((form: LiveForm) => this.start(form));
@@ -423,7 +429,7 @@ export class LiveMode {
       record, mode, client: null, candles: [], fills: [], trades: [], equity: [], log: [], stats: null, wiped: false,
       status: null, forming: null, markEquity: null, indicators: null, overlays: null, halt: null, stopWaiters: [],
       drawn: { candles: 0, fills: 0, trades: 0, equity: 0, log: 0, chartTime: -Infinity, startMarked: false }, closedTicked: new Set(),
-      pendingView: parseSavedView(loadSavedViews()[record.id]), notice: null, position: null, activity: null,
+      pendingView: parseSavedView(loadSavedViews()[record.id]), notice: null, position: null, activity: null, benchmark: null,
     };
     view.client = new LiveWorkerSupervisor(record, mode, {
       event: (event) => this.onEvent(view, event),
@@ -444,7 +450,7 @@ export class LiveMode {
     }
     Object.assign(view, {
       candles: [], fills: [], trades: [], equity: [], log: [], stats: null, wiped: false, status: null, forming: null, markEquity: null,
-      position: null, activity: null,
+      position: null, activity: null, benchmark: null,
       drawn: { candles: 0, fills: 0, trades: 0, equity: 0, log: 0, chartTime: -Infinity, startMarked: false },
       notice: `worker crashed — restarting (${message})`,
     });
@@ -654,7 +660,8 @@ export class LiveMode {
       chart.appendMarkers(fillsToMarkers(view.fills.slice(d.fills)));
     }
     d.fills = view.fills.length;
-    if (view.stats) stats.showStats(view.stats, view.wiped);
+    if (view.stats) stats.showStats(view.stats, view.wiped, view.benchmark);
+    if (fresh.length > 0 || view.halt) this.scheduleVerdict();
     stats.appendEquity(view.equity.slice(d.equity));
     d.equity = view.equity.length;
     if (view.trades.length !== d.trades) stats.setTrades(view.trades);
@@ -675,6 +682,7 @@ export class LiveMode {
       chart.setOverlays([], []);
       chart.setMarkers([]);
       stats.clear('Live mode: start a paper-trading session above, or open one from the list.');
+      this.panel.setVerdict(null);
       this.panel.setBadge(null);
       this.panel.setMark(null);
       this.chartShows = null;
@@ -699,6 +707,7 @@ export class LiveMode {
       stats.setTrades(view.trades);
       stats.appendLog(view.log);
     }
+    this.refreshVerdict(view);
     view.drawn = {
       candles: view.candles.length, fills: view.fills.length, trades: view.trades.length, equity: view.equity.length, log: view.log.length, chartTime,
       startMarked: this.hasStartMarker(view),
@@ -726,6 +735,28 @@ export class LiveMode {
     const choice = before ? preserveRange(before.times, before.range, chart.barTimes()) : ({ kind: 'fit' } as const);
     if (choice.kind === 'range') chart.showRange(choice);
     else chart.fit();
+  }
+
+  private scheduleVerdict(): void {
+    if (this.verdictTimer !== null) return;
+    this.verdictTimer = setTimeout(() => {
+      this.verdictTimer = null;
+      if (this.active && this.viewed) this.refreshVerdict(this.viewed);
+    }, VERDICT_EVERY_MS);
+  }
+
+  /** Verdict sentence + buy & hold cards and line for the session on screen (the backtest's own functions). */
+  private refreshVerdict(view: SessionView): void {
+    if (!this.active || view !== this.viewed) return;
+    const { verdict, benchmark } = liveVerdict({
+      startTime: view.record.startTime, broker: view.record.brokerConfig, candles: view.candles,
+      tradeCount: view.trades.length, fillCount: view.fills.length, equityPoints: view.equity.length,
+      stats: view.stats, wiped: view.wiped, position: view.position, activity: view.activity,
+    });
+    view.benchmark = benchmark;
+    this.panel.setVerdict(verdict);
+    this.deps.stats.setBenchmark(benchmark);
+    if (view.stats) this.deps.stats.showStats(view.stats, view.wiped, benchmark);
   }
 
   private updateBadge(): void {
