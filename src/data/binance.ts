@@ -93,9 +93,29 @@ export function parseKlineMessage(data: string): { candle: Candle; closed: boole
   };
 }
 
-function browserSocket(url: string): WebSocketLike {
+/**
+ * A browser WebSocket behind WebSocketLike. close() on a socket still CONNECTING makes the browser log "WebSocket
+ * is closed before the connection is established" (plus an error event): that happened on every quick stop / mode
+ * switch and whenever the stale watchdog gave up on a slow handshake. So such a close is deferred until the socket
+ * opens (or fails on its own), and the subscriber hears nothing more from it either way. Failures of the network
+ * itself ("WebSocket connection to ... failed") are logged by the browser and cannot be suppressed from script;
+ * they surface as 'reconnecting' in the UI and the adapter reconnects.
+ */
+export function browserSocket(url: string): WebSocketLike {
   const ws = new WebSocket(url);
-  const like: WebSocketLike = { onmessage: null, onclose: null, onerror: null, onopen: null, close: () => ws.close() };
+  let closing = false;
+  const close = () => {
+    if (closing) return;
+    closing = true;
+    like.onmessage = like.onclose = like.onerror = like.onopen = null;
+    if (ws.readyState === WebSocket.CONNECTING) {
+      ws.onopen = () => ws.close();
+      ws.onmessage = ws.onerror = ws.onclose = null;
+      return;
+    }
+    ws.close();
+  };
+  const like: WebSocketLike = { onmessage: null, onclose: null, onerror: null, onopen: null, close };
   ws.onmessage = (ev) => like.onmessage?.({ data: ev.data });
   ws.onclose = () => like.onclose?.();
   ws.onerror = () => like.onerror?.();
