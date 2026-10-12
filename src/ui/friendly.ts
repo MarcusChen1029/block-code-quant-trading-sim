@@ -6,7 +6,7 @@ const NETWORK = /failed to fetch|networkerror|load failed|network request failed
 const SOCKET = /websocket (error|connection)/i;
 
 export function friendlyMessage(text: string): string {
-  if (NETWORK.test(text)) return 'Could not get prices. Check your internet connection and press Run again. (Binance may also be blocked on your network.)';
+  if (NETWORK.test(text)) return 'Could not get prices. Check your internet connection and try again. (Binance may also be blocked on your network.)';
   if (SOCKET.test(text)) return 'The live price feed disconnected. It reconnects by itself; the chart keeps what it has.';
   return text;
 }

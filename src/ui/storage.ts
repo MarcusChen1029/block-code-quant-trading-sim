@@ -36,3 +36,21 @@ export function saveText(key: string, value: string): boolean {
     return false;
   }
 }
+
+/** Everything this app keeps in localStorage starts with this. */
+export const OWN_KEY_PREFIX = 'quant-sim.';
+
+/** Removes every key the app saved (blocks, settings, layout, theme…); returns how many. Never throws. */
+export function clearOwnData(storage: Pick<Storage, 'length' | 'key' | 'removeItem'> = localStorage): number {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i);
+      if (key !== null && key.startsWith(OWN_KEY_PREFIX)) keys.push(key);
+    }
+    for (const key of keys) storage.removeItem(key);
+    return keys.length;
+  } catch {
+    return 0;
+  }
+}

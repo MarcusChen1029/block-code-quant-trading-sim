@@ -1,8 +1,6 @@
 import { h } from './dom';
 import { availableSteps, stepAfter, TOUR_STEPS, type TourStep } from './tourSteps';
 
-export const WELCOMED_STORAGE_KEY = 'quant-sim.welcomed';
-
 const targetEl = (name: string): HTMLElement | null => document.querySelector<HTMLElement>(`[data-tour="${name}"]`);
 const isVisible = (el: HTMLElement | null): el is HTMLElement => {
   if (!el) return false;

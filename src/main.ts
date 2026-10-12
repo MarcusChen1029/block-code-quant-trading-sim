@@ -13,27 +13,28 @@ import { blockIndicatorOverlays, defaultIndicatorUse, zoneToggleOverlays } from 
 import { ChartPanel } from './ui/chart';
 import { h } from './ui/dom';
 import { createAppBar, type AppBar } from './ui/appBar';
+import { createChartOverlay } from './ui/chartOverlay';
 import { MODE_TEXT, THEME_TEXT } from './ui/descriptions';
 import { modalIsOpen } from './ui/dialog';
 import { downloadBlob, downloadText } from './ui/download';
 import { installExplainers } from './ui/explain';
 import { exportFileName, tradesToCsv } from './ui/exportCsv';
 import { friendlyMessage } from './ui/friendly';
-import { createHelpDialog } from './ui/helpDialog';
+import type { HelpDialog, HelpPage } from './ui/helpDialog';
+import { WELCOMED_STORAGE_KEY } from './ui/keys';
 import { icon } from './ui/icons';
 import { createPanelChrome, type PanelChrome } from './ui/panelChrome';
 import type { PanelState } from './ui/panels';
 import { shortcutFor } from './ui/shortcuts';
+import { summaryText } from './ui/summaryText';
 import { parseStrategyFile, serializeStrategy, strategyLabelFromFileName, MAX_STRATEGY_FILE_BYTES } from './ui/strategyFile';
 import { applyTheme, otherTheme, resolveTheme, THEME_STORAGE_KEY, type Theme } from './ui/theme';
 import { explain, toast } from './ui/toast';
 import { installTooltips } from './ui/tooltip';
-import { isTourRunning, startTour } from './ui/tour';
-import { hasBeenWelcomed, showWelcome } from './ui/welcome';
 import { createProblemsView, createStrategyPicker, setupLayout, setupSplitter, type LeftTab } from './ui/layout';
 import { getStarter, STARTERS, type StarterId } from './blocks/starters';
 import { parseStoredFraction } from './ui/splitter';
-import { StarterMemory } from './ui/starterMemory';
+import { isEmptyWorkspace, StarterMemory } from './ui/starterMemory';
 import { pickStarter as pickStarterFlow, restorePrevious as restorePreviousFlow, type FlowDeps } from './ui/starterFlow';
 import { createStarterPicker } from './ui/starterPicker';
 import { buildVerdict } from './ui/verdict';
@@ -53,7 +54,7 @@ import { blocksSnapshot, smaCrossSnapshot } from './live/session';
 import type { SessionBase } from './ui/liveMode';
 import { LiveTargets } from './ui/liveTargets';
 import { StatsPanel } from './ui/statsPanel';
-import { loadJson, loadText, saveJson, saveText } from './ui/storage';
+import { clearOwnData, loadJson, loadText, saveJson, saveText } from './ui/storage';
 import { createTopBar, type AppMode } from './ui/topbar';
 import { BacktestError, runBacktestInWorker } from './worker/client';
 import type { StrategySpec } from './worker/protocol';
@@ -64,6 +65,7 @@ const LEFT_TAB_STORAGE_KEY = 'quant-sim.left-tab';
 const MODE_STORAGE_KEY = 'quant-sim.mode';
 const OVERLAYS_STORAGE_KEY = 'quant-sim.overlays.v1';
 const SPLIT_STORAGE_KEY = 'quant-sim.split.v1';
+const FIRST_RUN_TIP_KEY = 'quant-sim.first-run-tip';
 
 /** Top-bar picker: the classic overlays plus the zone indicators' "show on chart" toggles (default settings). */
 const PICKER_OVERLAYS: OverlayDef[] = [...OVERLAYS, ...zoneToggleOverlays()];
@@ -99,7 +101,7 @@ function setStatus(text: string, isError = false, notify = true): void {
   const status = document.getElementById('status')!;
   status.textContent = shown;
   status.classList.toggle('error', isError);
-  if (isError && notify && (shown !== lastErrorToast.text || Date.now() - lastErrorToast.at > 15_000)) {
+  if (isError && notify && !chartOverlay.showingError && (shown !== lastErrorToast.text || Date.now() - lastErrorToast.at > 15_000)) {
     lastErrorToast = { text: shown, at: Date.now() };
     toast('Something went wrong', shown, 'warn');
   }
@@ -107,6 +109,7 @@ function setStatus(text: string, isError = false, notify = true): void {
 
 const adapter = new BinanceFuturesAdapter();
 const chart = new ChartPanel(document.getElementById('chart')!);
+const chartOverlay = createChartOverlay(document.getElementById('chart')!, () => void reloadMarket());
 const stats = new StatsPanel(document.getElementById('stats')!);
 const verdict = new VerdictView(document.getElementById('verdict')!);
 const starterMemory = new StarterMemory({ get: loadJson, set: saveJson });
@@ -157,6 +160,7 @@ const problems = createProblemsView(document.getElementById('problems')!, (block
 
 /** Recompiles on every workspace edit: problems list, warning icons, status line, auto-drawn indicators. */
 function onWorkspaceChange(json: unknown): void {
+  blocksEmpty.hidden = !isEmptyWorkspace(json);
   refreshFreshness(); // an edit makes the shown results stale (an undo back to what ran makes them fresh again)
   const result = compileBlocks(json);
   const hadErrors = compileState.errors.length > 0;
@@ -188,6 +192,10 @@ let editor: BlockEditor | null = null;
 const blocklyEl = document.getElementById('blockly')!;
 const blocksLoading = h('div', { class: 'blocks-loading', role: 'status' }, 'Loading blocks…');
 blocklyEl.append(blocksLoading);
+/** Shown over an empty workspace so a blank grid never looks broken. */
+const blocksEmpty = h('div', { class: 'blocks-empty', hidden: '' },
+  h('div', {}, h('strong', {}, 'Your workspace is empty'), 'Press \u201CStart from\u2026\u201D above for a ready-made robot, or open a block group on the left and drag blocks onto the grid.'));
+blocklyEl.append(blocksEmpty);
 /**
  * The editor, once Blockly is loaded and the saved workspace restored. Everything that needs the blocks (Run with
  * the block strategy, "Start from…", a live session start) waits for get() or reads current (loading vs failed).
@@ -272,7 +280,14 @@ async function loadMarket(settings: RunSettings): Promise<void> {
   live?.close();
   live = null;
   setStatus(`Loading ${settings.symbol} ${settings.timeframe} candles…`);
-  candles = await adapter.fetchCandles(settings.symbol, settings.timeframe, settings.startMs, Date.now());
+  chartOverlay.busy(`Loading ${settings.symbol} ${settings.timeframe} prices…`);
+  try {
+    candles = await adapter.fetchCandles(settings.symbol, settings.timeframe, settings.startMs, Date.now());
+  } catch (err) {
+    chartOverlay.error(friendlyMessage(err instanceof Error ? err.message : String(err)));
+    throw err;
+  }
+  chartOverlay.hide();
   chart.setCandles(candles);
   chart.setMarkers([]);
   applyOverlays();
@@ -288,6 +303,22 @@ async function loadMarket(settings: RunSettings): Promise<void> {
     },
     (err) => setStatus(err.message, true),
   );
+}
+
+/** "Try again" on the chart cover: loads the prices again with what the top bar says. */
+async function reloadMarket(): Promise<void> {
+  const parsed = parseSettings(topBar.read(), Date.now());
+  if (!parsed.ok) {
+    setStatus(`Cannot load prices: ${parsed.error}.`, true);
+    topBar.showInvalid(parsed.field);
+    return;
+  }
+  try {
+    await loadMarket(parsed.settings);
+    setStatus(`${parsed.settings.symbol} ${parsed.settings.timeframe}: ${candles.length} bars, streaming live. Press Run to backtest.`);
+  } catch (err) {
+    setStatus(err instanceof Error ? err.message : String(err), true);
+  }
 }
 
 /** The spec for the selected strategy, or null (with the problems shown) when the blocks do not compile. */
@@ -430,6 +461,10 @@ async function runWith(settings: RunSettings): Promise<void> {
         '. Indicator warm-up bars may differ slightly from TradingView.',
     );
     refreshFreshness(); // edits made while it ran already make it stale
+    if (loadText(FIRST_RUN_TIP_KEY) !== '1') {
+      saveText(FIRST_RUN_TIP_KEY, '1');
+      explain({ title: 'Your first run!', on: 'Hover over any score card to see what it means. Try \u201CFull page\u201D on the Results panel to see every trade, and change the blocks or the candle size to run it again.' });
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (err instanceof BacktestError && err.blockId) {
@@ -491,6 +526,17 @@ const chartPicture = panelAction('Picture', 'camera', 'Save a picture (PNG) of t
     toast('Picture saved', 'The chart picture is in your Downloads folder.', 'good');
   }, 'image/png');
 });
+const fitChart = panelAction('Fit view', 'fit', 'Zoom the chart so every candle is in view', () => chart.fit());
+const copySummary = panelAction('Copy summary', 'copy', 'Copy the result as a few lines of text to paste into a message', () => {
+  const sentence = verdict.currentText;
+  if (sentence === '') return toast('Nothing to copy yet', 'Press Run first, so there is a result to copy.', 'warn');
+  const { symbol, timeframe, startDate, balance } = topBar.read();
+  const text = summaryText({ verdict: sentence, symbol, timeframe, startDate, balance, strategy: strategyChoice === 'smaCross' ? 'the built-in SMA cross example' : 'my blocks' });
+  navigator.clipboard.writeText(text).then(
+    () => toast('Copied', 'The summary is on your clipboard. Paste it anywhere.', 'good'),
+    () => toast('Could not copy', 'Your browser blocked copying. Select the sentence under the chart and copy it by hand.', 'warn'),
+  );
+});
 const exportTrades = panelAction('Export trades', 'download', 'Save your list of trades as a spreadsheet file (CSV) for Excel or Google Sheets', () => {
   const trades = stats.currentTrades;
   if (trades.length === 0) return toast('Nothing to export yet', 'Run a backtest (or open a live session) that made some trades, then try again.', 'warn');
@@ -501,8 +547,8 @@ const exportTrades = panelAction('Export trades', 'download', 'Save your list of
 
 const chrome: PanelChrome = createPanelChrome([
   { id: 'strategy', el: document.getElementById('left')! },
-  { id: 'chart', el: document.getElementById('chart-panel')!, actions: [chartPicture] },
-  { id: 'results', el: document.getElementById('results-panel')!, actions: [exportTrades] },
+  { id: 'chart', el: document.getElementById('chart-panel')!, actions: [fitChart, chartPicture] },
+  { id: 'results', el: document.getElementById('results-panel')!, actions: [copySummary, exportTrades] },
   { id: 'live', el: document.getElementById('live')! },
 ], document.getElementById('dock')!);
 // Panels changed size: let the canvases measure again (the charts watch their own size).
@@ -516,7 +562,24 @@ chrome.onChange((state) => {
   if (strategyView(state) !== strategyView(before)) fitSoon();
 });
 
-const help = createHelpDialog({ onTour: () => startTour() });
+// The Help window, the tour and the welcome are loaded the first time they are wanted (they are not needed to draw the page).
+let helpDialog: Promise<HelpDialog> | null = null;
+function openHelp(page?: HelpPage): void {
+  helpDialog ??= import('./ui/helpDialog').then(({ createHelpDialog }) => createHelpDialog({
+    onTour: startTour,
+    onReset: () => {
+      if (!window.confirm('Forget the blocks, settings and layout saved in this browser?\n\nLive practice sessions are not touched. The page reloads afterwards.')) return;
+      clearOwnData();
+      window.location.reload();
+    },
+  }));
+  void helpDialog.then((dialog) => dialog.open(page));
+}
+function startTour(): void {
+  void import('./ui/tour').then((m) => m.startTour());
+}
+/** The guided tour covers the page while it runs; shortcuts stand down. */
+const tourIsRunning = (): boolean => document.querySelector('.tour-card') !== null;
 let appBar: AppBar | null = null;
 
 function setTheme(next: Theme, announce = true): void {
@@ -539,11 +602,11 @@ appBar = createAppBar(document.getElementById('appbar')!, {
   theme: resolveTheme(loadText(THEME_STORAGE_KEY), window.matchMedia('(prefers-color-scheme: light)').matches),
   isLive: () => mode === 'live',
   onTheme: (next) => setTheme(next),
-  onHelp: () => help.open(),
-  onTour: () => startTour(),
+  onHelp: () => openHelp(),
+  onTour: startTour,
   onResetSplit: () => split.reset(),
 });
-document.getElementById('footer-help')!.addEventListener('click', () => help.open('about'));
+document.getElementById('footer-help')!.addEventListener('click', () => openHelp('about'));
 
 function switchMode(next: AppMode): void {
   mode = next;
@@ -687,7 +750,7 @@ if (initial.ok && mode === 'backtest') {
 
 /** Keyboard shortcuts (shortcuts.ts decides what a key means; plain letters never fire while typing). */
 document.addEventListener('keydown', (ev) => {
-  if (modalIsOpen() || isTourRunning()) return;
+  if (modalIsOpen() || tourIsRunning()) return;
   const target = ev.target instanceof Element ? ev.target : null;
   const action = shortcutFor({
     key: ev.key, code: ev.code, ctrlKey: ev.ctrlKey, metaKey: ev.metaKey, altKey: ev.altKey, shiftKey: ev.shiftKey,
@@ -701,7 +764,7 @@ document.addEventListener('keydown', (ev) => {
       if (mode === 'backtest') void run();
       else toast('Run is for Backtest mode', 'In Live mode, use "Start live session" in the Live practice panel.', 'warn');
       break;
-    case 'help': ev.preventDefault(); help.open(); break;
+    case 'help': ev.preventDefault(); openHelp(); break;
     case 'tour': ev.preventDefault(); startTour(); break;
     case 'theme': ev.preventDefault(); setTheme(otherTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')); break;
     case 'exit-full': if (chrome.state.full !== null) { ev.preventDefault(); chrome.exitFull(); } break;
@@ -719,4 +782,6 @@ document.addEventListener('keydown', (ev) => {
 });
 
 // First visit: a short welcome (never again after that; Help and Tour are always in the top bar).
-if (!hasBeenWelcomed()) setTimeout(() => showWelcome({ onTour: () => startTour(), onRun: () => void run() }), 600);
+if (loadText(WELCOMED_STORAGE_KEY) !== '1') {
+  setTimeout(() => void import('./ui/welcome').then((m) => m.showWelcome({ onTour: startTour, onRun: () => void run() })), 600);
+}

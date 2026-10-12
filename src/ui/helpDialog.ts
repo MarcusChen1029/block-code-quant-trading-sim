@@ -1,4 +1,4 @@
-import { BUTTON_GUIDE, DISCLAIMER, GLOSSARY, QUICK_START } from './descriptions';
+import { BUTTON_GUIDE, DISCLAIMER, GLOSSARY, QUICK_START } from './helpContent';
 import { createModal } from './dialog';
 import { h } from './dom';
 import { SHORTCUT_HELP } from './shortcuts';
@@ -16,7 +16,7 @@ export function matchesGlossary(entry: { term: string; meaning: string }, query:
 }
 
 /** The Help window: five short pages, written for someone new to trading. */
-export function createHelpDialog(handlers: { onTour(): void }): HelpDialog {
+export function createHelpDialog(handlers: { onTour(): void; onReset(): void }): HelpDialog {
   const pages = new Map<HelpPage, HTMLElement>();
   const tabs = new Map<HelpPage, HTMLButtonElement>();
   const tabList = h('div', { class: 'help-tabs', role: 'tablist', 'aria-label': 'Help pages' });
@@ -49,10 +49,15 @@ export function createHelpDialog(handlers: { onTour(): void }): HelpDialog {
   const keysPage = h('div', { class: 'help-page' }, h('p', { class: 'help-lead' }, 'Handy keys. They do nothing while you are typing in a box.'),
     h('dl', { class: 'guide keys' }, ...SHORTCUT_HELP.flatMap((s) => [h('dt', {}, ...s.keys.split(/(\s{2,})/).map((part) => (/^\s+$/.test(part) ? ' or ' : h('kbd', {}, part.trim())))), h('dd', {}, s.text)])));
 
+  const resetButton = h('button', { type: 'button', class: 'danger-button' }, 'Forget everything saved in this browser');
+  resetButton.addEventListener('click', () => handlers.onReset());
   const aboutPage = h('div', { class: 'help-page' },
     h('p', { class: 'help-lead' }, DISCLAIMER),
     h('p', {}, 'Prices come from Binance (market data only; no account, no login, no orders). Your blocks, settings and layout are saved in this browser, and nowhere else.'),
-    h('p', {}, 'Indicators are calculated as TradingView does, but the first few candles can differ slightly while an indicator "warms up".'));
+    h('p', {}, 'Indicators are calculated as TradingView does, but the first few candles can differ slightly while an indicator "warms up".'),
+    h('h3', { class: 'help-subhead' }, 'Start fresh'),
+    h('p', {}, 'Want a clean slate? This forgets the blocks, settings and layout saved in this browser. Live practice sessions are not touched.'),
+    resetButton);
 
   const defs: Array<[HelpPage, string, HTMLElement]> = [
     ['start', 'Start here', startPage], ['buttons', 'Buttons & switches', buttonsPage], ['words', 'Words to know', wordsPage],

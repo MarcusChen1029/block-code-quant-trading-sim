@@ -29,6 +29,12 @@ describe('csv export', () => {
     expect(lines[3]).toBe('');
   });
 
+  it('rounds away float noise', () => {
+    const csv = tradesToCsv([trade({ entryPrice: 27834.641731335123, qty: 0.35912090034581473, netPnl: 1583.5853281945115 })]);
+    expect(csv.split('\r\n')[1]).toContain(',27834.64173134,');
+    expect(csv.split('\r\n')[1]).toContain(',0.3591209,1583.58532819,');
+  });
+
   it('an empty list is just the header', () => {
     expect(tradesToCsv([])).toBe(`${TRADE_CSV_HEADER.join(',')}\r\n`);
   });

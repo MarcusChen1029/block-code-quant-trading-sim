@@ -30,7 +30,7 @@
     <div id="dock" class="dock" aria-label="Hidden panels"></div>
     <section id="live" class="live-panel" aria-label="Live paper trading"></section>
     <nav id="pane-switch" class="pane-switch" aria-label="Choose a panel"></nav>
-    <div id="layout">
+    <main id="layout" aria-label="Workspace" tabindex="-1">
       <section id="left" class="pane" data-tour="strategy">
         <div id="left-tabs" class="tabs"></div>
         <div id="blockly"></div>
@@ -38,7 +38,7 @@
         <div id="pine" class="pine-pane"></div>
       </section>
       <div id="splitter" class="splitter"></div>
-      <main id="main" class="pane">
+      <div id="main" class="pane">
         <section id="chart-panel" data-tour="chart">
           <div id="chart"></div>
         </section>
@@ -46,8 +46,8 @@
           <div id="verdict" class="verdict" hidden></div>
           <div id="stats"></div>
         </section>
-      </main>
-    </div>
+      </div>
+    </main>
     <footer class="footer">
       <div id="status" role="status" aria-live="polite">Loading…</div>
       <button type="button" id="footer-help" class="footer-link">Pretend money only. Not financial advice.</button>

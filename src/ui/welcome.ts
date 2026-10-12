@@ -1,10 +1,8 @@
-import { DISCLAIMER } from './descriptions';
+import { DISCLAIMER } from './helpContent';
 import { createModal } from './dialog';
 import { h } from './dom';
-import { loadText, saveText } from './storage';
-import { WELCOMED_STORAGE_KEY } from './tour';
-
-export const hasBeenWelcomed = (): boolean => loadText(WELCOMED_STORAGE_KEY) === '1';
+import { saveText } from './storage';
+import { WELCOMED_STORAGE_KEY } from './keys';
 
 /** The first-visit window: what this is, in three lines, and where to go next. Shown once; Help brings it all back. */
 export function showWelcome(handlers: { onTour(): void; onRun(): void }): void {

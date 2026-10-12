@@ -44,8 +44,8 @@ export function setupLayout(
     requestAnimationFrame(() => onTabShown(tab));
   };
   for (const [id, b] of tabs) b.addEventListener('click', () => showTab(id));
-  leftTabs.setAttribute('role', 'tablist');
-  leftTabs.append(...tabs.map(([, b]) => b));
+  // Only the tabs live inside the tablist; other buttons of the row (Fit) sit beside it.
+  leftTabs.append(h('div', { class: 'tab-list', role: 'tablist', 'aria-label': 'Strategy views' }, ...tabs.map(([, b]) => b)));
   showTab(initialTab);
   show('left');
 }

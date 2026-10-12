@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { OVERLAYS } from './overlays';
 import { zoneToggleOverlays } from './blockOverlays';
-import { DISCLAIMER, FIELD_TEXT, GLOSSARY, OVERLAY_TEXT, overlayText, PANEL_BUTTON_TEXT, PANEL_TEXT, QUICK_START } from './descriptions';
+import { BLOCK_GROUP_TEXT, FIELD_TEXT, OVERLAY_TEXT, overlayText, PANEL_BUTTON_TEXT, PANEL_TEXT } from './descriptions';
+import { BUTTON_GUIDE, DISCLAIMER, GLOSSARY, QUICK_START } from './helpContent';
+import { buildToolbox } from '../blocks/toolbox';
 import { STAT_HELP } from './statHelp';
 import { statsRows } from './format';
 import { PANEL_IDS } from './panels';
@@ -32,6 +34,18 @@ describe('descriptions', () => {
     for (const g of GLOSSARY) expect(g.meaning.length).toBeGreaterThan(20);
     for (const s of QUICK_START) expect(s.title && s.text).toBeTruthy();
     expect(DISCLAIMER).toContain('pretend money');
+  });
+
+  it('every block group in the menu has a hover note, and no note is left over', () => {
+    const groups = buildToolbox().contents.map((c) => c.name);
+    for (const name of groups) expect(BLOCK_GROUP_TEXT[name], name).toBeTruthy();
+    for (const name of Object.keys(BLOCK_GROUP_TEXT)) expect(groups, name).toContain(name);
+  });
+
+  it('the button guide covers each control once', () => {
+    const names = BUTTON_GUIDE.map((b) => b.name);
+    expect(new Set(names).size).toBe(names.length);
+    for (const b of BUTTON_GUIDE) expect(b.text.length).toBeGreaterThan(20);
   });
 
   it('panel button notes name the panel', () => {

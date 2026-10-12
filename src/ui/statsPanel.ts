@@ -33,14 +33,14 @@ export class StatsPanel {
   private shownTrades: readonly Trade[] = [];
 
   constructor(container: HTMLElement) {
-    this.cards = h('div', { class: 'stat-cards' });
+    this.cards = h('div', { class: 'stat-cards', tabindex: '0', role: 'region', 'aria-label': 'Score cards' });
     const equityEl = h('div', { class: 'equity' });
     this.benchToggle = h('input', { type: 'checkbox' });
     this.benchToggle.checked = loadText(BENCHMARK_LINE_STORAGE_KEY) !== '0';
     setExplain(this.benchToggle, BENCH_TEXT.title, BENCH_TEXT.on, BENCH_TEXT.off);
     this.benchLabel = h('label', { class: 'bench-toggle', title: BENCHMARK_DEFINITION }, this.benchToggle, (this.benchLabelText = document.createTextNode('Buy & hold line')));
     this.benchLabel.hidden = true;
-    this.trades = h('div', { class: 'trades' });
+    this.trades = h('div', { class: 'trades', tabindex: '0', role: 'region', 'aria-label': 'List of trades' });
     this.log = h('div', { class: 'log' });
     container.append(
       h('div', { class: 'stats-left' }, this.cards, h('div', { class: 'equity-wrap' }, equityEl, this.benchLabel)),

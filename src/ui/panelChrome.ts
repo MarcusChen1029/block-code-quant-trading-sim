@@ -130,7 +130,7 @@ export function createPanelChrome(defs: readonly PanelDef[], dock: HTMLElement):
       def.el.toggleAttribute('data-full', full);
       const fullBtn = fullButtons.get(id)!;
       fullBtn.replaceChildren(icon(full ? 'minimize' : 'maximize', 16), h('span', { class: 'panel-btn-label' }, full ? 'Exit full page' : 'Full page'));
-      fullBtn.setAttribute('aria-label', full ? `Exit full page for ${name(id)}` : `Show ${name(id)} on the whole page`);
+      fullBtn.setAttribute('aria-label', full ? `Exit full page for ${name(id)}` : `Full page: ${name(id)}`);
       fullBtn.setAttribute('data-tip', full ? `Go back to the normal layout (shortcut: Esc)` : `Make the ${name(id)} panel fill the whole page (shortcut: Shift+${SHORTCUT[id]})`);
       fullBtn.setAttribute('aria-pressed', String(full));
       hideButtons.get(id)!.hidden = full;

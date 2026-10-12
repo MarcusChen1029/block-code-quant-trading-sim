@@ -28,6 +28,11 @@ export class VerdictView {
     this.el.hidden = false;
   }
 
+  /** The sentence on screen ('' when none): "Copy summary" uses it. */
+  get currentText(): string {
+    return this.el.hidden ? '' : (this.text.textContent ?? '');
+  }
+
   clear(): void {
     this.text.textContent = '';
     this.hint.textContent = '';

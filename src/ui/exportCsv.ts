@@ -9,13 +9,15 @@ export function csvCell(value: string | number): string {
 }
 
 const iso = (ms: number) => new Date(ms).toISOString();
+/** Prices, sizes and profits to 8 decimals: enough for any coin, without float noise like 27834.641731335123. */
+const round8 = (value: number) => Number(value.toFixed(8));
 
 export const TRADE_CSV_HEADER = ['trade', 'side', 'entry_time_utc', 'entry_price', 'exit_time_utc', 'exit_price', 'quantity', 'net_pnl', 'exit_reason'] as const;
 
 /** The trade list as CSV text (header + one row per trade, newest last), ready to open in a spreadsheet. */
 export function tradesToCsv(trades: readonly Trade[]): string {
   const rows = trades.map((t, i) =>
-    [i + 1, t.side, iso(t.entryTime), t.entryPrice, iso(t.exitTime), t.exitPrice, t.qty, t.netPnl, t.exitReason].map(csvCell).join(','));
+    [i + 1, t.side, iso(t.entryTime), round8(t.entryPrice), iso(t.exitTime), round8(t.exitPrice), round8(t.qty), round8(t.netPnl), t.exitReason].map(csvCell).join(','));
   return [TRADE_CSV_HEADER.join(','), ...rows].join('\r\n') + '\r\n';
 }
 
