@@ -45,3 +45,9 @@ export class LazyLoader<T> {
     return this.pending;
   }
 }
+
+/** Why `action` cannot happen while the editor is not ready: still loading, or failed (with the error and a way out). */
+export function notReadyMessage(state: LoadState<unknown>, action: string): string {
+  if (state.status === 'failed') return `Cannot ${action}: ${state.error} Press Retry in the Blocks pane, or reload the page.`;
+  return `Cannot ${action} yet: the block editor is still loading — try again in a moment.`;
+}

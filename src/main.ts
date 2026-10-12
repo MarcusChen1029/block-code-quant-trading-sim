@@ -8,7 +8,7 @@ import type { Candle } from './data/types';
 import { DEFAULT_SMA_CROSS } from './engine/strategies/smaCross';
 // Blockly (~800 kB) is loaded on demand (see editorLoader) so the chart and top bar render first.
 import type { BlockEditor } from './ui/blockEditor';
-import { LazyLoader, LoadFailedError } from './ui/lazyLoader';
+import { LazyLoader, LoadFailedError, notReadyMessage } from './ui/lazyLoader';
 import { blockIndicatorOverlays, defaultIndicatorUse, zoneToggleOverlays } from './ui/blockOverlays';
 import { ChartPanel } from './ui/chart';
 import { h } from './ui/dom';
@@ -422,7 +422,7 @@ function sessionBase(): SessionBase {
   }
   const { symbol, timeframe, broker } = parsed.settings;
   if (strategyChoice === 'smaCross') return { ok: true, symbol, timeframe, brokerConfig: broker, strategy: smaCrossSnapshot(DEFAULT_SMA_CROSS) };
-  if (!editor) return { ok: false, error: 'Cannot start yet: the block editor is still loading — try again in a moment.' };
+  if (!editor) return { ok: false, error: notReadyMessage(editorLoader.current, 'start a live session') };
   const spec = strategySpec();
   if (!spec || spec.id !== 'blocks') return { ok: false, error: 'Cannot start a live session: fix the block problems first (listed under the workspace).' };
   return { ok: true, symbol, timeframe, brokerConfig: broker, strategy: blocksSnapshot(spec.workspace, spec.pineScripts ?? [], spec.pineRetired ?? []) };

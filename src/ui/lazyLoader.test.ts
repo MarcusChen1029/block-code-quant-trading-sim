@@ -45,3 +45,13 @@ describe('LazyLoader (the lazily loaded block editor chunk)', () => {
     expect(l.current).toEqual({ status: 'ready', value: 2 });
   });
 });
+
+describe('notReadyMessage', () => {
+  it('tells "still loading" from "failed" (with the error and how to retry)', async () => {
+    const { notReadyMessage } = await import('./lazyLoader');
+    expect(notReadyMessage({ status: 'loading' }, 'start a live session'))
+      .toBe('Cannot start a live session yet: the block editor is still loading — try again in a moment.');
+    expect(notReadyMessage({ status: 'failed', error: 'The block editor could not be loaded (x).' }, 'start a live session'))
+      .toBe('Cannot start a live session: The block editor could not be loaded (x). Press Retry in the Blocks pane, or reload the page.');
+  });
+});
