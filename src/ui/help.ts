@@ -112,7 +112,11 @@ export function createHelpWindow(onTour: () => void): HelpWindow {
     h('p', {}, 'There is no sign-up. Your blocks, settings and live sessions are stored in this browser only. Clearing your browser data, or “Reset everything” in Settings, removes them.'),
     h('h3', {}, 'Not financial advice'),
     h('p', {}, 'This is a learning tool. Results on past prices do not predict the future, and real trading has risks that a simulator cannot show. Never trade real money you cannot afford to lose, and talk to a trusted adult first.'),
-    h('h3', {}, 'How accurate is it?'),
+    h('h3', {}, 'Made with'),
+    h('p', {}, 'Charts: ', h('a', { href: 'https://www.tradingview.com/', target: '_blank', rel: 'noopener' }, 'TradingView Lightweight Charts™'),
+      ', © TradingView, Inc. Blocks: ', h('a', { href: 'https://developers.google.com/blockly', target: '_blank', rel: 'noopener' }, 'Blockly'),
+      ' (Apache 2.0). Prices: Binance public market data.'),
+        h('h3', {}, 'How accurate is it?'),
     h('p', {}, 'Orders fill at the next candle’s open price, with the fees and slippage from Account settings. Indicator values in the first few candles can differ slightly from TradingView while they warm up.'),
   );
 

@@ -628,6 +628,27 @@ function resetEverything(): void {
   location.reload();
 }
 
+// Footer: quick links into Help.
+const footerLink = (label: string, tab: Parameters<typeof help.open>[0]) => {
+  const b = h('button', { type: 'button', class: 'footer-link' }, label);
+  b.addEventListener('click', () => help.open(tab));
+  return b;
+};
+document.getElementById('footer')!.append(h('nav', { class: 'footer-links', 'aria-label': 'Help links' },
+  footerLink('How it works', 'start'), footerLink('Word list', 'glossary'), footerLink('Shortcuts', 'keys'), footerLink('Safety & privacy', 'about')));
+
+// Anything unexpected: a plain message instead of silence (details stay in the browser console).
+const reportCrash = (err: unknown) => {
+  console.error(err);
+  setStatus(`Something went wrong: ${err instanceof Error ? err.message : String(err)}. Your work is saved; reloading the page usually fixes it.`, true);
+};
+window.addEventListener('error', (ev) => {
+  // Harmless browser notices (resize timing) and opaque errors from other origins (extensions) are not ours.
+  if (/ResizeObserver loop|^Script error\.?$/.test(String(ev.message))) return;
+  reportCrash(ev.error ?? ev.message);
+});
+window.addEventListener('unhandledrejection', (ev) => reportCrash(ev.reason));
+
 createAppBar(document.getElementById('appbar')!, {
   onHelp: () => help.open(),
   onTour: () => startTour(),
