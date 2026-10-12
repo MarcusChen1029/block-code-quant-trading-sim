@@ -55,7 +55,7 @@ describe('ResultTracker', () => {
   });
 
   it('has a plain note per stale reason', () => {
-    expect(STALE_NOTE.strategy).toBe('These results are for your blocks before you changed them. Press ▶ Run test to update them.');
+    expect(STALE_NOTE.strategy).toBe('These results are from your strategy before it changed. Press ▶ Run test to update them.');
     expect(STALE_NOTE.settings).toBe('These results are for the settings before you changed them. Press ▶ Run test to update them.');
   });
 });

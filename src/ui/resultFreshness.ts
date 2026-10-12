@@ -16,7 +16,7 @@ export type StaleReason = 'strategy' | 'settings';
 export type Freshness = { status: 'none' } | { status: 'fresh' } | { status: 'stale'; reason: StaleReason };
 
 export const STALE_NOTE: Record<StaleReason, string> = {
-  strategy: 'These results are for your blocks before you changed them. Press ▶ Run test to update them.',
+  strategy: 'These results are from your strategy before it changed. Press ▶ Run test to update them.',
   settings: 'These results are for the settings before you changed them. Press ▶ Run test to update them.',
 };
 
