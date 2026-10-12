@@ -1,4 +1,4 @@
-import vm from 'node:vm';
+import vm, { type Context } from 'node:vm';
 import type { FactoryLoader } from '../../../src/sandbox/codeLoader';
 
 /**
@@ -241,7 +241,7 @@ interface Membrane {
 }
 
 export interface VmRealm {
-  readonly context: vm.Context;
+  readonly context: Context;
   readonly membrane: Membrane;
 }
 
