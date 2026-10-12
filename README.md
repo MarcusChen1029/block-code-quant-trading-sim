@@ -15,7 +15,8 @@ live with pretend money. Everything runs in your browser; there is no sign-up an
   blocks they replace are kept, so nothing is lost.
 - **Backtest** on any Binance futures coin and candle size, with leverage, fees and slippage. Results show a
   plain-language verdict (“your strategy beat buy & hold by…”), key numbers that explain themselves, a
-  money-over-time chart against buy & hold, the full trade list (CSV download) and the robot's log.
+  money-over-time chart against buy & hold, the full trade list (CSV download), the robot's log, and a History of
+  your recent tests to compare changes (🏆 marks the best).
 - **Live practice**: run the strategy on live prices in the browser tab, or 24/7 on your own server
   ([docs/server.md](docs/server.md)).
 - **Pine Script**: paste a TradingView indicator (v4–v6 subset); it becomes a new block.

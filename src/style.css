@@ -499,9 +499,14 @@ body[data-mode='live'] .stale-note { display: none; }
 .stats-bar .btn-small { margin-bottom: 4px; }
 .stats-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .stats-summary { flex-direction: row; }
-#stats[data-empty='true'] .stats-bar { display: none; }
-#stats[data-empty='true'] .stats-view { display: none; }
-#stats[data-empty='true'] .stats-summary { display: flex !important; }
+/* Before any run, only the empty message shows; with a saved history, its tab stays reachable. */
+#stats[data-empty='true']:not([data-history='true']) .stats-bar { display: none; }
+#stats[data-empty='true'] .stats-view:not(#stats-view-history) { display: none; }
+#stats[data-empty='true'] #stats-tab-trades, #stats[data-empty='true'] #stats-tab-log { display: none; }
+#stats[data-empty='true'] .stats-summary:not([hidden]) { display: flex !important; }
+.history td.left { text-align: left; }
+body[data-mode='live'] #stats-tab-history, body[data-mode='live'] #stats-view-history { display: none !important; }
+.history tr.best td { background: var(--good-soft); }
 #stats[data-empty='true'] .equity-wrap { display: none; }
 .stat-cards {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); align-content: start; gap: 6px; padding: 8px;

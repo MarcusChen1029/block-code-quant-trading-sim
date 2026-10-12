@@ -47,6 +47,7 @@ import { setupPanels } from './ui/panels';
 import { savePineRecords } from './ui/pineStore';
 import { initShortcuts } from './ui/shortcuts';
 import { initTheme, toggleTheme } from './ui/theme';
+import { addRun, parseRunHistory, RUN_HISTORY_STORAGE_KEY, type RunRecord } from './ui/runHistory';
 import { infoButton, initTooltips, tip } from './ui/tooltip';
 import { startTour, tourDone } from './ui/tour';
 import { CANDLE_DB_NAME } from './data/candleCache';
@@ -95,6 +96,15 @@ const adapter = new BinanceFuturesAdapter();
 const chart = new ChartPanel(document.getElementById('chart')!);
 const stats = new StatsPanel(document.getElementById('stats')!);
 const verdict = new VerdictView(document.getElementById('verdict')!);
+/** Recent backtests (Results › History), newest first. */
+let runHistory: RunRecord[] = parseRunHistory(loadJson(RUN_HISTORY_STORAGE_KEY));
+stats.setHistory(runHistory);
+stats.onClearHistory = () => {
+  if (!window.confirm('Forget all the tests in History? Your blocks and settings stay as they are.')) return;
+  runHistory = [];
+  saveJson(RUN_HISTORY_STORAGE_KEY, runHistory);
+  stats.setHistory(runHistory);
+};
 const starterMemory = new StarterMemory({ get: loadJson, set: saveJson });
 /** Which strategy + settings the results on screen were run with (stale / cleared handling). */
 const results = new ResultTracker();
@@ -451,6 +461,13 @@ async function runWith(settings: RunSettings): Promise<void> {
     stats.render(result);
     results.ranWith(runKey);
     verdict.show(verdictFor(result, candles.length, strategyWarmup(spec)), benchmarkDefinition(result.benchmark?.leverage ?? 1));
+    runHistory = addRun(runHistory, {
+      at: Date.now(), strategy: spec.id === 'blocks' ? 'Your blocks' : 'Built-in SMA cross', symbol: settings.symbol, timeframe: settings.timeframe,
+      startDate: new Date(settings.startMs).toISOString().slice(0, 10), returnPct: result.stats.totalReturnPct,
+      benchReturnPct: result.benchmark?.returnPct ?? null, maxDrawdownPct: result.stats.maxDrawdownPct, trades: result.trades.length, wiped: result.wiped,
+    });
+    saveJson(RUN_HISTORY_STORAGE_KEY, runHistory);
+    stats.setHistory(runHistory);
     setStatus(
       `Backtest done (${spec.id === 'blocks' ? 'your blocks' : 'built-in SMA cross'}): ${result.barsProcessed.toLocaleString('en-US')} candles, ${result.trades.length} trade${result.trades.length === 1 ? '' : 's'}` +
         (result.wiped ? ' (ACCOUNT WIPED)' : '') +
@@ -538,6 +555,7 @@ function switchMode(next: AppMode): void {
   results.discard();
   refreshFreshness();
   if (next === 'live') {
+    stats.leaveHistory();
     live?.close(); // the backtest chart's own stream
     live = null;
     liveSessions.activate();
@@ -729,7 +747,10 @@ liveSessions
     if (resumed && mode !== 'live') switchMode('live'); // a session left running: show it
   })
   .catch((err: unknown) => setStatus(`Live sessions unavailable: ${err instanceof Error ? err.message : String(err)}`, true));
-if (mode === 'live') liveSessions.activate();
+if (mode === 'live') {
+  stats.leaveHistory();
+  liveSessions.activate();
+}
 
 const initial = parseSettings(topBar.read(), Date.now());
 if (initial.ok && mode === 'backtest') {

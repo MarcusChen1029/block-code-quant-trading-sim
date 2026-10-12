@@ -12,12 +12,13 @@ import { icon } from './icons';
 import { onThemeChange, themeColors } from './theme';
 import { tip } from './tooltip';
 import { datedFileName, downloadFile, tradesToCsv } from './exportFiles';
+import { bestRunIndex, type RunRecord } from './runHistory';
 
 export const BENCHMARK_LINE_STORAGE_KEY = 'quant-sim.benchmark-line';
 export const STATS_VIEW_STORAGE_KEY = 'quant-sim.stats-view';
 
-export type StatsView = 'summary' | 'trades' | 'log';
-const parseView = (raw: string | null): StatsView => (raw === 'trades' || raw === 'log' ? raw : 'summary');
+export type StatsView = 'summary' | 'trades' | 'log' | 'history';
+const parseView = (raw: string | null): StatsView => (raw === 'trades' || raw === 'log' || raw === 'history' ? raw : 'summary');
 
 
 const MAX_TRADE_ROWS = 500;
@@ -73,6 +74,12 @@ export class StatsPanel {
   private readonly csvButton: HTMLButtonElement;
   private readonly summary: HTMLElement;
   private readonly tradesTabCount: HTMLElement;
+  private readonly history: HTMLElement;
+  private readonly historyTabCount: HTMLElement;
+  /** Set by the app: forgets every remembered test. */
+  onClearHistory: () => void = () => {};
+  private readonly clearHistoryButton = tip(h('button', { type: 'button', class: 'btn btn-small' }, icon('trash', 14), h('span', {}, 'Clear')),
+    'Forget the tests listed here. Your blocks and settings are not touched.');
   private readonly views = new Map<StatsView, { tab: HTMLButtonElement; view: HTMLElement }>();
   private view: StatsView = parseView(loadText(STATS_VIEW_STORAGE_KEY));
 
@@ -95,11 +102,15 @@ export class StatsPanel {
       this.cards, h('div', { class: 'equity-wrap' }, equityEl, this.benchLabel));
     const tradesView = h('div', { class: 'stats-view', role: 'tabpanel', id: 'stats-view-trades', 'aria-labelledby': 'stats-tab-trades' }, this.trades);
     const logView = h('div', { class: 'stats-view', role: 'tabpanel', id: 'stats-view-log', 'aria-labelledby': 'stats-tab-log' }, this.log);
+    this.history = h('div', { class: 'trades history', tabindex: '0', role: 'region', 'aria-label': 'Test history' });
+    const historyView = h('div', { class: 'stats-view', role: 'tabpanel', id: 'stats-view-history', 'aria-labelledby': 'stats-tab-history' }, this.history);
+    this.historyTabCount = h('span', { class: 'tab-count' });
     this.tradesTabCount = h('span', { class: 'tab-count' });
     const tabDefs: Array<[StatsView, Array<Node | string>, string, HTMLElement]> = [
       ['summary', ['Summary'], 'The key numbers and a chart of your money over time. Hover over (or tap) a number to learn what it means.', this.summary],
       ['trades', ['Trades', this.tradesTabCount], 'Every finished trade: when it started and ended, the prices, and how much it made or lost.', tradesView],
       ['log', ['Robot log'], 'Messages from your strategy (the “log” block) and from the simulator, with the time of each candle.', logView],
+      ['history', ['History', this.historyTabCount], 'Your recent tests side by side, newest first, so you can see whether a change made your strategy better. 🏆 marks the best one.', historyView],
     ];
     const tablist = h('div', { class: 'stats-tabs', role: 'tablist', 'aria-label': 'Results views' });
     for (const [id, label, help, view] of tabDefs) {
@@ -118,7 +129,7 @@ export class StatsPanel {
       this.showView(next);
       this.views.get(next)!.tab.focus();
     });
-    container.append(h('div', { class: 'stats-bar' }, tablist, h('div', { class: 'panel-spacer' }), this.csvButton), this.summary, tradesView, logView);
+    container.append(h('div', { class: 'stats-bar' }, tablist, h('div', { class: 'panel-spacer' }), this.csvButton, this.clearHistoryButton), this.summary, tradesView, logView, historyView);
     this.equityChart = createChart(equityEl, {
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: '#131722' }, textColor: '#d1d4dc', attributionLogo: false },
@@ -136,6 +147,7 @@ export class StatsPanel {
       this.benchSeries.applyOptions({ visible: this.benchToggle.checked });
       saveText(BENCHMARK_LINE_STORAGE_KEY, this.benchToggle.checked ? '1' : '0');
     });
+    this.clearHistoryButton.addEventListener('click', () => this.onClearHistory());
     this.applyTheme();
     onThemeChange(() => this.applyTheme());
     this.showView(this.view);
@@ -153,6 +165,51 @@ export class StatsPanel {
       el.hidden = !on;
     }
     this.csvButton.hidden = view !== 'trades';
+    this.clearHistoryButton.hidden = view !== 'history';
+  }
+
+  /** Leaves the History tab (it is backtest-only; Live mode hides it). */
+  leaveHistory(): void {
+    if (this.view === 'history') this.showView('summary');
+  }
+
+  /** Fills the History tab (newest first). The tabs stay reachable while it has entries, even before a run. */
+  setHistory(runs: readonly RunRecord[]): void {
+    this.historyTabCount.textContent = runs.length > 0 ? String(runs.length) : '';
+    this.container.dataset.history = runs.length > 0 ? 'true' : 'false';
+    this.clearHistoryButton.disabled = runs.length === 0;
+    if (runs.length === 0) {
+      this.history.replaceChildren(h('div', { class: 'hint' }, 'No tests yet. Every time you press ▶ Run test, the result is added here so you can compare.'));
+      return;
+    }
+    const best = bestRunIndex(runs);
+    const pct = (v: number) => `${v > 0 ? '+' : ''}${fmtNum(v)}%`;
+    const cols: Array<[string, string]> = [
+      ['When', 'When you ran the test (your local time).'],
+      ['Strategy', 'Which strategy was tested.'],
+      ['Market', 'Coin and candle size.'],
+      ['From', 'The start date of the test.'],
+      ['Return', 'How much the money grew or shrank.'],
+      ['vs buy & hold', 'Your return minus just buying and holding, in percentage points. Positive = your strategy did better.'],
+      ['Worst drop', 'The biggest fall along the way (max drawdown).'],
+      ['Trades', 'How many finished trades.'],
+    ];
+    const rows = runs.map((r, i) => {
+      const vs = r.benchReturnPct === null ? null : r.returnPct - r.benchReturnPct;
+      return h('tr', { class: i === best ? 'best' : undefined },
+        h('td', {}, new Date(r.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })),
+        h('td', { class: 'left' }, i === best ? '🏆 ' : '', r.strategy),
+        h('td', {}, `${r.symbol} ${r.timeframe}`),
+        h('td', {}, r.startDate),
+        h('td', { class: r.returnPct >= 0 ? 'pos' : 'neg' }, pct(r.returnPct), r.wiped ? ' (wiped)' : ''),
+        h('td', { class: vs === null ? '' : vs >= 0 ? 'pos' : 'neg' }, vs === null ? '—' : `${vs > 0 ? '+' : ''}${fmtNum(vs)} pts`),
+        h('td', {}, `${fmtNum(r.maxDrawdownPct)}%`),
+        h('td', {}, String(r.trades)),
+      );
+    });
+    this.history.replaceChildren(h('table', {},
+      h('thead', {}, h('tr', {}, ...cols.map(([t, help]) => h('th', { scope: 'col', 'data-tip': help }, t)))),
+      h('tbody', {}, ...rows)));
   }
 
   /** Chart colours from the shown theme. */
