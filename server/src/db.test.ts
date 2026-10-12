@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -30,6 +30,23 @@ describe('SQLite database', () => {
     const again = openDatabase(path);
     expect(getMeta(again, 'k')).toBe('v2');
     again.close();
+  });
+
+  it('denies ATTACH and VACUUM INTO (they write files the permission model does not see) but allows normal SQL', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'qs-db-'));
+    dirs.push(dir);
+    const db = openDatabase(join(dir, 'main.sqlite'));
+    const outside = join(dir, 'escaped.sqlite');
+    expect(() => db.exec(`ATTACH DATABASE '${outside.replace(/\\/g, '/')}' AS x`)).toThrow(/not authorized|authorization denied/i);
+    expect(() => db.exec(`VACUUM INTO '${outside.replace(/\\/g, '/')}'`)).toThrow(/not authorized|authorization denied/i);
+    expect(existsSync(outside)).toBe(false);
+    // The session store still works through this connection.
+    const store = new SqliteSessionStore(db);
+    void store; // constructed without throwing; functional coverage is in the store suite
+    db.exec('CREATE TABLE probe (n INTEGER)');
+    db.prepare('INSERT INTO probe VALUES (?)').run(1);
+    expect((db.prepare('SELECT COUNT(*) n FROM probe').get() as { n: number }).n).toBe(1);
+    db.close();
   });
 
   it('refuses a file written by a newer schema', () => {

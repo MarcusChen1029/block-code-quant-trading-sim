@@ -42,7 +42,17 @@ RestrictSUIDSGID=yes
 RestrictNamespaces=yes
 LockPersonality=yes
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-MemoryMax=800M
+RestrictRealtime=yes
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+SystemCallArchitectures=native
+UMask=0077
+# MemoryDenyWriteExecute is deliberately NOT set: V8's JIT needs writable+executable memory (the server would
+# crash at startup). The sandbox (node:vm + identifier gate) and the Node permission model in ExecStart are the
+# containment layers; this is documented in docs/server.md §12.
+# A per-session worker thread is capped at ~288 MB (resourceLimits); MemoryMax bounds the whole process, so keep
+# it above QS_MAX_RUNNING × worker cap + the main thread. Default below suits QS_MAX_RUNNING=5 (see docs §12).
+MemoryMax=1800M
 
 [Install]
 WantedBy=multi-user.target

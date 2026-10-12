@@ -267,10 +267,22 @@ backup over `quant-sim.sqlite` (owner `quant-sim`, mode 600), delete `quant-sim.
   from strings, inside a worker thread with memory limits and the browser's per-bar loop and time limits.
 - **Honest limit:** `node:vm` is not a hard security boundary by itself (V8 edge cases can leak objects from outside
   the realm; a review of this code demonstrated one). That is why the template-only generator and the identifier gate
-  come first, and why the process runs under Node's permission model (inherited by worker threads: no child
-  processes, no files outside the app and data folders) and under the systemd hardening in the unit file. Node 24's
-  permission model does not restrict network access. The only person who can submit strategies is you (the one
-  password); do not run strategies from untrusted sources.
+  come first, and why the process runs under Node's permission model and under the systemd hardening in the unit.
+- **What the Node permission model (`--permission` in `server:start` and the unit) does and does not cover.** Covers,
+  inherited by worker threads: no child processes (`--allow-child-process` is off, so no `spawn`/`exec`); no native
+  addons (`--allow-addons` off); the filesystem is readable only under the app dir and the data dir and writable
+  only in the data dir (`--allow-fs-write=<data>`). Does **not** cover: outbound network (Node 24 has no network
+  permission — the process can still reach Binance and anywhere else), and it is bypassable through a native crash
+  or a V8 bug, so it is defence in depth, not a jail. SQLite is a special case: `node:sqlite` writes files
+  (`ATTACH`, `VACUUM INTO`) that the permission model does not mediate, so every connection here installs an
+  authorizer that denies ATTACH/DETACH; workers hold only the candle-cache connection and strategy/sandbox code is
+  never given a DB handle or any SQL. The systemd unit adds `ProtectSystem=strict` + `ReadWritePaths=/var/lib/quant-sim`
+  (read-only root, writable data dir only), `ProtectHome`, `PrivateTmp`, `NoNewPrivileges`, a syscall filter and
+  `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`. `MemoryDenyWriteExecute` is **not** set: V8's JIT needs
+  writable+executable memory and the server would crash with it on.
+- **Run it via systemd in production, not `npm run server:start`.** The unit pins the user, the hardening and the
+  permission flags, restarts on crash and survives reboots; `npm run server:start` is for local use.
+- The only person who can submit strategies is you (the one password); do not run strategies from untrusted sources.
 - Keep the VPS patched (`unattended-upgrades`), SSH key-only, and the firewall at SSH only (plus 80/443 with Caddy).
 
 ## 13. Troubleshooting

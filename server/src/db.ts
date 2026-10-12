@@ -1,4 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
+import { constants, DatabaseSync } from 'node:sqlite';
 import { CANDLE_CACHE_MAX_BARS, mergeRanges, type BarRange, type CandleCache } from '../../src/data/candleCache';
 import type { Candle } from '../../src/data/types';
 import { mergeRecords, parseSessionRecord, type LiveSessionRecord } from '../../src/live/session';
@@ -17,12 +17,23 @@ export function openDatabase(path: string): DatabaseSync {
     db.exec('PRAGMA busy_timeout = 5000');
     if (path !== ':memory:') db.exec('PRAGMA journal_mode = WAL');
     db.exec('PRAGMA synchronous = NORMAL');
+    denyFileAttach(db);
     migrate(db);
   } catch (err) {
     db.close();
     throw err;
   }
   return db;
+}
+
+/**
+ * SQLite can write files that Node's permission model does not see: `ATTACH DATABASE '<path>'` and
+ * `VACUUM INTO '<path>'` (which SQLite authorizes as an ATTACH). Deny both on every connection — the server and the
+ * workers only ever read/write their one file — so even a would-be SQL injection or a sandbox escape that reached a
+ * DB handle cannot create a file outside the data directory. Extension loading stays off (the default).
+ */
+function denyFileAttach(db: DatabaseSync): void {
+  db.setAuthorizer((action) => (action === constants.SQLITE_ATTACH || action === constants.SQLITE_DETACH ? constants.SQLITE_DENY : constants.SQLITE_OK));
 }
 
 function migrate(db: DatabaseSync): void {

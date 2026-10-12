@@ -59,6 +59,7 @@ declare module 'node:vm' {
 }
 
 declare module 'node:sqlite' {
+  export const constants: { SQLITE_OK: number; SQLITE_DENY: number; SQLITE_IGNORE: number; SQLITE_ATTACH: number; SQLITE_DETACH: number };
   export interface StatementSync {
     run(...params: unknown[]): { changes: number | bigint; lastInsertRowid: number | bigint };
     get(...params: unknown[]): unknown;
@@ -68,6 +69,7 @@ declare module 'node:sqlite' {
     constructor(path: string, options?: { open?: boolean; readOnly?: boolean });
     exec(sql: string): void;
     prepare(sql: string): StatementSync;
+    setAuthorizer(cb: (action: number, p1: string | null, p2: string | null, p3: string | null, p4: string | null) => number): void;
     close(): void;
   }
 }
