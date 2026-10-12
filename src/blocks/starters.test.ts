@@ -32,12 +32,13 @@ const DESIGNED: Record<StarterId, Candle[]> = {
   supertrend: SWINGS,
   macdCross: SWINGS,
   zones: walkCandles(1500, 7, 0.0002, 0.012),
+  martingale: FIXED,
   buyHold: FIXED,
 };
 
 describe('starter strategies', () => {
-  it('lists the seven starters with unique ids and a one-line description each', () => {
-    expect(STARTERS.map((s) => s.id)).toEqual(['smaCross', 'rsiReversion', 'bbBreakout', 'supertrend', 'macdCross', 'zones', 'buyHold']);
+  it('lists the eight starters with unique ids and a one-line description each', () => {
+    expect(STARTERS.map((s) => s.id)).toEqual(['smaCross', 'rsiReversion', 'bbBreakout', 'supertrend', 'macdCross', 'zones', 'martingale', 'buyHold']);
     for (const s of STARTERS) {
       expect(s.description.length).toBeGreaterThan(20);
       expect(s.description).not.toContain('\n');
@@ -76,6 +77,24 @@ describe('starter strategies', () => {
       }
     });
   }
+
+  it('Martingale doubles the stake after a losing trade (capped at 50%) and resets it after a win', () => {
+    const r = runBacktest(FIXED, createBlockStrategy(getStarter('martingale')!.build()), CONFIG);
+    expect(r.trades.length).toBeGreaterThan(10);
+    expect(r.fills.every((f) => f.reason !== 'wiped')).toBe(true);
+    const entries = r.fills.filter((f) => f.reason === 'market');
+    const margin = entries.map((f) => (f.qty * f.price) / (r.equityCurve.find((p) => p.time === f.time)?.equity ?? NaN));
+    expect(Math.max(...margin)).toBeLessThan(0.52);
+    // Every entry after a losing exit is about twice the previous stake (or at the cap); after a win it is back to the 5% base.
+    let checked = 0;
+    for (let i = 1; i < r.trades.length; i++) {
+      const prev = r.trades[i - 1];
+      const stake = (r.trades[i].qty * r.trades[i].entryPrice) / DEFAULT_BROKER_CONFIG.initialBalance;
+      const prevStake = (prev.qty * prev.entryPrice) / DEFAULT_BROKER_CONFIG.initialBalance;
+      if (prev.netPnl < 0 && prevStake < 0.2) { expect(stake / prevStake).toBeGreaterThan(1.5); checked++; }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
 
   it('Buy & hold enters exactly once (next bar open) and holds the position to the end', () => {
     const r = runBacktest(FIXED, createBlockStrategy(getStarter('buyHold')!.build()), CONFIG);

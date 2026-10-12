@@ -27,6 +27,7 @@ export const BT = {
   crosses: 'logic_crosses',
   minMax: 'math_minmax',
 
+  openPosition: 'action_open_position',
   marketOrder: 'action_market_order',
   limitOrder: 'action_limit_order',
   setExit: 'action_set_exit',
@@ -49,6 +50,8 @@ export const PRICE_FIELD_OPTIONS: Options = [
   ['hl2', 'hl2'], ['hlc3', 'hlc3'], ['ohlc4', 'ohlc4'],
 ];
 export const SIDE_OPTIONS: Options = [['buy', 'buy'], ['sell', 'sell']];
+/** Open-position block: long = buy, short = sell. */
+export const OPEN_SIDE_OPTIONS: Options = [['long', 'buy'], ['short', 'sell']];
 export const SIZE_UNIT_OPTIONS: Options = [['% of equity', 'percentEquity'], ['USDT', 'usdt'], ['quantity', 'qty']];
 export const EXIT_OPTIONS: Options = [['stop-loss', 'stopLoss'], ['take-profit', 'takeProfit']];
 export const POSITION_SIDE_OPTIONS: Options = [['long', 'long'], ['short', 'short'], ['flat', 'flat']];

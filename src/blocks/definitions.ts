@@ -1,6 +1,6 @@
 import * as Blockly from 'blockly';
 import {
-  BT, CROSS_OPTIONS, EXIT_OPTIONS, MAX_PRICE_OFFSET, MIN_MAX_OPTIONS, POSITION_SIDE_OPTIONS, PRICE_FIELD_OPTIONS,
+  BT, CROSS_OPTIONS, EXIT_OPTIONS, MAX_PRICE_OFFSET, MIN_MAX_OPTIONS, OPEN_SIDE_OPTIONS, POSITION_SIDE_OPTIONS, PRICE_FIELD_OPTIONS,
   SIDE_OPTIONS, SIZE_UNIT_OPTIONS, type Options,
 } from './blockTypes';
 import {
@@ -60,6 +60,16 @@ const CUSTOM_BLOCKS: Json[] = [
   },
 
   // Actions
+  // One row per parameter (message0..message4) so the block reads as a form instead of one long line.
+  {
+    type: BT.openPosition, style: 'action_blocks', previousStatement: null, nextStatement: null, inputsInline: true,
+    message0: 'open %1', args0: [dropdown('SIDE', OPEN_SIDE_OPTIONS)],
+    message1: 'equity %1 %%', args1: [numberIn('EQUITY')],
+    message2: 'leverage %1 x', args2: [numberIn('LEVERAGE')],
+    message3: 'stop-loss %1 %%', args3: [numberIn('STOP')],
+    message4: 'take-profit %1 %%', args4: [numberIn('TAKE')],
+    tooltip: "Queues a market order that fills at the next bar's open. Margin = the given % of equity; size (notional) = margin x leverage. Stop-loss / take-profit are % distances from the current close (long: stop below, target above; short: the reverse); 0 = none. Leverage above the account leverage is rejected as insufficient margin; 100% of equity needs a little fee headroom.",
+  },
   command(BT.marketOrder, '%1 at market, size %2 %3', "Queues a market order; it fills at the next bar's open (plus slippage and taker fee). An opposite order reduces or flips the position.", [dropdown('SIDE', SIDE_OPTIONS), numberIn('SIZE'), dropdown('UNIT', SIZE_UNIT_OPTIONS)]),
   command(BT.limitOrder, '%1 limit at price %2 size %3 %4', "Queues a limit order; it fills when a later bar's high/low reaches the price (maker fee).", [dropdown('SIDE', SIDE_OPTIONS), numberIn('PRICE'), numberIn('SIZE'), dropdown('UNIT', SIZE_UNIT_OPTIONS)]),
   command(BT.setExit, 'set %1 at price %2', 'Protective exit for the current (or next) position, checked against each later bar. If one bar touches both, the stop-loss wins.', [dropdown('KIND', EXIT_OPTIONS), numberIn('PRICE')]),

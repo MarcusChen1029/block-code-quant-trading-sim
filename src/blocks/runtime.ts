@@ -51,6 +51,7 @@ export class BlockRuntime {
   private iterations = 0;
   private barStart = 0;
   private lastBar = -1;
+  private seed = 0x2f6e2b1;
   private readonly history: CandleHistory;
   /** Per block index: actions skipped so far because a value was na (see skipNa). */
   private readonly naSkips = new Map<number, number>();
@@ -98,6 +99,22 @@ export class BlockRuntime {
     return Number.isFinite(v) && v > 0 ? v : 0;
   }
 
+  /** Random number in [0, 1). Seeded per run (mulberry32), so the same strategy on the same candles repeats exactly. */
+  random(): number {
+    this.seed = (this.seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(this.seed ^ (this.seed >>> 15), 1 | this.seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
+  /** Random whole number from `a` to `b` inclusive (either order); na in, na out. */
+  randomInt(a: number, b: number): number {
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return NaN;
+    const lo = Math.ceil(Math.min(a, b));
+    const hi = Math.floor(Math.max(a, b));
+    return hi < lo ? NaN : lo + Math.floor(this.random() * (hi - lo + 1));
+  }
+
   /** `field` of the bar `offset` bars ago (0 = the bar that just closed); NaN before the first bar. */
   price(field: PriceSource, offset: number): number {
     const candle = this.history.get(offset);
@@ -124,6 +141,31 @@ export class BlockRuntime {
     if (isNa(request.size)) return this.skipNa(ctx, kind, kind, 'size');
     if (request.type === 'limit' && isNa(request.price)) return this.skipNa(ctx, kind, kind, 'limit price');
     return side === 'sell' ? ctx.sell(request) : ctx.buy(request);
+  }
+
+  /**
+   * Open-position block: a market order of `equity x equityPct% x leverage` USDT notional (sized at this close, filled at
+   * the next open), plus stop-loss / take-profit at a % distance from this close (0 = none). Any na input skips the whole
+   * block with a warning; other invalid values halt the run with this block's id. Returns the order id, or -1 when skipped.
+   */
+  openPosition(
+    ctx: StrategyContext, side: 'buy' | 'sell',
+    p: { equityPct: number; leverage: number; stopLossPct: number; takeProfitPct: number },
+  ): number {
+    const inputs: Array<[string, number]> = [['equity %', p.equityPct], ['leverage', p.leverage], ['stop-loss %', p.stopLossPct], ['take-profit %', p.takeProfitPct]];
+    for (const [what, value] of inputs) if (isNa(value)) return this.skipNa(ctx, 'open position', 'open position', what);
+    const { equityPct, leverage, stopLossPct, takeProfitPct } = p;
+    if (!(Number.isFinite(equityPct) && equityPct > 0 && equityPct <= 100)) throw new Error(`equity % must be above 0 and at most 100, got ${String(equityPct)}`);
+    if (!(Number.isFinite(leverage) && leverage >= 1)) throw new Error(`leverage must be at least 1, got ${String(leverage)}`);
+    if (!(Number.isFinite(stopLossPct) && stopLossPct >= 0 && stopLossPct < 100)) throw new Error(`stop-loss % must be from 0 to below 100, got ${String(stopLossPct)}`);
+    if (!(Number.isFinite(takeProfitPct) && takeProfitPct >= 0)) throw new Error(`take-profit % must be 0 or more, got ${String(takeProfitPct)}`);
+    const id = this.order(ctx, side, { type: 'market', size: (ctx.equity * equityPct * leverage) / 100, unit: 'usdt' });
+    if (id === -1) return id;
+    const dir = side === 'buy' ? 1 : -1;
+    const close = ctx.candle.close;
+    if (stopLossPct > 0) ctx.setStopLoss(close * (1 - (dir * stopLossPct) / 100));
+    if (takeProfitPct > 0) ctx.setTakeProfit(close * (1 + (dir * takeProfitPct) / 100));
+    return id;
   }
 
   /** Stop-loss / take-profit block: na skips it with a warning (see order); any other non-positive price halts. */

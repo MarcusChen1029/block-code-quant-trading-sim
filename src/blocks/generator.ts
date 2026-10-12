@@ -1,6 +1,6 @@
 import {
   BT, CROSS_OPTIONS, EXIT_OPTIONS, MAX_PRICE_OFFSET, MIN_MAX_OPTIONS, POSITION_SIDE_OPTIONS, PRICE_FIELD_OPTIONS,
-  SIDE_OPTIONS, SIZE_UNIT_OPTIONS, hasOption,
+  OPEN_SIDE_OPTIONS, SIDE_OPTIONS, SIZE_UNIT_OPTIONS, hasOption,
 } from './blockTypes';
 import type { PriceSource } from './priceSource';
 import {
@@ -62,11 +62,12 @@ const HAT_LABEL: Record<string, string> = { [BT.start]: "'when strategy starts'"
 const BLOCK_LABEL: Record<string, string> = {
   controls_if: 'if', controls_ifelse: 'if else', controls_repeat_ext: 'repeat', controls_repeat: 'repeat',
   logic_compare: 'compare', logic_operation: 'and / or', logic_negate: 'not', math_arithmetic: 'arithmetic',
-  math_single: 'math function', math_round: 'round', math_change: 'change variable', variables_set: 'set variable',
+  math_single: 'math function', math_round: 'round', math_trig: 'trig function', math_modulo: 'remainder',
+  math_constrain: 'constrain', math_random_int: 'random integer', math_random_float: 'random fraction', math_change: 'change variable', variables_set: 'set variable',
   variables_get: 'variable', text_join: 'join', procedures_callnoreturn: 'call function', procedures_callreturn: 'call function',
   procedures_defnoreturn: 'function', procedures_defreturn: 'function', procedures_ifreturn: 'if return',
   [BT.minMax]: 'min / max', [BT.price]: 'price', [BT.volume]: 'volume', [BT.positionIs]: 'position is',
-  [BT.marketOrder]: 'market order', [BT.limitOrder]: 'limit order', [BT.setExit]: 'set stop-loss / take-profit',
+  [BT.openPosition]: 'open position', [BT.marketOrder]: 'market order', [BT.limitOrder]: 'limit order', [BT.setExit]: 'set stop-loss / take-profit',
   [BT.clearExit]: 'remove stop-loss / take-profit', [BT.log]: 'log',
 };
 const PROC_DEFS = new Set(['procedures_defnoreturn', 'procedures_defreturn']);
@@ -77,6 +78,11 @@ const SINGLE: Record<string, (x: string) => string> = {
   LOG10: (x) => `Math.log10(${x})`, EXP: (x) => `Math.exp(${x})`, POW10: (x) => `(10 ** ${x})`,
 };
 const ROUND: Record<string, string> = { ROUND: 'Math.round', ROUNDUP: 'Math.ceil', ROUNDDOWN: 'Math.floor' };
+/** Trig blocks work in degrees, like Blockly's own generators. */
+const TRIG: Record<string, (x: string) => string> = {
+  SIN: (x) => `Math.sin(${x} * Math.PI / 180)`, COS: (x) => `Math.cos(${x} * Math.PI / 180)`, TAN: (x) => `Math.tan(${x} * Math.PI / 180)`,
+  ASIN: (x) => `(Math.asin(${x}) * 180 / Math.PI)`, ACOS: (x) => `(Math.acos(${x}) * 180 / Math.PI)`, ATAN: (x) => `(Math.atan(${x}) * 180 / Math.PI)`,
+};
 const CONTEXT_VALUES: Record<string, string> = {
   [BT.product]: 'ctx.symbol',
   [BT.timeframe]: 'ctx.timeframe',
@@ -92,7 +98,7 @@ const CONTEXT_VALUES: Record<string, string> = {
   [BT.openOrders]: 'ctx.openOrderCount',
 };
 // Block types and dropdown values come from user-loadable JSON: tables must not resolve `constructor`, `toString`, etc.
-for (const table of [HAT_LABEL, BLOCK_LABEL, ARITHMETIC, COMPARE, SINGLE, ROUND, CONTEXT_VALUES]) {
+for (const table of [HAT_LABEL, BLOCK_LABEL, ARITHMETIC, COMPARE, SINGLE, ROUND, TRIG, CONTEXT_VALUES]) {
   Object.setPrototypeOf(table, null);
 }
 
@@ -336,6 +342,14 @@ class Generator {
         const val = this.proc.hasReturn ? ` ${this.value(block, 'VALUE', 'return value')}` : '';
         return `${at}if (${cond}) {\nreturn${val};\n}`;
       }
+      case BT.openPosition: {
+        const side = this.option(f.SIDE, OPEN_SIDE_OPTIONS, block, 'side');
+        const equity = this.value(block, 'EQUITY', 'equity %');
+        const leverage = this.value(block, 'LEVERAGE', 'leverage');
+        const stop = this.value(block, 'STOP', 'stop-loss %');
+        const take = this.value(block, 'TAKE', 'take-profit %');
+        return `${at}rt.openPosition(ctx, "${side === 'sell' ? 'sell' : 'buy'}", { equityPct: ${equity}, leverage: ${leverage}, stopLossPct: ${stop}, takeProfitPct: ${take} });`;
+      }
       case BT.marketOrder:
       case BT.limitOrder: {
         const side = this.option(f.SIDE, SIDE_OPTIONS, block, 'side');
@@ -424,6 +438,19 @@ class Generator {
         if (!fn) return this.badOption(block, 'rounding');
         return `${fn}(${this.value(block, 'NUM', 'number')})`;
       }
+      case 'math_trig': {
+        const fn = TRIG[String(f.OP)];
+        if (!fn) return this.badOption(block, 'function');
+        return fn(this.value(block, 'NUM', 'number'));
+      }
+      case 'math_modulo':
+        return `(${this.value(block, 'DIVIDEND', 'dividend')} % ${this.value(block, 'DIVISOR', 'divisor')})`;
+      case 'math_constrain':
+        return `Math.min(Math.max(${this.value(block, 'VALUE', 'value')}, ${this.value(block, 'LOW', 'low')}), ${this.value(block, 'HIGH', 'high')})`;
+      case 'math_random_float':
+        return 'rt.random()';
+      case 'math_random_int':
+        return `rt.randomInt(${this.value(block, 'FROM', 'from')}, ${this.value(block, 'TO', 'to')})`;
       case BT.minMax: {
         const op = this.option(f.OP, MIN_MAX_OPTIONS, block, 'min/max');
         return `Math.${op === 'MAX' ? 'max' : 'min'}(${this.value(block, 'A', 'first')}, ${this.value(block, 'B', 'second')})`;
