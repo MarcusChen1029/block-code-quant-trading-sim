@@ -175,3 +175,52 @@ describe('LiveWorkerSupervisor', () => {
     expect(h.workers[1].terminated).toBe(true);
   });
 });
+
+describe('LiveWorkerSupervisor restart budget', () => {
+  const live = (bars: number): LiveEvent => ({ type: 'status', status: { state: 'live', lastBarTime: bars > 0 ? bars * 60_000 : null, barsProcessed: bars, behindBars: 0 } });
+
+  function supervised() {
+    const h = harness();
+    const restarts: string[] = [];
+    const fatal: string[] = [];
+    new LiveWorkerSupervisor(testSession(), 'live', { event: () => {}, restarting: (m) => restarts.push(m), fatal: (m) => fatal.push(m) }, h.make);
+    /** Days of healthy running: heartbeats keep every check happy (fake timers). */
+    const runHealthy = (w: FakeWorker, ms: number) => {
+      for (let t = 0; t < ms; t += 5000) {
+        h.advance(5000);
+        w.emit({ type: 'heartbeat' });
+      }
+    };
+    return { h, restarts, fatal, runHealthy };
+  }
+
+  it('a restarted worker that is live again (bars processed) earns a new restart: crashes days apart never stop the session', () => {
+    const { h, restarts, fatal, runHealthy } = supervised();
+    h.workers[0].crash('first');
+    h.workers[1].emit(live(500));
+    runHealthy(h.workers[1], 2 * 24 * 3600_000);
+    h.workers[1].crash('two days later');
+    expect(restarts).toEqual(['first', 'two days later']);
+    expect(fatal).toEqual([]);
+    expect(h.workers).toHaveLength(3);
+  });
+
+  it('a restarted worker that crashes before it is live again is fatal', () => {
+    const { h, restarts, fatal } = supervised();
+    h.workers[0].crash('first');
+    h.workers[1].emit({ type: 'status', status: { state: 'catching-up', lastBarTime: 60_000, barsProcessed: 1, behindBars: 300 } });
+    h.workers[1].emit(live(0)); // live but nothing processed yet does not count
+    h.workers[1].crash('during replay');
+    expect(restarts).toEqual(['first']);
+    expect(fatal).toEqual(['during replay']);
+  });
+
+  it('a live status of the FIRST worker does not grant extra restarts (still one per recovery)', () => {
+    const { h, restarts, fatal } = supervised();
+    h.workers[0].emit(live(10));
+    h.workers[0].crash('a');
+    h.workers[1].crash('b');
+    expect(restarts).toEqual(['a']);
+    expect(fatal).toEqual(['b']);
+  });
+});

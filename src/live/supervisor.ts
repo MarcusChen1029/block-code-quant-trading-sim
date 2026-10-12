@@ -21,7 +21,8 @@ export type ClientFactory = (
 const defaultFactory: ClientFactory = (session, mode, onEvent, onCrash) => new LiveWorkerClient(session, mode, onEvent, onCrash);
 
 /**
- * Runs one session's worker and restarts it ONCE after a crash. The restart is the same start command (same
+ * Runs one session's worker and restarts it ONCE after a crash. The budget refills once the restarted worker is live again
+ * (bars processed), so only a crash during recovery is fatal. The restart is the same start command (same
  * record, same mode): the session state is a pure function of its definition and the closed candles, so the new
  * worker rebuilds it deterministically (from the candle cache, then REST).
  */
@@ -48,7 +49,11 @@ export class LiveWorkerSupervisor {
       this.session,
       this.mode,
       (event) => {
-        if (current()) this.handlers.event(event);
+        if (!current()) return;
+        // Recovered: the restarted worker is live again and has processed bars, so a crash much later (days) gets
+        // its own restart instead of counting against the earlier one.
+        if (this.restarts > 0 && event.type === 'status' && event.status.state === 'live' && event.status.barsProcessed > 0) this.restarts = 0;
+        this.handlers.event(event);
       },
       (message) => {
         if (current()) this.onCrash(message);
