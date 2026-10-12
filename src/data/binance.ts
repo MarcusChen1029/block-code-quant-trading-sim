@@ -23,9 +23,15 @@ export async function httpError(res: Response): Promise<MarketDataError> {
     const retryAfterMs = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : undefined;
     return new MarketDataError(`Binance rate limit (HTTP ${status})${detail ? `: ${detail}` : ''}`, 'rate-limited', status, retryAfterMs);
   }
+  if (status === 403 || status === 451) {
+    // Location blocks: Binance's own detail text is legal wording, so say what it means instead.
+    return new MarketDataError(
+      `Binance does not share its prices with your country or network (HTTP ${status}), so prices cannot load here. ` +
+        'This is a rule of the Binance exchange, not a problem with your strategy.',
+      'terminal', status);
+  }
   if (status >= 400 && status < 500 && status !== 408) {
-    const what = status === 403 ? 'refused access (it may be blocked in your region)' : 'rejected the request';
-    return new MarketDataError(`Binance ${what} (HTTP ${status})${detail ? `: ${detail}` : ''}`, 'terminal', status);
+    return new MarketDataError(`Binance rejected the request (HTTP ${status})${detail ? `: ${detail}` : ''}`, 'terminal', status);
   }
   return new MarketDataError(`Binance HTTP ${status}${detail ? `: ${detail}` : ''}`, 'transient', status);
 }

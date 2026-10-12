@@ -298,6 +298,27 @@ setupSplitter(
   () => editor?.resize(),
 );
 
+/** Shown over the chart when prices could not load: what went wrong, in plain words, and a retry. */
+const chartErrorText = h('p', {});
+const chartRetry = h('button', { type: 'button', class: 'btn btn-primary' }, icon('reset', 14), h('span', {}, 'Try again'));
+const chartError = h('div', { class: 'chart-error', role: 'alert', hidden: '' },
+  h('span', { class: 'empty-icon', 'aria-hidden': 'true' }, icon('chart', 26)),
+  h('div', {}, h('strong', {}, 'Prices could not load'), chartErrorText, chartRetry));
+document.getElementById('chart-panel')!.append(chartError);
+let retrySettings: RunSettings | null = null;
+chartRetry.addEventListener('click', () => {
+  if (!retrySettings) return;
+  const settings = retrySettings;
+  loadMarket(settings)
+    .then(() => setStatus(`${settings.symbol} ${settings.timeframe}: ${candles.length.toLocaleString('en-US')} candles loaded. Press ▶ Run test to try your strategy.`))
+    .catch((err: unknown) => setStatus(err instanceof Error ? err.message : String(err), true));
+});
+function showChartError(message: string, settings: RunSettings): void {
+  retrySettings = settings;
+  chartErrorText.textContent = message;
+  chartError.hidden = false;
+}
+
 /** Loads history from `settings.startMs` to now, redraws the chart and restarts the live stream. */
 async function loadMarket(settings: RunSettings): Promise<void> {
   live?.close();
@@ -305,8 +326,12 @@ async function loadMarket(settings: RunSettings): Promise<void> {
   setStatus(`Loading ${settings.symbol} ${settings.timeframe} candles…`);
   const chartPanel = document.getElementById('chart-panel')!;
   chartPanel.classList.add('loading');
+  chartError.hidden = true;
   try {
     candles = await adapter.fetchCandles(settings.symbol, settings.timeframe, settings.startMs, Date.now());
+  } catch (err) {
+    showChartError(err instanceof Error ? err.message : String(err), settings);
+    throw err;
   } finally {
     chartPanel.classList.remove('loading');
   }

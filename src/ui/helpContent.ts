@@ -77,6 +77,7 @@ export const FAQ: readonly Faq[] = [
   { q: 'Where is my work saved?', a: 'In this browser only (local storage). There is no account and nothing is uploaded. Use “Export strategy” in Settings to keep a copy as a file or move it to another computer.' },
   { q: 'Why did my strategy make no trades?', a: 'Usually the rules never became true, or the indicators were still warming up. Try an earlier start date, a shorter average, or check the red problem list under the blocks.' },
   { q: 'My strategy made money. Will it work in the future?', a: 'Not necessarily. Past prices never promise future prices. A strategy that is tuned very tightly to the past often fails later. Test it on different coins and dates.' },
+  { q: 'Why won’t the prices load?', a: 'Quant Sim gets its prices from the Binance exchange. If you are offline, check your internet and press “Try again”. Binance also refuses to share prices with some countries and networks (the message says HTTP 451 or 403); that is Binance’s rule, and the app cannot get prices there.' },
   { q: 'What does the warning “na” mean?', a: 'Not available: an indicator does not have enough candles yet to give a number. It is normal at the very start of a test.' },
   { q: 'Can I undo a mistake in the blocks?', a: 'Yes: use the ↶ Undo and ↷ Redo buttons above the blocks, or Ctrl+Z to undo and Ctrl+Y to redo (⌘ on a Mac). Loading a starter also keeps your last 3 workspaces under “Start from…”.' },
 ];

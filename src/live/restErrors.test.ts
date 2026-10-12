@@ -34,6 +34,9 @@ describe('Binance REST errors are classified', () => {
     expect(bad).toMatchObject({ kind: 'terminal', status: 400 });
     expect((bad as Error).message).toBe('Binance rejected the request (HTTP 400): Invalid symbol.');
     expect(await failure(adapterFailing(403, 'blocked'))).toMatchObject({ kind: 'terminal', status: 403 });
+    const blocked = await failure(adapterFailing(451, 'Service unavailable from a restricted location'));
+    expect(blocked).toMatchObject({ kind: 'terminal', status: 451 });
+    expect((blocked as Error).message).toMatch(/^Binance does not share its prices with your country or network \(HTTP 451\)/);
     expect(await failure(adapterFailing(503, 'down'))).toMatchObject({ kind: 'transient', status: 503 });
   });
 });

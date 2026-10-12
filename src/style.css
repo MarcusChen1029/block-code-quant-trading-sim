@@ -300,6 +300,13 @@ body.resizing #left { transition: none; }
 #chart-panel { flex: 1 1 0; min-height: 180px; }
 #chart { flex: 1; min-height: 0; position: relative; outline: none; }
 #chart-panel { position: relative; }
+.chart-error {
+  position: absolute; left: 50%; top: 55%; transform: translate(-50%, -50%); z-index: 7; width: min(440px, calc(100% - 32px));
+  display: flex; gap: 14px; align-items: flex-start; padding: 16px 18px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.chart-error p { margin: 4px 0 12px; color: var(--text-2); line-height: 1.5; }
+.chart-error .empty-icon { background: var(--bad-soft); color: var(--bad); }
 #chart-panel.loading::after {
   content: 'Loading prices…'; position: absolute; left: 50%; top: 55%; transform: translate(-50%, -50%); z-index: 5;
   padding: 8px 16px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-sm);
