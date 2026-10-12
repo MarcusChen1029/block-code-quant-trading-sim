@@ -26,13 +26,13 @@ describe('parseSettings', () => {
   });
 
   it.each([
-    [{ symbol: 'BTC/USDT' }, 'symbol must be 2-20 letters/digits, e.g. BTCUSDT', 'symbol'],
-    [{ timeframe: '7m' }, 'unsupported timeframe: 7m', 'timeframe'],
+    [{ symbol: 'BTC/USDT' }, 'the coin must be 2-20 letters or digits, like BTCUSDT', 'symbol'],
+    [{ timeframe: '7m' }, 'unsupported candle size: 7m', 'timeframe'],
     [{ startDate: '07/07/2026' }, 'start date must be YYYY-MM-DD', 'startDate'],
     [{ startDate: '2026-12-01' }, 'start date must be in the past', 'startDate'],
-    [{ balance: '0' }, 'balance must be greater than 0', 'balance'],
+    [{ balance: '0' }, 'starting money must be more than 0', 'balance'],
     [{ leverage: '200' }, 'leverage must be between 1 and 125, got 200', 'leverage'],
-    [{ takerFeePct: '-1' }, 'taker fee must be between 0% and 1%, got -1', 'takerFeePct'],
+    [{ takerFeePct: '-1' }, 'instant (taker) fee must be between 0% and 1%, got -1', 'takerFeePct'],
     [{ slippageBps: '' }, 'slippage must be between 0 and 1000 bps, got nothing', 'slippageBps'],
   ])('rejects %j', (patch, error, field) => {
     expect(parseSettings({ ...base, ...patch }, NOW)).toEqual({ ok: false, error, field });
@@ -41,6 +41,6 @@ describe('parseSettings', () => {
   it('caps the number of bars', () => {
     const r = parseSettings({ ...base, timeframe: '1m', startDate: '2026-01-01' }, NOW);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toMatch(/^range too large: \d+ bars \(max 100000\)/);
+    if (!r.ok) expect(r.error).toMatch(/^too many candles: \d+ \(max 100000\)/);
   });
 });

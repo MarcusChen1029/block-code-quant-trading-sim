@@ -62,8 +62,8 @@ function num(value: string): number {
 
 export function parseSettings(raw: RawSettings, nowMs: number): ParseResult {
   const symbol = raw.symbol.trim().toUpperCase();
-  if (!/^[A-Z0-9]{2,20}$/.test(symbol)) return { ok: false, field: 'symbol', error: 'symbol must be 2-20 letters/digits, e.g. BTCUSDT' };
-  if (!isTimeframe(raw.timeframe)) return { ok: false, field: 'timeframe', error: `unsupported timeframe: ${raw.timeframe}` };
+  if (!/^[A-Z0-9]{2,20}$/.test(symbol)) return { ok: false, field: 'symbol', error: 'the coin must be 2-20 letters or digits, like BTCUSDT' };
+  if (!isTimeframe(raw.timeframe)) return { ok: false, field: 'timeframe', error: `unsupported candle size: ${raw.timeframe}` };
   const timeframe = raw.timeframe;
 
   const startMs = /^\d{4}-\d{2}-\d{2}$/.test(raw.startDate) ? Date.parse(`${raw.startDate}T00:00:00Z`) : NaN;
@@ -71,17 +71,17 @@ export function parseSettings(raw: RawSettings, nowMs: number): ParseResult {
   if (startMs >= nowMs) return { ok: false, field: 'startDate', error: 'start date must be in the past' };
   const bars = Math.floor((nowMs - startMs) / timeframeToMs(timeframe));
   if (bars > MAX_BARS) {
-    return { ok: false, field: 'startDate', error: `range too large: ${bars} bars (max ${MAX_BARS}); pick a later start date or a larger timeframe` };
+    return { ok: false, field: 'startDate', error: `too many candles: ${bars} (max ${MAX_BARS}); pick a later start date or a bigger candle size` };
   }
 
   const balance = num(raw.balance);
-  if (!(balance > 0)) return { ok: false, field: 'balance', error: 'balance must be greater than 0' };
+  if (!(balance > 0)) return { ok: false, field: 'balance', error: 'starting money must be more than 0' };
   const leverage = num(raw.leverage);
   if (!(leverage >= 1 && leverage <= 125)) return { ok: false, field: 'leverage', error: `leverage must be between 1 and 125, got ${typed(raw.leverage)}` };
   const taker = num(raw.takerFeePct);
   const maker = num(raw.makerFeePct);
-  if (!(taker >= 0 && taker <= 1)) return { ok: false, field: 'takerFeePct', error: `taker fee must be between 0% and 1%, got ${typed(raw.takerFeePct)}` };
-  if (!(maker >= 0 && maker <= 1)) return { ok: false, field: 'makerFeePct', error: `maker fee must be between 0% and 1%, got ${typed(raw.makerFeePct)}` };
+  if (!(taker >= 0 && taker <= 1)) return { ok: false, field: 'takerFeePct', error: `instant (taker) fee must be between 0% and 1%, got ${typed(raw.takerFeePct)}` };
+  if (!(maker >= 0 && maker <= 1)) return { ok: false, field: 'makerFeePct', error: `waiting (maker) fee must be between 0% and 1%, got ${typed(raw.makerFeePct)}` };
   const slippageBps = num(raw.slippageBps);
   if (!(slippageBps >= 0 && slippageBps <= 1000)) return { ok: false, field: 'slippageBps', error: `slippage must be between 0 and 1000 bps, got ${typed(raw.slippageBps)}` };
 

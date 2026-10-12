@@ -409,7 +409,7 @@ async function run(): Promise<void> {
   const parsed = parseSettings(topBar.read(), Date.now());
   if (!parsed.ok) {
     setStatus(`Cannot run: ${parsed.error}.`, true);
-    topBar.showInvalid(parsed.field);
+    topBar.showInvalid(parsed.field, parsed.error);
     return;
   }
   running = true;
@@ -470,7 +470,7 @@ function sessionBase(): SessionBase {
   const now = Date.now();
   const parsed = parseSettings({ ...topBar.read(), startDate: defaultStartDate(now, 1) }, now); // the start date is backtest-only
   if (!parsed.ok) {
-    topBar.showInvalid(parsed.field);
+    topBar.showInvalid(parsed.field, parsed.error);
     return { ok: false, error: `Cannot start: ${parsed.error}.` };
   }
   const { symbol, timeframe, broker } = parsed.settings;

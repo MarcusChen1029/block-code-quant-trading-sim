@@ -16,8 +16,11 @@ export interface TopBar {
   setMode(mode: AppMode): void;
   /** Recomputes the closed section's summary (call when something it mentions changes outside the fields). */
   refreshSummary(): void;
-  /** Marks `field` invalid and focuses it, opening Account settings first when the field lives there. */
-  showInvalid(field: keyof RawSettings): void;
+  /**
+   * Marks `field` invalid and focuses it, opening Account settings first when the field lives there; `message`
+   * is shown under the bar until the value is edited.
+   */
+  showInvalid(field: keyof RawSettings, message?: string): void;
 }
 
 /** Backtest: run over history. Live: paper-trade sessions on the live stream (start date and Run do not apply). */
@@ -132,6 +135,7 @@ export function createTopBar(
   for (const el of [leverage, takerFeePct, makerFeePct, slippageBps]) el.addEventListener('input', refreshSummary);
 
   const tools = h('div', { class: 'tools' });
+  const formError = h('div', { class: 'form-error', role: 'alert', hidden: '' });
   const form = h(
     'form', { class: 'run-form' },
     h('div', { class: 'field mode-field' }, h('span', { class: 'field-label' }, 'Mode'), modeToggle),
@@ -146,6 +150,7 @@ export function createTopBar(
     tools,
     accountToggle,
     accountPanel,
+    formError,
   );
   // The browser's own validation (min/max/step) would silently block submit: parseSettings validates instead,
   // with a specific message; the step attributes only drive the spinner arrows.
@@ -161,9 +166,22 @@ export function createTopBar(
   const fields: Record<keyof RawSettings, HTMLInputElement | HTMLSelectElement> = {
     symbol, timeframe, startDate, balance, leverage, takerFeePct, makerFeePct, slippageBps,
   };
-  for (const el of Object.values(fields)) el.addEventListener('input', () => el.removeAttribute('aria-invalid'));
-  const showInvalid = (field: keyof RawSettings) => {
+  for (const el of Object.values(fields)) {
+    el.addEventListener('input', () => {
+      if (el.getAttribute('aria-invalid') === 'true') formError.hidden = true;
+      el.removeAttribute('aria-invalid');
+      el.removeAttribute('aria-errormessage');
+    });
+  }
+  const showInvalid = (field: keyof RawSettings, message?: string) => {
     const el = fields[field];
+    if (message) {
+      // "leverage must be ..." -> "Leverage must be ..."
+      formError.replaceChildren(h('strong', {}, 'Please fix: '), message.charAt(0).toUpperCase() + message.slice(1) + '.');
+      formError.id = 'topbar-error';
+      formError.hidden = false;
+      el.setAttribute('aria-errormessage', 'topbar-error');
+    }
     if (isAccountField(field) && !accountOpen) setOpen(true);
     el.setAttribute('aria-invalid', 'true');
     el.focus();

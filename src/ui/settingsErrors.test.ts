@@ -12,13 +12,13 @@ describe('parseSettings: specific errors that name the field', () => {
   });
 
   const CASES: Array<[Partial<RawSettings>, keyof RawSettings, RegExp]> = [
-    [{ symbol: 'b!' }, 'symbol', /symbol/],
+    [{ symbol: 'b!' }, 'symbol', /coin/],
     [{ startDate: '' }, 'startDate', /start date/],
-    [{ balance: '0' }, 'balance', /balance/i],
+    [{ balance: '0' }, 'balance', /starting money/i],
     [{ leverage: '200' }, 'leverage', /leverage must be between 1 and 125, got 200/],
     [{ leverage: '' }, 'leverage', /leverage/],
-    [{ takerFeePct: '1.5' }, 'takerFeePct', /taker fee must be between 0% and 1%, got 1.5/],
-    [{ makerFeePct: '-1' }, 'makerFeePct', /maker fee must be between 0% and 1%, got -1/],
+    [{ takerFeePct: '1.5' }, 'takerFeePct', /instant \(taker\) fee must be between 0% and 1%, got 1.5/],
+    [{ makerFeePct: '-1' }, 'makerFeePct', /waiting \(maker\) fee must be between 0% and 1%, got -1/],
     [{ slippageBps: 'abc' }, 'slippageBps', /slippage/],
   ];
   for (const [patch, field, message] of CASES) {
