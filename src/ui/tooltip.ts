@@ -11,11 +11,13 @@ const GAP = 8;
 let tip: HTMLElement | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let owner: Element | null = null;
+/** The element a pending (not yet shown) tooltip belongs to. */
+let candidate: Element | null = null;
 /** A finger tap also sends mouse events; those must not pop a tooltip that then stays on screen. */
 let lastPointer: string = 'mouse';
 
 /** Moves a `title` into `data-tip` (and keeps the element's accessible name) and returns the text, or null. */
-export function adoptTitle(el: Element): string | null {
+function adoptTitle(el: Element): string | null {
   const title = el.getAttribute('title');
   if (title !== null && title.trim() !== '') {
     el.setAttribute('data-tip', title.trim());
@@ -28,6 +30,7 @@ export function adoptTitle(el: Element): string | null {
 
 function hide(): void {
   clearTimeout(timer);
+  candidate = null;
   if (owner) owner.removeAttribute('aria-describedby');
   owner = null;
   if (tip) tip.hidden = true;
@@ -79,11 +82,15 @@ export function installTooltips(): void {
     hide();
     if (!el) return;
     adoptTitle(el); // drop the native tooltip right away, before the browser's own timer fires
-    if (el.hasAttribute('data-tip')) timer = setTimeout(() => show(el), SHOW_DELAY_MS);
+    if (el.hasAttribute('data-tip')) {
+      candidate = el;
+      timer = setTimeout(() => show(el), SHOW_DELAY_MS);
+    }
   });
   document.addEventListener('mouseout', (ev) => {
     const to = (ev as MouseEvent).relatedTarget;
-    if (owner && to instanceof Node && owner.contains(to)) return;
+    const current = owner ?? candidate;
+    if (current && to instanceof Node && current.contains(to)) return;
     hide();
   });
   document.addEventListener('focusin', (ev) => {

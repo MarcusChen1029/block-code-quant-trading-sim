@@ -25,7 +25,6 @@ const PATHS: Record<string, string> = {
   close: 'M6 6l12 12M18 6L6 18',
   info: 'M12 11v6M12 7.5h.01',
   bulb: 'M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.3 1 2.1h5c0-.8.4-1.6 1-2.1A6 6 0 0 0 12 3z',
-  keyboard: 'M3 6h18v12H3zM7 10h.01M11 10h.01M15 10h.01M7 14h10',
   logo: 'M6 8v8M6 5v3M6 16v3M12 6v9M12 3v3M12 15v4M18 9v7M18 6v3M18 16v2',
 };
 

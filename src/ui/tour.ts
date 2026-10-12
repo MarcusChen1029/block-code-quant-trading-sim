@@ -10,8 +10,6 @@ const isVisible = (el: HTMLElement | null): el is HTMLElement => {
 
 let running = false;
 
-export const isTourRunning = (): boolean => running;
-
 /** Guided tour: dims the page, lights up one control at a time and explains it. Esc or "Skip" ends it. */
 export function startTour(onDone: () => void = () => {}): void {
   if (running) return;

@@ -770,7 +770,10 @@ liveSessions
 if (mode === 'live') liveSessions.activate();
 
 const initial = parseSettings(topBar.read(), Date.now());
-if (initial.ok && mode === 'backtest') {
+if (!initial.ok && mode === 'backtest') {
+  // A remembered value that is no longer valid (an old start date can become too long a range): say so instead of staying on "Loading…".
+  setStatus(`Check the top bar: ${initial.error}.`, true);
+} else if (initial.ok && mode === 'backtest') {
   loadMarket(initial.settings)
     .then(() => {
       if (compileState.errors.length === 0) {

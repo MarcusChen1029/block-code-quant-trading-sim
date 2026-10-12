@@ -31,6 +31,17 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
   { term: 'Buy & hold', meaning: 'The lazy plan: buy once at the start and never sell. Your robot should beat it to be worth the effort.' },
   { term: 'Stop-loss', meaning: 'An exit set in advance that sells for you if the price falls too far, to limit a loss.' },
   { term: 'Take-profit', meaning: 'An exit set in advance that sells for you when you have made the profit you wanted.' },
+  { term: 'Risk', meaning: 'The chance of losing money. Bigger possible wins usually come with bigger risk, like using high leverage.' },
+  { term: 'Volume', meaning: 'How much of the coin was traded during a candle. Tall volume bars mean lots of people were trading.' },
+  { term: 'Volatility', meaning: 'How much the price jumps around. A volatile market moves a lot and fast, which is exciting and risky.' },
+  { term: 'Bull and bear market', meaning: 'A bull market is when prices keep rising for a long time. A bear market is when they keep falling.' },
+  { term: 'Market order and limit order', meaning: 'A market order buys or sells right now at the current price. A limit order waits until the price you chose shows up.' },
+  { term: 'USDT', meaning: 'A coin designed to stay worth about one US dollar. A price like BTCUSDT is Bitcoin measured in these dollars.' },
+  { term: 'RSI', meaning: 'A meter from 0 to 100 for how fast the price has been moving. Over 70 can mean "went up too fast", under 30 "went down too fast".' },
+  { term: 'MACD', meaning: 'Two lines that cross each other when the trend changes direction.' },
+  { term: 'Bollinger Bands', meaning: 'A channel drawn around the average price. When the price touches an edge, it moved farther than usual.' },
+  { term: 'Order block and FVG', meaning: 'Boxes drawn on the chart where the price may react: an order block marks where big orders may sit, an FVG (fair value gap) marks a jump the price skipped over.' },
+  { term: 'Pine Script', meaning: 'The little programming language TradingView uses for indicators. The Pine tab turns it into blocks.' },
   { term: 'Account wiped', meaning: 'The pretend account ran out of money because of losses. With leverage this can happen quickly.' },
 ];
 

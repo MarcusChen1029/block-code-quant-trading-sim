@@ -598,3 +598,12 @@ body[data-mode='live'] .stale-note { display: none; }
 .trade-jump:hover:not(:disabled) { background: var(--accent-soft); }
 /* Blockly's hover note, in the page's colours (its own is pale yellow). */
 div.blocklyTooltipDiv { background: var(--text); color: var(--bg); border: none; border-radius: 9px; padding: 8px 11px; font: 12.5px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif; max-width: 320px; box-shadow: var(--shadow); opacity: 1; }
+
+/* Very short screens (a phone on its side): let the whole page scroll instead of squeezing the panels to nothing. */
+@media (max-height: 520px) {
+  html, body { height: auto; min-height: 100%; }
+  .brand-tag, .mode-note { display: none; }
+  #layout { flex: none; height: 440px; }
+  #live { max-height: 70vh; overflow: auto; }
+  .panel[data-full] { overflow: auto; }
+}
