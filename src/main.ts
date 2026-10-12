@@ -66,6 +66,8 @@ const LEFT_TAB_STORAGE_KEY = 'quant-sim.left-tab';
 const MODE_STORAGE_KEY = 'quant-sim.mode';
 const OVERLAYS_STORAGE_KEY = 'quant-sim.overlays.v1';
 const SPLIT_STORAGE_KEY = 'quant-sim.split.v1';
+/** Smallest zoom an automatic fit may use, so block text stays readable. */
+const READABLE_BLOCK_SCALE = 0.75;
 const FIRST_RUN_TIP_KEY = 'quant-sim.first-run-tip';
 
 /** Top-bar picker: the classic overlays plus the zone indicators' "show on chart" toggles (default settings). */
@@ -279,7 +281,7 @@ fitButton.addEventListener('click', () => editor?.fit());
 document.getElementById('left-tabs')!.append(fitButton);
 /** Fit after Blockly has laid the new blocks out (animation frames may stall in a hidden window: use a timer). */
 function fitSoon(): void {
-  setTimeout(() => editor?.fit(), 60);
+  setTimeout(() => editor?.fit(READABLE_BLOCK_SCALE), 60);
 }
 
 const split = setupSplitter(

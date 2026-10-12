@@ -35,7 +35,7 @@ export interface BlockEditor {
    */
   loadWorkspace(state: unknown): boolean;
   /** Zooms and scrolls so the whole strategy is visible (never zoomed in past 100 %). No-op while hidden. */
-  fit(): void;
+  fit(minScale?: number): void;
   /**
    * Indicator registrations changed (Pine scripts saved / deleted): redefines blocks, rebuilds the toolbox and
    * reloads the current workspace so blocks pick up new shapes; then recompiles (onChange) even if unchanged.
@@ -69,7 +69,7 @@ export function createBlockEditor(
     sounds: false,
     media: `${import.meta.env.BASE_URL}blockly-media/`, // Blockly's icons, served by this site (its default is a third-party CDN)
     grid: { spacing: 24, length: 2, colour: '#7a829e', snap: true },
-    zoom: { controls: true, wheel: true, startScale: 0.65, maxScale: 2, minScale: 0.2, scaleSpeed: 1.15 },
+    zoom: { controls: true, wheel: true, startScale: 0.8, maxScale: 2, minScale: 0.2, scaleSpeed: 1.15 },
     move: { scrollbars: true, drag: true, wheel: false },
     maxInstances: { ...HAT_MAX_INSTANCES },
   });
@@ -133,7 +133,7 @@ export function createBlockEditor(
   let pendingFit = false;
   /** Pixels kept free on each side after a fit, so blocks clear the scrollbars (zoomToFit measures under them). */
   const FIT_PAD_PX = 24;
-  const fit = () => {
+  const fit = (minScale = 0) => {
     if (ws.getTopBlocks(false).length === 0) return;
     if (container.clientWidth === 0 || container.clientHeight === 0) {
       pendingFit = true;
@@ -145,7 +145,8 @@ export function createBlockEditor(
     ws.zoomToFit();
     const view = ws.getMetricsManager().getViewMetrics();
     const room = Math.min((view.width - 2 * FIT_PAD_PX) / view.width, (view.height - 2 * FIT_PAD_PX) / view.height);
-    const target = Math.min(1, ws.scale * Math.max(0.5, room));
+    // `minScale` keeps automatic fits readable: a big strategy then scrolls instead of shrinking to tiny text.
+    const target = Math.max(Math.min(1, ws.scale * Math.max(0.5, room)), Math.min(minScale, 1));
     ws.zoomCenter(Math.log(target / ws.scale) / Math.log(ws.options.zoomOptions.scaleSpeed));
   };
 
