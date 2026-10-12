@@ -50,6 +50,21 @@ const indicatorBlock = (def: IndicatorBlockDef): ToolboxBlock[] => {
   return out;
 };
 
+/** What each toolbox category holds, in plain words (shown when a category is hovered or focused). */
+export const CATEGORY_HELP: Readonly<Record<string, string>> = {
+  Events: 'Start here: “when a bar closes” runs your rules once for every candle. Every strategy needs one.',
+  Market: 'Prices and facts about the candles: open, high, low, close, volume, the time, which coin.',
+  Account: 'Your pretend account: money, equity, and the trade you are in right now (long, short or none).',
+  Indicators: 'Ready-made calculations like averages (SMA, EMA), RSI, MACD and Bollinger Bands. Many have a “signal” version that is true when something happens.',
+  Zones: 'Boxes on the chart around interesting price areas (order blocks, fair value gaps, swing highs and lows).',
+  Pine: 'Indicators you wrote or pasted in the “Pine code” tab show up here as blocks.',
+  Logic: 'Decisions and checks: if … then … else, compare two numbers, “crosses over / under”, and / or / not, true / false, repeat.',
+  Math: 'Numbers and sums: add, subtract, round, smallest / largest, keep a number between limits, random numbers, and text for log messages.',
+  'My variables': 'Boxes that remember a number between candles, like a counter or the last buy price. Make one with “Create variable…”.',
+  Actions: 'Orders: buy, sell, limit orders, stop-loss and take-profit, close the trade or cancel orders. Also “log” to write a message.',
+  Functions: 'Make your own block out of other blocks, so you can reuse a group of rules.',
+};
+
 /** Builds the toolbox; indicator blocks come from the registry, Pine-compiled ones in their own category. */
 export function buildToolbox(): Toolbox {
   const all = listIndicators();

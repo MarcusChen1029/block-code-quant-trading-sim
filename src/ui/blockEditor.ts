@@ -5,7 +5,7 @@ import { zoneExampleWorkspace } from '../blocks/zoneExample';
 import { defineBlocks, defineMissingIndicatorBlocks } from '../blocks/definitions';
 import type { CompileIssue } from '../blocks/generator';
 import { quantTheme } from '../blocks/theme';
-import { buildToolbox } from '../blocks/toolbox';
+import { buildToolbox, CATEGORY_HELP } from '../blocks/toolbox';
 import { readStaleChoice } from '../blocks/staleChoice';
 import { fixupIndicatorBlocks } from '../blocks/workspaceFixup';
 import { loadWorkspaceSafely, type LoadResult } from '../blocks/workspaceLoad';
@@ -73,6 +73,19 @@ export function createBlockEditor(
   });
 
   onThemeChange((mode) => ws.setTheme(quantTheme(mode)));
+  /** Puts the plain-words description on each toolbox category row (the app tooltip shows it). */
+  const describeCategories = () => {
+    for (const row of container.querySelectorAll<HTMLElement>('.blocklyToolboxCategory')) {
+      const name = row.querySelector('.blocklyToolboxCategoryLabel')?.textContent?.trim() ?? '';
+      const help = CATEGORY_HELP[name];
+      if (help) {
+        row.dataset.tip = help;
+        row.dataset.tipTitle = name;
+        row.dataset.tipSide = 'right';
+      }
+    }
+  };
+  describeCategories();
   // The block list keeps a readable size even when the workspace is zoomed far out to show a big strategy.
   const flyout = ws.getToolbox()?.getFlyout();
   if (flyout instanceof Blockly.Flyout) flyout.getFlyoutScale = () => Math.max(MIN_FLYOUT_SCALE, ws.scale);
@@ -218,6 +231,7 @@ export function createBlockEditor(
       const { scrollX, scrollY } = ws;
       defineBlocks();
       ws.updateToolbox(buildToolbox() as unknown as Blockly.utils.toolbox.ToolboxDefinition);
+      describeCategories();
       const result = load(json, true);
       if (!result.ok) {
         // The workspace still shows (and storage still holds) the previous blocks.

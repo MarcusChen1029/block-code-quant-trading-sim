@@ -76,7 +76,7 @@ export function createAppBar(container: HTMLElement, handlers: AppBarHandlers): 
 
   const theme = segmented<ThemeChoice>('Colours', [['system', 'Auto'], ['dark', 'Dark'], ['light', 'Light']], themeChoice(), setThemeChoice);
   const size = segmented<TextSize>('Text size', [['normal', 'A'], ['large', 'A+'], ['larger', 'A++']], textSize(), setTextSize);
-  const hoverBox = h('input', { type: 'checkbox', role: 'switch', class: 'switch' });
+  const hoverBox = h('input', { type: 'checkbox', role: 'switch', class: 'switch', id: 'hover-tips' });
   hoverBox.checked = hoverTipsEnabled();
   hoverBox.addEventListener('change', () => setHoverTips(hoverBox.checked));
 
@@ -101,7 +101,10 @@ export function createAppBar(container: HTMLElement, handlers: AppBarHandlers): 
     h('div', { class: 'menu-heading' }, 'Look & feel'),
     row('Colours', '“Auto” follows your device: dark at night if your device is set that way.', theme.el),
     row('Text size', 'Make all the writing bigger and easier to read.', size.el),
-    h('label', { class: 'menu-row menu-switch' }, h('span', { class: 'menu-label' }, 'Explain on hover'), hoverBox),
+    h('div', { class: 'menu-row' },
+      h('span', { class: 'menu-label' }, h('label', { for: 'hover-tips', class: 'menu-switch-label' }, 'Explain on hover'),
+        infoButton('When on, pointing at a button or a number shows what it does after a moment. When off, only the “?” buttons explain things.', 'About explain on hover')),
+      hoverBox),
     h('div', { class: 'menu-sep', role: 'separator' }),
     h('div', { class: 'menu-heading' }, 'Your strategy'),
     action('download', 'Export strategy', 'Save your blocks and Pine scripts as a file', handlers.onExportStrategy),

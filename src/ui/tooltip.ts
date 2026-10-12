@@ -71,7 +71,7 @@ export function initTooltips(): void {
   const source = (node: EventTarget | null): HTMLElement | null => {
     if (!(node instanceof Element)) return null;
     const el = node.closest<HTMLElement>('[data-tip], [title]');
-    if (!el || !(el instanceof HTMLElement) || el.closest('.blocklySvg, .blocklyToolboxDiv, .blocklyWidgetDiv')) return null;
+    if (!el || !(el instanceof HTMLElement) || el.closest('.blocklySvg, .blocklyWidgetDiv')) return null;
     return el;
   };
 
@@ -111,7 +111,12 @@ export function initTooltips(): void {
     el.setAttribute('aria-describedby', 'app-tip');
     el.classList.add('tip-open');
     const r = el.getBoundingClientRect();
-    const pos = placeTip(r, { width: bubble.offsetWidth, height: bubble.offsetHeight }, { width: window.innerWidth, height: window.innerHeight });
+    const size = { width: bubble.offsetWidth, height: bubble.offsetHeight };
+    const view = { width: window.innerWidth, height: window.innerHeight };
+    // data-tip-side="right": beside the target (list rows, where a bubble below would hide the next rows).
+    const pos = el.dataset.tipSide === 'right' && r.right + 8 + size.width <= view.width - 8
+      ? { left: Math.round(r.right + 8), top: Math.round(Math.max(8, Math.min(r.top, view.height - 8 - size.height))), above: false }
+      : placeTip(r, size, view);
     bubble.style.left = `${pos.left}px`;
     bubble.style.top = `${pos.top}px`;
     bubble.dataset.side = pos.above ? 'above' : 'below';

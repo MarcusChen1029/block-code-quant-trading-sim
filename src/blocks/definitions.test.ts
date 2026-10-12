@@ -69,3 +69,10 @@ describe('Blockly definitions (headless Blockly 13)', () => {
     ws.dispose();
   });
 });
+
+describe('toolbox category help', () => {
+  it('describes every category in the toolbox', async () => {
+    const { buildToolbox, CATEGORY_HELP } = await import('./toolbox');
+    for (const c of buildToolbox().contents) expect(CATEGORY_HELP[c.name], c.name).toBeTruthy();
+  });
+});
