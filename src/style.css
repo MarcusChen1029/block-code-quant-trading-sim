@@ -269,9 +269,9 @@ body[data-full='chart'] #results-panel:not([data-full]), body[data-full='results
 
 /* Two panels: block editor left, chart + results right, a draggable splitter between; one at a time below 900px. */
 #left { width: var(--left-width, 45%); min-width: 320px; max-width: calc(100% - 420px); flex: none; min-height: 0; }
-#main { flex: 1; display: flex; flex-direction: column; gap: var(--gap); min-height: 0; min-width: 0; }
-#chart-panel { flex: 1; min-height: 220px; }
-#results-panel { flex: none; height: min(360px, 48%); min-height: 190px; }
+#main { flex: 1; display: flex; flex-direction: column; gap: var(--gap); min-height: 0; min-width: 0; overflow-y: auto; }
+#chart-panel { flex: 1 0 200px; }
+#results-panel { flex: none; height: min(360px, 48%); min-height: 200px; }
 .splitter { flex: none; width: 12px; cursor: col-resize; touch-action: none; position: relative; z-index: 4; }
 .splitter::before { content: ''; position: absolute; top: 50%; left: 4px; width: 4px; height: 44px; margin-top: -22px; border-radius: 2px; background: var(--border-strong); transition: background 0.12s, height 0.12s, margin-top 0.12s; }
 .splitter::after { content: ''; position: absolute; top: 0; bottom: 0; left: -4px; right: -4px; } /* wider grab area */
@@ -575,3 +575,26 @@ body[data-mode='live'] .stale-note { display: none; }
 .blocks-empty div { max-width: 340px; }
 .help-subhead { font-size: 14px; margin: 18px 0 6px; }
 .danger-button:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
+
+/* Short screens (a 768px-high laptop leaves about 630px for the page): spend the height on the panels. */
+@media (max-height: 760px) and (min-width: 900px) {
+  .brand-tag, .mode-note { display: none; }
+  .appbar { padding-top: 5px; padding-bottom: 5px; }
+  .brand-logo { width: 32px; height: 32px; }
+  .topbar { padding: 6px 16px; }
+  .run-form { gap: 6px 10px; }
+  .panel-head { min-height: 36px; padding-top: 2px; padding-bottom: 2px; }
+  #layout { padding-top: 8px; padding-bottom: 8px; }
+  #main { gap: 8px; }
+  .footer { padding-top: 3px; padding-bottom: 3px; }
+}
+@media (max-height: 560px) and (min-width: 900px) {
+  .topbar, .appbar { padding-left: 10px; padding-right: 10px; }
+  .panel-sub { display: none; }
+}
+
+.trade-row { cursor: pointer; }
+.trade-jump { background: transparent; border: none; padding: 0 4px; min-width: 24px; color: var(--accent-text); font: inherit; font-variant-numeric: tabular-nums; text-decoration: underline dotted; border-radius: 6px; }
+.trade-jump:hover:not(:disabled) { background: var(--accent-soft); }
+/* Blockly's hover note, in the page's colours (its own is pale yellow). */
+div.blocklyTooltipDiv { background: var(--text); color: var(--bg); border: none; border-radius: 9px; padding: 8px 11px; font: 12.5px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif; max-width: 320px; box-shadow: var(--shadow); opacity: 1; }

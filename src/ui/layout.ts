@@ -32,7 +32,7 @@ export function setupLayout(
 
   const tabs: Array<[LeftTab, HTMLButtonElement]> = [
     ['blocks', h('button', { type: 'button', role: 'tab', 'data-tip': TAB_TEXT.blocks.on }, 'Blocks')],
-    ['pine', h('button', { type: 'button', role: 'tab', 'data-tip': TAB_TEXT.pine.on }, 'Pine')],
+    ['pine', h('button', { type: 'button', role: 'tab', 'data-tip': TAB_TEXT.pine.on }, 'Pine (advanced)')],
   ];
   for (const [id, b] of tabs) setExplain(b, TAB_TEXT[id].title, TAB_TEXT[id].on);
   const showTab = (tab: LeftTab) => {

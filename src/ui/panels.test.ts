@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  canHide, exitFull, INITIAL_PANELS, isFull, isHidden, listedPanels, parsePanelState, showAll, storablePanels, toggleFull, toggleHidden,
+  canHide, exitFull, INITIAL_PANELS, isFull, isHidden, listedPanels, parsePanelState, reveal, showAll, storablePanels, toggleFull, toggleHidden,
 } from './panels';
 
 describe('panel state', () => {
@@ -63,5 +63,14 @@ describe('panel state', () => {
   it('lists the live panel only in live mode', () => {
     expect(listedPanels(false)).toEqual(['strategy', 'chart', 'results']);
     expect(listedPanels(true)).toEqual(['strategy', 'chart', 'results', 'live']);
+  });
+
+  it('reveal shows a hidden panel and leaves another panel\'s full page, but keeps its own', () => {
+    const hiddenChart = toggleHidden(INITIAL_PANELS, 'chart');
+    expect(reveal(hiddenChart, 'chart')).toEqual({ hidden: [], full: null });
+    const resultsFull = toggleFull(INITIAL_PANELS, 'results');
+    expect(reveal(resultsFull, 'chart')).toEqual({ hidden: [], full: null });
+    expect(reveal(resultsFull, 'results')).toBe(resultsFull);
+    expect(reveal(INITIAL_PANELS, 'chart')).toBe(INITIAL_PANELS);
   });
 });

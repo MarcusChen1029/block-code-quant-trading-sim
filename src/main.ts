@@ -19,6 +19,7 @@ import { modalIsOpen } from './ui/dialog';
 import { downloadBlob, downloadText } from './ui/download';
 import { installExplainers } from './ui/explain';
 import { exportFileName, tradesToCsv } from './ui/exportCsv';
+import { fmtTime } from './ui/format';
 import { friendlyMessage } from './ui/friendly';
 import type { HelpDialog, HelpPage } from './ui/helpDialog';
 import { WELCOMED_STORAGE_KEY } from './ui/keys';
@@ -510,6 +511,19 @@ const liveSessions = new LiveTargets(liveBody, {
   now: () => Date.now(),
 });
 liveMode = liveSessions;
+
+/** Clicking a trade in the list shows it on the chart (leaving full page, or un-hiding the chart, if needed). */
+stats.onTradePick((trade) => {
+  chrome.reveal('chart');
+  requestAnimationFrame(() => {
+    if (chart.showTrade(trade.entryTime, trade.exitTime)) {
+      document.getElementById('chart-panel')!.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      setStatus(`Showing the ${trade.side} trade from ${fmtTime(trade.entryTime)} to ${fmtTime(trade.exitTime)} UTC on the chart.`);
+    } else {
+      toast('That trade is not on the chart', 'The chart shows a different set of candles. Press Run again to load the matching ones.', 'warn');
+    }
+  });
+});
 
 /** A small header button for a panel (chart picture, export trades). */
 function panelAction(label: string, iconName: string, tip: string, onClick: () => void): HTMLButtonElement {

@@ -56,6 +56,13 @@ export function toggleFull(state: PanelState, id: PanelId): PanelState {
   return { hidden: state.hidden.filter((h) => h !== id), full: id };
 }
 
+/** Makes sure `id` is on screen: shown if it was hidden, and not covered by another panel's full page. */
+export function reveal(state: PanelState, id: PanelId): PanelState {
+  const hidden = state.hidden.filter((h) => h !== id);
+  const full = state.full === id ? id : null;
+  return hidden.length === state.hidden.length && full === state.full ? state : { hidden, full };
+}
+
 export const exitFull = (state: PanelState): PanelState => (state.full === null ? state : { ...state, full: null });
 
 export const showAll = (): PanelState => INITIAL_PANELS;

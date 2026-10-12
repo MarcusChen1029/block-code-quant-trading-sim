@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSavedView, preserveRange, restoreSavedView, saveView } from './viewRange';
+import { parseSavedView, preserveRange, rangeAroundTrade, restoreSavedView, saveView, TRADE_VIEW_MIN_MARGIN } from './viewRange';
 
 const M = 60_000;
 /** Bar open times for bar indexes [a, b] (minutes). */
@@ -63,5 +63,28 @@ describe('saved views (kept across a reload)', () => {
     expect(parseSavedView({ following: 'yes' })).toBeNull();
     expect(parseSavedView(null)).toBeNull();
     expect(parseSavedView({ following: false, fromTime: 1, toTime: NaN, width: 2, rightOffset: 0 })).toBeNull();
+  });
+});
+
+describe('rangeAroundTrade', () => {
+  const times = bars(0, 999);
+
+  it('shows the trade with a margin of at least TRADE_VIEW_MIN_MARGIN bars', () => {
+    expect(rangeAroundTrade(times, 100 * M, 105 * M)).toEqual({ from: 100 - TRADE_VIEW_MIN_MARGIN, to: 105 + TRADE_VIEW_MIN_MARGIN });
+  });
+
+  it('a long trade gets a margin of half its length', () => {
+    expect(rangeAroundTrade(times, 100 * M, 300 * M)).toEqual({ from: 0, to: 400 });
+  });
+
+  it('rounds a time between bars up to the next bar, and clamps to the bars it has', () => {
+    expect(rangeAroundTrade(times, 100 * M + 1, 105 * M)).toEqual({ from: 101 - TRADE_VIEW_MIN_MARGIN, to: 105 + TRADE_VIEW_MIN_MARGIN });
+    expect(rangeAroundTrade(times, 990 * M, 5000 * M)).toEqual({ from: 990 - Math.max(TRADE_VIEW_MIN_MARGIN, 5), to: 999 + Math.max(TRADE_VIEW_MIN_MARGIN, 5) });
+  });
+
+  it('is null when there are no bars or the trade is outside them', () => {
+    expect(rangeAroundTrade([], 0, 10)).toBeNull();
+    expect(rangeAroundTrade(times, 2000 * M, 2100 * M)).toBeNull();
+    expect(rangeAroundTrade(bars(500, 999), 0, 100 * M)).toBeNull();
   });
 });

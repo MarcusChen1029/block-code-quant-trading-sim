@@ -17,7 +17,7 @@ import { DOWN_COLOR, UP_COLOR, candleToBar, candleToVolume } from './chartData';
 import { MarkerSet } from './markerSet';
 import { MAX_MARKERS_PER_SIGNAL, MAX_TEXT_MARKERS, signalMarkers, type SignalHit } from './markers';
 import { computeOverlaySeries, dedupeOverlaySignals, lineTitle, overlayPoint, signalPriceKey, type OverlayDef, type OverlaySignal } from './overlays';
-import type { LogicalRange } from './viewRange';
+import { rangeAroundTrade, type LogicalRange } from './viewRange';
 import { ZoneStore, type ZoneRect } from './zoneGeometry';
 import { ZoneLayer } from './zonePrimitive';
 import { CANVAS_COLORS, onThemeChange, type Theme } from './theme';
@@ -141,6 +141,14 @@ export class ChartPanel {
   showRange(range: LogicalRange): void {
     this.viewToken++;
     this.chart.timeScale().setVisibleLogicalRange(range);
+  }
+
+  /** Scrolls and zooms to a trade (with some bars around it). False when the chart does not have its bars. */
+  showTrade(entryMs: number, exitMs: number): boolean {
+    const range = rangeAroundTrade(this.times, entryMs, exitMs);
+    if (!range) return false;
+    this.showRange(range);
+    return true;
   }
 
   /** Open times of the bars on the chart (forming bar included), ascending. Do not mutate. */

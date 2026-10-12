@@ -2,7 +2,7 @@ import { h } from './dom';
 import { PANEL_BUTTON_TEXT, PANEL_TEXT } from './descriptions';
 import { icon } from './icons';
 import {
-  canHide, exitFull, isFull, isHidden, parsePanelState, PANEL_IDS, showAll, storablePanels, toggleFull, toggleHidden,
+  canHide, exitFull, isFull, isHidden, parsePanelState, PANEL_IDS, reveal, showAll, storablePanels, toggleFull, toggleHidden,
   type PanelId, type PanelState,
 } from './panels';
 import { loadJson, saveJson } from './storage';
@@ -26,6 +26,8 @@ export interface PanelChrome {
   full(id: PanelId): void;
   exitFull(): void;
   showAll(): void;
+  /** Makes sure the panel can be seen: shown if hidden, and another panel's full page is closed. */
+  reveal(id: PanelId): void;
   /** Re-reads what the dock lists (the Live panel only counts while Live mode is on). */
   refresh(): void;
   /** Called after every change (resize canvases, refresh the View menu). */
@@ -153,6 +155,7 @@ export function createPanelChrome(defs: readonly PanelDef[], dock: HTMLElement):
     },
     refresh: render,
     showAll() { apply(showAll()); },
+    reveal(id) { const next = reveal(state, id); if (next !== state) apply(next); },
     onChange(listener) { listeners.push(listener); },
   };
 }

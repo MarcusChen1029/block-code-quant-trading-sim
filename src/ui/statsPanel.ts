@@ -31,6 +31,7 @@ export class StatsPanel {
   private readonly trades: HTMLElement;
   private readonly log: HTMLElement;
   private shownTrades: readonly Trade[] = [];
+  private tradePicked: (trade: Trade) => void = () => {};
 
   constructor(container: HTMLElement) {
     this.cards = h('div', { class: 'stat-cards', tabindex: '0', role: 'region', 'aria-label': 'Score cards' });
@@ -78,6 +79,11 @@ export class StatsPanel {
       rightPriceScale: { borderColor: c.border },
     });
     this.benchSeries.applyOptions({ color: c.muted });
+  }
+
+  /** Called when a trade row is clicked ("show this trade on the chart"). */
+  onTradePick(handler: (trade: Trade) => void): void {
+    this.tradePicked = handler;
   }
 
   /** The trades of the result on screen (for "Export trades"); empty after clear(). */
@@ -159,10 +165,12 @@ export class StatsPanel {
     const header = h('tr', {}, ...TRADE_COLUMNS.map((c) => h('th', { 'data-tip': c.help }, c.title)));
     const shown = trades.slice(-MAX_TRADE_ROWS);
     const offset = trades.length - shown.length;
-    const rows = shown.map((t, i) =>
-      h(
-        'tr', {},
-        h('td', {}, String(offset + i + 1)),
+    const rows = shown.map((t, i) => {
+      const jump = h('button', { type: 'button', class: 'trade-jump', 'aria-label': `Show trade ${offset + i + 1} on the chart`, 'data-tip': 'Show this trade on the chart' }, String(offset + i + 1));
+      jump.addEventListener('click', (ev) => { ev.stopPropagation(); this.tradePicked(t); });
+      const row = h(
+        'tr', { class: 'trade-row' },
+        h('td', {}, jump),
         h('td', { class: t.side === 'long' ? 'pos' : 'neg' }, t.side),
         h('td', {}, fmtTime(t.entryTime)),
         h('td', {}, fmtNum(t.entryPrice)),
@@ -171,8 +179,10 @@ export class StatsPanel {
         h('td', {}, fmtNum(t.qty, 4)),
         h('td', { class: t.netPnl >= 0 ? 'pos' : 'neg' }, fmtNum(t.netPnl)),
         h('td', { 'data-tip': EXIT_REASON_HELP[t.exitReason] }, EXIT_REASON_LABEL[t.exitReason] ?? t.exitReason),
-      ),
-    );
+      );
+      row.addEventListener('click', () => this.tradePicked(t));
+      return row;
+    });
     const note = offset > 0 ? [h('div', { class: 'hint' }, `showing last ${MAX_TRADE_ROWS} of ${trades.length} trades`)] : [];
     this.trades.replaceChildren(...note, h('table', {}, h('thead', {}, header), h('tbody', {}, ...rows)));
   }
