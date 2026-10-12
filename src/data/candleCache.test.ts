@@ -72,16 +72,6 @@ describe('candle cache (IndexedDB)', () => {
     expect((await cache.read('fake|BTCUSDT|5m', 0, 9 * MINUTE)).covered).toEqual([]);
   });
 
-  it('a websocket-closed bar extends a range only when it is the next bar', async () => {
-    const cache = await cacheOrFail();
-    await cache.write(KEY, MINUTE, BARS.slice(0, 10), [0, 9 * MINUTE]);
-    expect(await cache.appendClosed(KEY, MINUTE, BARS[10])).toBe(true);
-    expect(await cache.appendClosed(KEY, MINUTE, BARS[15])).toBe(false); // a hole before it: not contiguous
-    const got = await cache.read(KEY, 0, 20 * MINUTE);
-    expect(got.covered).toEqual([[0, 10 * MINUTE]]);
-    expect(got.bars.map((b) => b.time)).not.toContain(15 * MINUTE);
-  });
-
   it('is bounded: least recently used series are evicted first, then the oldest bars of the current one', async () => {
     let now = 1000;
     const cache = await cacheOrFail(new IDBFactory(), { maxBars: 150, now: () => now });
@@ -202,21 +192,54 @@ describe('CachedMarketData', () => {
     expect(srv.calls.filter((u) => u.includes('/klines')).every((u) => u.includes(`startTime=${100 * MINUTE}`))).toBe(true);
   });
 
-  it('websocket-closed bars go into the cache (forming updates never do)', async () => {
+  it('websocket bars are never cached (only REST bars that passed the closure rule)', async () => {
     const cache = await cacheOrFail();
     const market = new FakeMarket(BARS, MINUTE, 100 * MINUTE);
     const adapter = new CachedMarketData(market, () => Promise.resolve(cache));
     await adapter.fetchCandles('BTCUSDT', '1m', 0, 100 * MINUTE);
-    const sub = adapter.subscribeCandles('BTCUSDT', '1m', () => {});
+    const seen: Array<[number, boolean]> = [];
+    const sub = adapter.subscribeCandles('BTCUSDT', '1m', (c, closed) => seen.push([c.time, closed]));
     market.formingTick(100);
-    await settle();
-    expect((await cache.read('fake|BTCUSDT|1m', 0, 200 * MINUTE)).covered).toEqual([[0, 99 * MINUTE]]);
     market.closeBar(100);
     await settle();
-    const got = await cache.read('fake|BTCUSDT|1m', 0, 200 * MINUTE);
-    expect(got.covered).toEqual([[0, 100 * MINUTE]]);
-    expect(got.bars.at(-1)).toEqual(BARS[100]);
+    expect(seen).toEqual([[100 * MINUTE, false], [100 * MINUTE, true]]); // live processing unchanged
+    expect((await cache.read('fake|BTCUSDT|1m', 0, 200 * MINUTE)).covered).toEqual([[0, 99 * MINUTE]]);
     sub.close();
+  });
+
+  it('a websocket final kline that differs from REST never makes a cached replay differ from a REST-only one', async () => {
+    const factory = new IDBFactory();
+    const session = testSession({ startTime: 200 * MINUTE, warmupBars: 150 });
+    const bars = BARS.map((c) => ({ ...c }));
+    const m1 = new FakeMarket(bars, MINUTE, 400 * MINUTE);
+    const first = run(new CachedMarketData(m1, () => openCandleCache(factory, { keyRange: IDBKeyRange })), session, () => m1.now);
+    first.runner.start();
+    await first.runner.idle();
+    // Bars 400..419 close on the websocket with values REST will not serve (exchange correction, glitch).
+    for (let i = 400; i < 420; i++) {
+      const rest = bars[i];
+      bars[i] = { ...rest, close: rest.close * 1.03, high: Math.max(rest.high, rest.close * 1.03) };
+      m1.closeBar(i);
+      bars[i] = rest;
+      await first.runner.idle();
+    }
+    await settle();
+    first.runner.stop();
+    expect(first.engine.lastBarTime).toBe(419 * MINUTE);
+
+    const m2 = new FakeMarket(BARS, MINUTE, 450 * MINUTE);
+    const cached = run(new CachedMarketData(m2, () => openCandleCache(factory, { keyRange: IDBKeyRange })), session, () => m2.now);
+    cached.runner.start();
+    await cached.runner.idle();
+    cached.runner.stop();
+    const m3 = new FakeMarket(BARS, MINUTE, 450 * MINUTE);
+    const rest = run(m3, session, () => m3.now);
+    rest.runner.start();
+    await rest.runner.idle();
+    rest.runner.stop();
+    expect(cached.engine.lastBarTime).toBe(449 * MINUTE);
+    expect(core(cached.engine)).toEqual(core(rest.engine));
+    expect(Math.min(...m2.fetchCalls.map(([from]) => from))).toBe(400 * MINUTE); // REST bars 0..399 still came from the cache
   });
 
   it('falls back to REST when the cache fails', async () => {
@@ -224,7 +247,6 @@ describe('CachedMarketData', () => {
     const failing: CandleCache = {
       read: () => Promise.reject(new Error('QuotaExceededError')),
       write: () => Promise.reject(new Error('QuotaExceededError')),
-      appendClosed: () => Promise.reject(new Error('QuotaExceededError')),
     };
     const adapter = new CachedMarketData(market, () => Promise.resolve(failing));
     const got = await adapter.fetchCandles('BTCUSDT', '1m', 0, 99 * MINUTE);

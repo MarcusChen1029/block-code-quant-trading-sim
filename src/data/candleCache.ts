@@ -7,16 +7,14 @@ export type BarRange = [number, number];
 /**
  * Closed candles kept across reloads, per series (adapter + symbol + timeframe). A COVERED range [a, b] means every
  * bar the exchange has with an open time in [a, b] is stored (exchange holes stay holes), so a covered range never
- * needs REST again. Only closed candles go in: what the market adapter returned (it applies the server-clock
- * closure rule) and websocket bars with x=true.
+ * needs REST again. Only REST bars go in, as the market adapter returned them (it applies the server-clock
+ * closure rule); websocket bars never do (unverified against REST).
  */
 export interface CandleCache {
   /** Stored bars of [from, to] and the parts of [from, to] that are covered, ascending. Refreshes recency. */
   read(key: string, from: number, to: number): Promise<{ bars: Candle[]; covered: BarRange[] }>;
   /** Stores `bars` (deduplicated by open time) and marks `covered` as complete. */
   write(key: string, step: number, bars: readonly Candle[], covered: BarRange): Promise<void>;
-  /** Stores one closed bar if it continues a covered range (contiguous); false otherwise. */
-  appendClosed(key: string, step: number, bar: Candle): Promise<boolean>;
 }
 
 export interface CandleCacheOptions {
@@ -131,25 +129,6 @@ class IndexedDbCandleCache implements CandleCache {
     series.put({ k: key, step, ranges, count, usedAt: this.now() } satisfies SeriesMeta);
     await done(tx);
     await this.evict(key);
-  }
-
-  async appendClosed(key: string, step: number, bar: Candle): Promise<boolean> {
-    if (!finiteBar(bar)) return false;
-    const tx = this.db.transaction([BARS, SERIES], 'readwrite');
-    const series = tx.objectStore(SERIES);
-    const meta = (await req(series.get(key))) as SeriesMeta | undefined;
-    const joins = meta !== undefined && meta.step === step && meta.ranges.some(([a, b]) => bar.time >= a && bar.time <= b + step);
-    if (!joins) {
-      await done(tx);
-      return false;
-    }
-    const barStore = tx.objectStore(BARS);
-    barStore.put(toStored(key, bar));
-    const count = await req(barStore.count(this.bounds(key)));
-    series.put({ ...meta!, ranges: mergeRanges([...meta!.ranges, [bar.time, bar.time]], step), count, usedAt: this.now() } satisfies SeriesMeta);
-    await done(tx);
-    await this.evict(key);
-    return true;
   }
 
   /** Over budget: drop least recently used series (never `current`), then the oldest bars of `current`. */
@@ -300,19 +279,9 @@ export class CachedMarketData implements MarketDataAdapter {
     onError?: (error: Error) => void,
     onStatus?: (state: ConnectionState) => void,
   ): CandleSubscription {
-    const key = this.key(symbol, tf);
-    const step = timeframeToMs(tf);
-    return this.inner.subscribeCandles(
-      symbol,
-      tf,
-      (candle, closed) => {
-        onCandle(candle, closed);
-        // The bar the session just processed (final x=true update): keep it if it continues the cached history.
-        if (closed) void this.usable().then((cache) => cache?.appendClosed(key, step, { ...candle })).catch(() => {});
-      },
-      onError,
-      onStatus,
-    );
+    // Websocket bars are NOT cached: a final kline is not verified against REST, and a cached replay must equal a
+    // REST-only one. Bars the session took from the socket come from REST (then the cache) on the next reopen.
+    return this.inner.subscribeCandles(symbol, tf, onCandle, onError, onStatus);
   }
 
   serverNow(): number | null {
