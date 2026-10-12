@@ -229,3 +229,7 @@ body:not([data-mode='live']) #live { display: none; }
   .live-sessions td.name { max-width: 120px; }
   .live-status { width: 100%; }
 }
+
+/* Live target switch (This browser | Server 24/7) */
+.live-targets .target-button { padding: 3px 10px; }
+.live-targets .target-button.selected { background: #1c2a4d; color: #82a7ff; border-color: #82a7ff; font-weight: 600; }

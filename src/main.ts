@@ -32,7 +32,8 @@ import { renderOverlayPicker } from './ui/overlayPicker';
 import { OVERLAYS, smaOverlay, type OverlayDef } from './ui/overlays';
 import { defaultRawSettings, defaultStartDate, parseSettings, type RunSettings } from './ui/settings';
 import { blocksSnapshot, smaCrossSnapshot } from './live/session';
-import { LiveMode, type SessionBase } from './ui/liveMode';
+import type { SessionBase } from './ui/liveMode';
+import { LiveTargets } from './ui/liveTargets';
 import { StatsPanel } from './ui/statsPanel';
 import { loadJson, loadText, saveJson, saveText } from './ui/storage';
 import { createTopBar, type AppMode } from './ui/topbar';
@@ -89,7 +90,7 @@ let pickedOverlayIds: string[] = loadPickedOverlays();
 let strategyChoice: StrategyChoice = loadText(STRATEGY_STORAGE_KEY) === 'smaCross' ? 'smaCross' : 'blocks';
 let mode: AppMode = loadText(MODE_STORAGE_KEY) === 'live' ? 'live' : 'backtest';
 /** Created after the editor (whose first compile already redraws overlays). */
-let liveMode: LiveMode | null = null;
+let liveMode: LiveTargets | null = null;
 /** Indicators used by the current block workspace (last successful compile), drawn automatically. */
 let blockIndicators: IndicatorUse[] = [];
 let blockOverlayKey = '';
@@ -428,7 +429,7 @@ function sessionBase(): SessionBase {
   return { ok: true, symbol, timeframe, brokerConfig: broker, strategy: blocksSnapshot(spec.workspace, spec.pineScripts ?? [], spec.pineRetired ?? []) };
 }
 
-const liveSessions = new LiveMode(document.getElementById('live')!, {
+const liveSessions = new LiveTargets(document.getElementById('live')!, {
   chart,
   stats,
   setStatus,
