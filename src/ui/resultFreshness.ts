@@ -16,8 +16,8 @@ export type StaleReason = 'strategy' | 'settings';
 export type Freshness = { status: 'none' } | { status: 'fresh' } | { status: 'stale'; reason: StaleReason };
 
 export const STALE_NOTE: Record<StaleReason, string> = {
-  strategy: 'Results are from the previous strategy — press Run',
-  settings: 'Results are from the previous settings — press Run',
+  strategy: 'These results are for your blocks before you changed them. Press ▶ Run test to update them.',
+  settings: 'These results are for the settings before you changed them. Press ▶ Run test to update them.',
 };
 
 /** `shown`: the key the results on screen were run with (null: nothing shown). */
