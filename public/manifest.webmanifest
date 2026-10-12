@@ -1,0 +1,10 @@
+{
+  "name": "Quant Sim · Build trading bots with blocks",
+  "short_name": "Quant Sim",
+  "description": "Snap blocks together to build a trading strategy, test it on real past prices and practise with pretend money.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f131c",
+  "theme_color": "#0f131c",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

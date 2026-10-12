@@ -1,4 +1,6 @@
 import { h } from './dom';
+import { icon } from './icons';
+import { infoButton, tip } from './tooltip';
 import { clampFraction, fractionForKey, fractionFromPointer, fractionRange, SPLIT } from './splitter';
 
 export type PaneId = 'left' | 'right';
@@ -21,16 +23,18 @@ export function setupLayout(
     for (const b of switcher.querySelectorAll('button')) b.classList.toggle('active', b.dataset.pane === pane);
     requestAnimationFrame(() => onPaneShown(pane));
   };
-  const paneButton = (pane: PaneId, label: string) => {
-    const b = h('button', { type: 'button', 'data-pane': pane }, label);
+  const paneButton = (pane: PaneId, label: string, ic: 'blocks' | 'chart') => {
+    const b = h('button', { type: 'button', 'data-pane': pane }, icon(ic), h('span', {}, label));
     b.addEventListener('click', () => show(pane));
     return b;
   };
-  switcher.append(paneButton('left', 'Strategy'), paneButton('right', 'Chart & stats'));
+  switcher.append(paneButton('left', 'Strategy', 'blocks'), paneButton('right', 'Chart & results', 'chart'));
 
   const tabs: Array<[LeftTab, HTMLButtonElement]> = [
-    ['blocks', h('button', { type: 'button', role: 'tab', title: 'Visual strategy editor' }, 'Blocks')],
-    ['pine', h('button', { type: 'button', role: 'tab', title: 'Pine Script indicators: compile them into blocks' }, 'Pine')],
+    ['blocks', tip(h('button', { type: 'button', role: 'tab' }, icon('blocks', 14), h('span', {}, 'Blocks')),
+      'Build your strategy by snapping blocks together. Pick a category on the left, then drag a block onto the workspace.', 'Blocks')],
+    ['pine', tip(h('button', { type: 'button', role: 'tab' }, icon('file', 14), h('span', {}, 'Pine code')),
+      'For coders: write or paste a TradingView Pine Script indicator. Once it compiles it becomes a new block in the “Pine” category.', 'Pine code')],
   ];
   const showTab = (tab: LeftTab) => {
     document.body.dataset.leftTab = tab;
@@ -130,7 +134,7 @@ export function createProblemsView(container: HTMLElement, onPick: (blockId: str
   return {
     show(errors, warnings) {
       const row = (level: 'error' | 'warn', issue: { message: string; blockId?: string }) => {
-        const el = h('li', { class: `problem problem-${level}`, title: issue.blockId ? 'Show the block' : undefined }, `${level === 'error' ? '✖' : '⚠'} ${issue.message}`);
+        const el = h('li', { class: `problem problem-${level}`, title: issue.blockId ? 'Click to show the block with this problem' : undefined }, `${level === 'error' ? '✖' : '⚠'} ${issue.message}`);
         if (issue.blockId) {
           const id = issue.blockId;
           el.classList.add('clickable');
@@ -148,11 +152,93 @@ export function createProblemsView(container: HTMLElement, onPick: (blockId: str
 export function createStrategyPicker(container: HTMLElement, initial: string, onChange: (id: string) => void): { set(id: string): void } {
   const select = h(
     'select', { name: 'strategy' },
-    h('option', { value: 'blocks' }, 'Blocks (left pane)'),
-    h('option', { value: 'smaCross' }, 'Example: SMA cross (built-in)'),
+    h('option', { value: 'blocks' }, 'My blocks (left panel)'),
+    h('option', { value: 'smaCross' }, 'Built-in example: SMA cross'),
   );
   select.value = initial;
   select.addEventListener('change', () => onChange(select.value));
-  container.append(h('label', { class: 'strategy-picker', title: 'What Run backtests: your blocks, or the hard-coded SMA cross example' }, h('span', {}, 'Strategy'), select));
+  container.append(h('label', { class: 'field strategy-picker' },
+    h('span', { class: 'field-label' }, 'Strategy to test', infoButton('What Run test uses: the blocks in the left panel (normal), or a fixed built-in example that buys when the 10-candle average crosses above the 30-candle average.', 'What is “Strategy to test”?')),
+    select));
   return { set: (id) => { select.value = id; } };
+}
+
+/** Height limits for the results panel: at least `min`, and the chart keeps at least `chartMin`. */
+export function clampResultsHeight(px: number, available: number, min = 150, chartMin = 200): number {
+  const max = Math.max(min, available - chartMin);
+  return Math.round(Math.min(max, Math.max(min, px)));
+}
+
+/**
+ * Drag handle between the chart and the results panel (wide layouts; CSS hides it on phones). Sets
+ * --results-height on `main`. Keyboard: up / down arrows (Shift = bigger steps); double-click or Enter resets.
+ */
+export function setupRowSplitter(
+  main: HTMLElement,
+  handle: HTMLElement,
+  initial: number | null,
+  save: (px: number | null) => void,
+): void {
+  let height: number | null = initial;
+  handle.setAttribute('role', 'separator');
+  handle.setAttribute('aria-orientation', 'horizontal');
+  handle.setAttribute('aria-controls', 'results-panel');
+  handle.setAttribute('aria-label', 'Resize the results panel (up and down arrow keys; Enter resets)');
+  handle.dataset.tip = 'Drag up or down to give the chart or the results more room. Double-click to reset.';
+  handle.tabIndex = 0;
+  const apply = () => {
+    if (height === null) main.style.removeProperty('--results-height');
+    else main.style.setProperty('--results-height', `${clampResultsHeight(height, main.clientHeight)}px`);
+  };
+  let dragging = false;
+  let startY = 0;
+  let startH = 0;
+  const results = () => document.getElementById('results-panel')!;
+  handle.addEventListener('pointerdown', (ev) => {
+    if (ev.button !== 0) return;
+    dragging = true;
+    startY = ev.clientY;
+    startH = results().getBoundingClientRect().height;
+    handle.setPointerCapture(ev.pointerId);
+    handle.classList.add('dragging');
+    document.body.classList.add('resizing-rows');
+    ev.preventDefault();
+  });
+  handle.addEventListener('pointermove', (ev) => {
+    if (!dragging) return;
+    height = clampResultsHeight(startH + (startY - ev.clientY), main.clientHeight);
+    apply();
+  });
+  const end = (ev: PointerEvent) => {
+    if (!dragging) return;
+    dragging = false;
+    if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId);
+    handle.classList.remove('dragging');
+    document.body.classList.remove('resizing-rows');
+    save(height);
+  };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+  const reset = () => {
+    height = null;
+    apply();
+    save(null);
+  };
+  handle.addEventListener('dblclick', reset);
+  handle.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      reset();
+      return;
+    }
+    const step = ev.shiftKey ? 80 : 20;
+    const delta = ev.key === 'ArrowUp' ? step : ev.key === 'ArrowDown' ? -step : 0;
+    if (!delta) return;
+    ev.preventDefault();
+    height = clampResultsHeight((height ?? results().getBoundingClientRect().height) + delta, main.clientHeight);
+    apply();
+    save(height);
+  });
+  window.addEventListener('resize', apply);
+  apply();
 }

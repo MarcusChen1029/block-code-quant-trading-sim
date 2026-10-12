@@ -2,6 +2,13 @@ import type { StarterDef } from '../blocks/starters';
 import { h } from './dom';
 import { fmtTime } from './format';
 import { createPopover } from './popover';
+
+/** How hard each starter is to understand (a chip in the menu). */
+const LEVELS: Record<string, [string, string]> = {
+  buyHold: ['Easiest', 'easy'], smaCross: ['Beginner', 'easy'], rsiReversion: ['Beginner', 'easy'],
+  macdCross: ['Intermediate', 'mid'], bbBreakout: ['Intermediate', 'mid'], supertrend: ['Intermediate', 'mid'],
+  zones: ['Advanced', 'hard'], martingale: ['Advanced · risky', 'hard'],
+};
 import { previousTitle } from './starterFlow';
 import { MAX_PREVIOUS, type PreviousWorkspace } from './starterMemory';
 
@@ -14,16 +21,20 @@ export function createStarterPicker(
   starters: readonly StarterDef[],
   handlers: { onPick(id: StarterDef['id']): void; onRestore(id: string): void; previousList(): PreviousWorkspace[] },
 ): void {
-  const pop = createPopover('Start from…', 'Load a ready-made strategy into the Blocks pane (your current blocks are kept under "Previous workspaces")', 'Starter strategies', 'starter-picker');
-  const item = (label: string, description: string, onClick: () => void, cls = '') => {
-    const b = h('button', { type: 'button', class: `starter-item ${cls}` }, h('span', { class: 'starter-label' }, label), h('span', { class: 'starter-desc' }, description));
+  const pop = createPopover('Start from…', 'Load a ready-made strategy you can study and change. Your current blocks are kept under “Previous workspaces”, so nothing is lost.', 'Starter strategies', 'starter-picker');
+  pop.root.classList.add('starter-pop');
+  const item = (label: string, description: string, onClick: () => void, cls = '', level?: [string, string]) => {
+    const b = h('button', { type: 'button', class: `starter-item ${cls}` },
+      h('span', { class: 'starter-label' }, label, ...(level ? [h('span', { class: `level level-${level[1]}` }, level[0])] : [])),
+      h('span', { class: 'starter-desc' }, description));
     b.addEventListener('click', () => {
       pop.close(true); // focus back on "Start from…", not <body>
       onClick();
     });
     return b;
   };
-  for (const s of starters) pop.panel.append(item(s.label, s.description, () => handlers.onPick(s.id)));
+  pop.panel.append(h('div', { class: 'starter-heading' }, 'Ready-made strategies'));
+  for (const s of starters) pop.panel.append(item(s.label, s.description, () => handlers.onPick(s.id), '', LEVELS[s.id]));
   const previous = h('div', { class: 'starter-previous', role: 'group', 'aria-label': 'Previous workspaces' });
   pop.panel.append(h('div', { class: 'starter-sep', role: 'separator' }), h('div', { class: 'starter-heading' }, `Previous workspaces (last ${MAX_PREVIOUS})`), previous);
 

@@ -3,6 +3,7 @@ import { h } from './dom';
 import { toUtcDateTimeValue, type Badge, type SessionRow } from './liveFormat';
 import type { Verdict } from './verdict';
 import { VerdictView } from './verdictView';
+import { infoButton } from './tooltip';
 
 export interface LiveForm {
   name: string;
@@ -36,19 +37,21 @@ export function createLivePanel(container: HTMLElement, handlers: LivePanelHandl
   const startMode = h('select', { name: 'liveStartMode' }, h('option', { value: 'now' }, 'Now'), h('option', { value: 'past' }, 'Past time (replay, then live)'));
   const pastStart = h('input', { type: 'datetime-local', name: 'livePastStart', step: '60' });
   pastStart.value = toUtcDateTimeValue(nowMs - 3 * 3_600_000);
-  const pastField = h('label', { hidden: '' }, h('span', {}, 'From (UTC)'), pastStart);
+  const pastField = h('label', { class: 'field', hidden: '' }, pastStart);
   startMode.addEventListener('change', () => { pastField.hidden = startMode.value !== 'past'; });
-  const warmup = h('input', { type: 'number', name: 'liveWarmup', min: '0', max: '5000', step: '1', style: 'width:70px', title: 'Closed bars before the start that warm up the indicators; orders are ignored during warm-up' });
+  const warmup = h('input', { type: 'number', name: 'liveWarmup', min: '0', max: '5000', step: '1', style: 'width:84px' });
   warmup.value = String(DEFAULT_WARMUP_BARS);
-  const start = h('button', { type: 'submit', class: 'run' }, 'Start live session');
+  const start = h('button', { type: 'submit', class: 'run', title: 'Start a practice session: your strategy trades on live prices with pretend money. You can stop it any time.' }, 'Start live session');
 
-  const field = (label: string, el: HTMLElement) => h('label', {}, h('span', {}, label), el);
+  const field = (label: string, el: HTMLElement, help: string) =>
+    h('label', { class: 'field' }, h('span', { class: 'field-label' }, label, infoButton(help, `What is “${label}”?`, label)), el);
+  pastField.replaceChildren(h('span', { class: 'field-label' }, 'From (UTC)', infoButton('The moment to start from, in UTC time (London winter time). The robot replays the candles since then quickly, then keeps going live.', 'What is “From (UTC)”?')), pastStart);
   const form = h(
     'form', { class: 'run-form live-form' },
-    field('Session name', name),
-    field('Start', startMode),
+    field('Session name', name, 'A name to recognise this session in the list below, like “My first robot”. You can leave it empty.'),
+    field('Start', startMode, '“Now” starts trading from the next candle. “Past time” first replays recent candles quickly (so you see results sooner), then carries on live.'),
     pastField,
-    field('Warm-up bars', warmup),
+    field('Warm-up candles', warmup, 'How many earlier candles the indicators look at before trading starts, so that an average of 50 candles already has a value. No trades happen during warm-up.'),
     start,
   );
   form.addEventListener('submit', (ev) => {
@@ -56,7 +59,7 @@ export function createLivePanel(container: HTMLElement, handlers: LivePanelHandl
     handlers.onStart({ name: name.value, startMode: startMode.value === 'past' ? 'past' : 'now', pastStart: pastStart.value, warmupBars: warmup.value });
   });
 
-  const honesty = h('div', { class: 'live-honesty' }, 'Paper trading — no real orders are ever sent. Fake money, real Binance prices (market data only).');
+  const honesty = h('div', { class: 'live-honesty' }, '🛡 Practice trading: pretend money, real prices. No real orders are ever sent.');
   const badge = h('span', { class: 'live-badge', hidden: '' });
   const badgeDetail = h('span', { class: 'live-detail' });
   const mark = h('span', { class: 'live-mark', hidden: '' });
@@ -99,7 +102,7 @@ export function createLivePanel(container: HTMLElement, handlers: LivePanelHandl
     },
     setSessions(rows, viewedId) {
       if (rows.length === 0) {
-        list.replaceChildren(h('div', { class: 'hint' }, 'No live sessions yet. Pick product, timeframe, account settings and a strategy above, then start one.'));
+        list.replaceChildren(h('div', { class: 'hint' }, 'No live sessions yet. Pick a coin and candle size above, then press “Start live session”. Your strategy from the Strategy panel will start trading with pretend money.'));
         return;
       }
       const button = (label: string, title: string, onClick: () => void, cls = '') => {

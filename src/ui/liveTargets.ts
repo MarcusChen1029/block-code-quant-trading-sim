@@ -51,8 +51,8 @@ export class LiveTargets {
       return b;
     };
     this.buttons = {
-      local: button('local', 'This browser', 'Sessions run in this tab (they stop when it closes)'),
-      server: button('server', 'Server (24/7)', 'Sessions run on your quant-sim server around the clock; this page views and controls them'),
+      local: button('local', 'This browser', 'Your robot runs inside this browser tab. It pauses when you close the tab and carries on when you come back.'),
+      server: button('server', 'Server (24/7)', 'For advanced users: your robot runs on your own Quant Sim server day and night, and this page just watches and controls it.'),
     };
 
     this.urlInput = h('input', { type: 'url', name: 'serverUrl', placeholder: 'http://localhost:8787', style: 'width:200px' }) as HTMLInputElement;

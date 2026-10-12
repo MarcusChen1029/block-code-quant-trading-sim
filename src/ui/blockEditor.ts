@@ -10,6 +10,7 @@ import { readStaleChoice } from '../blocks/staleChoice';
 import { fixupIndicatorBlocks } from '../blocks/workspaceFixup';
 import { loadWorkspaceSafely, type LoadResult } from '../blocks/workspaceLoad';
 import { loadJson, saveJson } from './storage';
+import { currentTheme, onThemeChange } from './theme';
 
 export const WORKSPACE_STORAGE_KEY = 'quant-sim.blocks.workspace.v1';
 const ISSUE_WARNING_ID = 'compile';
@@ -58,15 +59,18 @@ export function createBlockEditor(
   defineBlocks();
   const ws = Blockly.inject(container, {
     toolbox: buildToolbox() as unknown as Blockly.utils.toolbox.ToolboxDefinition,
-    theme: quantTheme(),
+    theme: quantTheme(currentTheme()),
+    media: `${import.meta.env.BASE_URL}blockly-media/`,
     renderer: 'zelos',
     trashcan: true,
     sounds: false,
-    grid: { spacing: 24, length: 2, colour: '#2a2e39', snap: true },
+    grid: { spacing: 24, length: 2, colour: '#2a2e39', snap: true }, // colour: style.css (--bk-grid) per theme
     zoom: { controls: true, wheel: true, startScale: 0.65, maxScale: 2, minScale: 0.2, scaleSpeed: 1.15 },
     move: { scrollbars: true, drag: true, wheel: false },
     maxInstances: { ...HAT_MAX_INSTANCES },
   });
+
+  onThemeChange((mode) => ws.setTheme(quantTheme(mode)));
 
   let loading = false;
   let lastJson = '';

@@ -20,6 +20,7 @@ import { computeOverlaySeries, dedupeOverlaySignals, lineTitle, overlayPoint, si
 import type { LogicalRange } from './viewRange';
 import { ZoneStore, type ZoneRect } from './zoneGeometry';
 import { ZoneLayer } from './zonePrimitive';
+import { onThemeChange, themeColors } from './theme';
 
 interface ActiveSignal {
   signal: OverlaySignal;
@@ -74,7 +75,7 @@ export class ChartPanel {
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: '#131722' }, textColor: '#d1d4dc' },
       grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
-      timeScale: { timeVisible: true, secondsVisible: false },
+      timeScale: { timeVisible: true, secondsVisible: false, lockVisibleTimeRangeOnResize: true },
     });
     this.candles = this.chart.addSeries(CandlestickSeries, {
       upColor: UP_COLOR,
@@ -91,6 +92,8 @@ export class ChartPanel {
     this.legend.className = 'signal-legend';
     this.legend.hidden = true;
     container.append(this.legend);
+    this.applyTheme();
+    onThemeChange(() => this.applyTheme());
     this.chart.subscribeCrosshairMove((param) => {
       const t = typeof param.time === 'number' ? param.time * 1000 : null;
       if (t === this.hoverTime) return;
@@ -109,6 +112,23 @@ export class ChartPanel {
     this.lastTime = candles.length > 0 ? candles[candles.length - 1].time : -Infinity;
     this.times = candles.map((c) => c.time);
     if (fit) this.fit();
+  }
+
+  /** Background, text, grid and border colours from the shown theme. */
+  private applyTheme(): void {
+    const c = themeColors();
+    this.chart.applyOptions({
+      layout: { background: { type: ColorType.Solid, color: c.chartBg }, textColor: c.chartText },
+      grid: { vertLines: { color: c.chartGrid }, horzLines: { color: c.chartGrid } },
+      rightPriceScale: { borderColor: c.chartBorder },
+      timeScale: { borderColor: c.chartBorder },
+    });
+  }
+
+  /** The chart as a PNG image (what is on screen, with price and time axes). */
+  screenshot(): Promise<Blob | null> {
+    const canvas = this.chart.takeScreenshot();
+    return new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
   }
 
   /** The visible logical range (bar indexes), or null when nothing is laid out yet. */

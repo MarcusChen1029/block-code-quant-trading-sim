@@ -27,7 +27,7 @@ export function previousTitle(p: Pick<PreviousWorkspace, 'label' | 'savedAt'>): 
  * BEFORE the load; reverted exactly if the load fails, so a failed load never consumes or overwrites a slot).
  * True when the starter was loaded.
  */
-export function pickStarter(deps: FlowDeps, starter: Pick<StarterDef, 'id' | 'label' | 'description' | 'build'>): boolean {
+export function pickStarter(deps: FlowDeps, starter: Pick<StarterDef, 'label' | 'description' | 'build'> & { id: string }): boolean {
   const { editor, memory } = deps;
   const current = editor.save();
   const plan = memory.planReplace(JSON.stringify(current), isEmptyWorkspace(current));

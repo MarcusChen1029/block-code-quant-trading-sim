@@ -3,14 +3,37 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Quant Sim</title>
+    <title>Quant Sim · Build trading bots with blocks</title>
+    <meta name="description" content="Snap blocks together to build a trading strategy, test it on real past crypto prices, and practise live with pretend money. Free, private, and runs in your browser." />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0f131c" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f3f5f9" media="(prefers-color-scheme: light)" />
+    <meta property="og:title" content="Quant Sim · Build trading bots with blocks" />
+    <meta property="og:description" content="Snap blocks together, test your idea on real past prices, and practise with pretend money." />
+    <meta property="og:type" content="website" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <script>
+      // Apply the saved theme and text size before the first paint, so the page never flashes the wrong colours.
+      try {
+        var t = localStorage.getItem('quant-sim.theme');
+        var dark = t === 'dark' || (t !== 'light' && !matchMedia('(prefers-color-scheme: light)').matches);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        var s = localStorage.getItem('quant-sim.text-size');
+        if (s === 'large' || s === 'larger') document.documentElement.dataset.textSize = s;
+      } catch (e) {
+        document.documentElement.dataset.theme = 'dark';
+      }
+    </script>
   </head>
   <body>
-    <header id="topbar"></header>
-    <section id="live" class="live-panel" aria-label="Live paper trading"></section>
-    <nav id="pane-switch" class="pane-switch"></nav>
+    <a class="skip-link" href="#chart">Skip to the chart</a>
+    <header id="appbar" class="appbar"></header>
+    <header id="topbar" aria-label="Test settings"></header>
+    <section id="live" class="live-panel" aria-label="Live practice trading"></section>
+    <nav id="pane-switch" class="pane-switch" aria-label="Choose what to show"></nav>
     <div id="layout">
-      <section id="left" class="pane">
+      <section id="left" class="pane panel" data-panel="strategy" aria-labelledby="left-title">
         <div id="left-tabs" class="tabs"></div>
         <div id="blockly"></div>
         <ul id="problems" class="problems" hidden></ul>
@@ -18,12 +41,23 @@
       </section>
       <div id="splitter" class="splitter"></div>
       <main id="main" class="pane">
-        <div id="chart"></div>
-        <div id="verdict" class="verdict" hidden></div>
-        <section id="stats"></section>
+        <section id="chart-panel" class="panel" data-panel="chart" aria-labelledby="chart-title">
+          <div id="chart" tabindex="-1"></div>
+        </section>
+        <section id="results-panel" class="panel" data-panel="results" aria-labelledby="results-title">
+          <div class="panel-body results-body">
+            <div id="verdict" class="verdict" hidden></div>
+            <section id="stats"></section>
+          </div>
+        </section>
       </main>
     </div>
-    <footer id="status">Loading…</footer>
+    <footer id="footer" class="footer">
+      <div id="status" role="status" aria-live="polite">Loading…</div>
+    </footer>
+    <noscript>
+      <div class="noscript">Quant Sim needs JavaScript to run. Please turn it on in your browser settings and reload the page.</div>
+    </noscript>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -12,8 +12,8 @@ import { describeFlowError, LazyLoader, notReadyMessage } from './ui/lazyLoader'
 import { blockIndicatorOverlays, defaultIndicatorUse, zoneToggleOverlays } from './ui/blockOverlays';
 import { ChartPanel } from './ui/chart';
 import { h } from './ui/dom';
-import { createProblemsView, createStrategyPicker, setupLayout, setupSplitter, type LeftTab } from './ui/layout';
-import { getStarter, STARTERS, type StarterId } from './blocks/starters';
+import { createProblemsView, createStrategyPicker, setupLayout, setupRowSplitter, setupSplitter, type LeftTab } from './ui/layout';
+import { getStarter, STARTERS, type StarterDef, type StarterId } from './blocks/starters';
 import { parseStoredFraction } from './ui/splitter';
 import { StarterMemory } from './ui/starterMemory';
 import { pickStarter as pickStarterFlow, restorePrevious as restorePreviousFlow, type FlowDeps } from './ui/starterFlow';
@@ -39,6 +39,21 @@ import { loadJson, loadText, saveJson, saveText } from './ui/storage';
 import { createTopBar, type AppMode } from './ui/topbar';
 import { BacktestError, runBacktestInWorker } from './worker/client';
 import type { StrategySpec } from './worker/protocol';
+import { createAppBar } from './ui/appbar';
+import { buildStrategyFile, datedFileName, downloadFile, newPineScripts, parseStrategyFile } from './ui/exportFiles';
+import { createHelpWindow } from './ui/help';
+import { icon } from './ui/icons';
+import { setupPanels } from './ui/panels';
+import { savePineRecords } from './ui/pineStore';
+import { initShortcuts } from './ui/shortcuts';
+import { initTheme, toggleTheme } from './ui/theme';
+import { initTooltips, tip } from './ui/tooltip';
+import { startTour, tourDone } from './ui/tour';
+import { CANDLE_DB_NAME } from './data/candleCache';
+import { DB_NAME as LIVE_DB_NAME } from './live/store';
+
+initTheme();
+initTooltips();
 
 type StrategyChoice = 'blocks' | 'smaCross';
 const STRATEGY_STORAGE_KEY = 'quant-sim.strategy';
@@ -46,6 +61,7 @@ const LEFT_TAB_STORAGE_KEY = 'quant-sim.left-tab';
 const MODE_STORAGE_KEY = 'quant-sim.mode';
 const OVERLAYS_STORAGE_KEY = 'quant-sim.overlays.v1';
 const SPLIT_STORAGE_KEY = 'quant-sim.split.v1';
+const RESULTS_HEIGHT_STORAGE_KEY = 'quant-sim.results-height.v1';
 
 /** Top-bar picker: the classic overlays plus the zone indicators' "show on chart" toggles (default settings). */
 const PICKER_OVERLAYS: OverlayDef[] = [...OVERLAYS, ...zoneToggleOverlays()];
@@ -72,6 +88,7 @@ function setStatus(text: string, isError = false): void {
   const status = document.getElementById('status')!;
   status.textContent = text;
   status.classList.toggle('error', isError);
+  status.dataset.tone = isError ? 'error' : /^(Backtest done|Loaded|Imported)/.test(text) ? 'ok' : 'info';
 }
 
 const adapter = new BinanceFuturesAdapter();
@@ -220,13 +237,42 @@ setupLayout(document.getElementById('pane-switch')!, document.getElementById('le
   else pineEditor.refresh();
 });
 new ResizeObserver(() => editor?.resize()).observe(blocklyEl);
-const fitButton = h('button', { type: 'button', class: 'fit-blocks', title: 'Zoom and scroll so the whole strategy is visible' }, 'Fit');
+const fitButton = tip(h('button', { type: 'button', class: 'btn btn-small fit-blocks' }, icon('fit', 14), h('span', {}, 'Fit')),
+  'Zoom and scroll so your whole strategy fits on screen.');
 fitButton.addEventListener('click', () => editor?.fit());
 document.getElementById('left-tabs')!.append(fitButton);
 /** Fit after Blockly has laid the new blocks out (animation frames may stall in a hidden window: use a timer). */
 function fitSoon(): void {
   setTimeout(() => editor?.fit(), 60);
 }
+
+const panels = setupPanels([
+  { id: 'strategy', el: document.getElementById('left')!, step: '1', title: 'Strategy', icon: 'blocks',
+    description: 'Your robot’s rules, built from blocks. Drag blocks from the categories on the left and snap them together. The robot runs the “when a bar closes” blocks once for every candle.' },
+  { id: 'chart', el: document.getElementById('chart-panel')!, step: '2', title: 'Price chart', icon: 'chart',
+    description: 'Each candle is one slice of time: green means the price went up, red means it went down. After a test, arrows show where your robot bought and sold. Scroll to zoom, drag to move around.' },
+  { id: 'results', el: document.getElementById('results-panel')!, step: '3', title: 'Results', icon: 'trophy',
+    description: 'How your strategy did: a one-line summary, the key numbers (hover over each to learn what it means), how your money changed over time, and a list of every trade.' },
+], () => editor?.resize());
+
+// Chart actions: reset the view, save a picture.
+const chartFit = tip(h('button', { type: 'button', class: 'icon-btn' }, icon('fit')), 'Zoom out to show all the candles again.');
+chartFit.setAttribute('aria-label', 'Show all candles');
+chartFit.addEventListener('click', () => chart.fit());
+const chartShot = tip(h('button', { type: 'button', class: 'icon-btn' }, icon('camera')), 'Save a picture of the chart (PNG), for example to share your result.');
+chartShot.setAttribute('aria-label', 'Save the chart as a picture');
+chartShot.addEventListener('click', () => {
+  void chart.screenshot().then((blob) => {
+    if (blob) downloadFile(datedFileName('quant-sim-chart', 'png', Date.now()), blob, 'image/png');
+  });
+});
+panels.actions('chart').append(chartFit, chartShot);
+
+const rowSplitter = h('div', { class: 'row-splitter' });
+document.getElementById('results-panel')!.before(rowSplitter);
+const savedResultsHeight = Number(loadText(RESULTS_HEIGHT_STORAGE_KEY));
+setupRowSplitter(document.getElementById('main')!, rowSplitter, savedResultsHeight > 0 ? savedResultsHeight : null,
+  (px) => saveText(RESULTS_HEIGHT_STORAGE_KEY, px === null ? '' : String(px)));
 
 setupSplitter(
   document.getElementById('layout')!,
@@ -524,6 +570,86 @@ renderOverlayPicker(topBar.tools, PICKER_OVERLAYS, pickedOverlayIds, (ids) => {
   saveJson(OVERLAYS_STORAGE_KEY, ids);
   applyOverlays();
 });
+
+const help = createHelpWindow(() => startTour());
+
+/** Saves the blocks and the Pine scripts as a file. */
+async function exportStrategy(): Promise<void> {
+  const ed = await editorLoader.get();
+  downloadFile(datedFileName('quant-sim-strategy', 'json', Date.now()), JSON.stringify(buildStrategyFile(ed.save(), pineRecords, Date.now()), null, 2), 'application/json');
+  setStatus('Exported your strategy as a file. Use Settings › Import strategy to load it again, here or on another computer.');
+}
+
+/** Loads blocks (and any Pine scripts this browser lacks) from an exported file; the current blocks are kept. */
+async function importStrategy(file: File): Promise<void> {
+  const parsed = parseStrategyFile(await file.text());
+  if (!parsed.ok) {
+    setStatus(parsed.error, true);
+    return;
+  }
+  const added = newPineScripts(pineRecords, parsed.file.pineScripts);
+  if (added.length > 0) {
+    // The Pine editor owns the script list: store the merged list and reload, so every part picks it up.
+    if (!window.confirm(`This strategy brings ${added.length} Pine script${added.length > 1 ? 's' : ''}. Add ${added.length > 1 ? 'them' : 'it'} and reload the page?\n\nYour current blocks are kept under “Start from…” → Previous workspaces.`)) return;
+  }
+  const ed = await editorLoader.get();
+  const name = file.name.replace(/\.json$/i, '').slice(0, 60) || 'imported strategy';
+  if (!pickStarterFlow(flowDeps(ed), { id: 'imported', label: `Imported: ${name}`, description: 'Loaded from a file.', build: () => parsed.file.workspace as ReturnType<StarterDef['build']> })) return;
+  clearResults();
+  if (strategyChoice !== 'blocks') setStrategyChoice('blocks');
+  if (added.length > 0) {
+    savePineRecords([...pineRecords, ...added]);
+    location.reload();
+    return;
+  }
+  fitSoon();
+}
+
+/** Deletes everything this app stored in the browser (after asking) and starts fresh. */
+function resetEverything(): void {
+  if (!window.confirm('Delete everything Quant Sim saved in this browser?\n\nThis removes your blocks, Pine scripts, previous workspaces, live sessions and settings. It cannot be undone. (Tip: Export strategy first to keep a copy.)')) return;
+  try {
+    for (const key of Object.keys(localStorage)) if (key.startsWith('quant-sim.')) localStorage.removeItem(key);
+  } catch {
+    // storage blocked: nothing to remove
+  }
+  try {
+    indexedDB.deleteDatabase(LIVE_DB_NAME);
+    indexedDB.deleteDatabase(CANDLE_DB_NAME);
+  } catch {
+    // no IndexedDB
+  }
+  location.reload();
+}
+
+createAppBar(document.getElementById('appbar')!, {
+  onHelp: () => help.open(),
+  onTour: () => startTour(),
+  onResetLayout: () => {
+    panels.reset();
+    // Both drag handles reset on double-click.
+    for (const id of ['splitter']) document.getElementById(id)!.dispatchEvent(new MouseEvent('dblclick'));
+    rowSplitter.dispatchEvent(new MouseEvent('dblclick'));
+    setStatus('Layout reset: every panel is back at its normal size.');
+  },
+  onExportStrategy: () => void exportStrategy().catch((err: unknown) => reportFlowError(err, 'export the strategy')),
+  onImportStrategy: (file) => void importStrategy(file).catch((err: unknown) => reportFlowError(err, 'import the strategy')),
+  onResetEverything: resetEverything,
+});
+
+initShortcuts({
+  run: () => {
+    if (mode === 'backtest') void run();
+  },
+  help: () => help.open(),
+  toggleStrategy: () => panels.toggle('strategy'),
+  toggleResults: () => panels.toggle('results'),
+  fullChart: () => panels.full('chart'),
+  theme: toggleTheme,
+});
+
+// First visit: a short guided tour (after the first paint, so it can point at real things).
+if (!tourDone()) setTimeout(() => startTour(), 900);
 
 // Development builds only: lets a browser check read what the chart drew (zone boxes, signal counts).
 if (import.meta.env.DEV) (window as unknown as { __quantSim?: unknown }).__quantSim = { chart };
