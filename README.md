@@ -53,5 +53,5 @@ Source layout: `src/blocks` (Blockly blocks, compiler, starters), `src/engine` (
 server). Plain-English text for the whole interface lives in `src/ui/descriptions.ts` and `src/ui/helpContent.ts`;
 colours are CSS variables in `src/style.css` (charts and Blockly follow them through `src/ui/theme.ts`).
 
-Prices come from Binance public market data only. Blockly's icons are served from `public/blockly-media/`, so the
+Prices come from Binance public market data only. Blockly icons are served from `public/blockly-media/`, so the
 page makes no requests to third-party servers except Binance.

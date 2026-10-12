@@ -607,3 +607,6 @@ div.blocklyTooltipDiv { background: var(--text); color: var(--bg); border: none;
   #live { max-height: 70vh; overflow: auto; }
   .panel[data-full] { overflow: auto; }
 }
+/* Blockly's drag cursors are images it would fetch from its media folder; standard cursors do the same job. */
+.blocklyDragging, .blocklyDragging * { cursor: grabbing !important; }
+.blocklyDragging.blocklyDraggingDelete, .blocklyDragging.blocklyDraggingDelete * { cursor: not-allowed !important; }
