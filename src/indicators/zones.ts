@@ -137,6 +137,9 @@ export interface SwingValue {
    */
   chochUp: boolean;
   chochDown: boolean;
+  /** Any upward / downward break (BOS or CHoCH): the meaning bosUp / bosDown had before CHoCH existed. */
+  breakUp: boolean;
+  breakDown: boolean;
   /** Zone lifecycle events of this bar (swing levels). */
   events: Zone[];
 }
@@ -202,7 +205,7 @@ export class SwingStructure {
     }
     return {
       lastHigh: this.lastHigh, lastLow: this.lastLow, highConfirmed: high !== null, lowConfirmed: low !== null, bosUp, bosDown, chochUp, chochDown,
-      events,
+      breakUp: bosUp || chochUp, breakDown: bosDown || chochDown, events,
     };
   }
 }
@@ -377,8 +380,8 @@ export class OrderBlocks {
       }
     };
     // Every break forms a block, whether it is a BOS or a CHoCH (unchanged from before CHoCH existed).
-    if (s.bosUp || s.chochUp) form('bullish');
-    if (s.bosDown || s.chochDown) form('bearish');
+    if (s.breakUp) form('bullish');
+    if (s.breakDown) form('bearish');
     this.recent.push(bar);
     return { ...this.book.read(bar), newBull: made.bullish, newBear: made.bearish, bullMitigated: mitigated.bull, bearMitigated: mitigated.bear, events };
   }

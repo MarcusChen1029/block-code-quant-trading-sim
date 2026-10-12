@@ -66,7 +66,7 @@ export const ZONE_INDICATORS: IndicatorBlockDef[] = [
       '"left" bars before it and not below the "right" bars after it; it is only known "right" bars later (no look-ahead). ' +
       'A close above the last confirmed swing high that has not been broken yet (once per level) is an upward break: a break of ' +
       'structure (BOS) when the previous break was also up (or there was none), a change of character (CHoCH) when the previous ' +
-      'break was down. Exactly one of the two fires per break; downward breaks mirrored. Outputs: last swing high / low price (na until known).',
+      'break was down. Exactly one of the two fires per break; "Any break" fires on both (the old BOS meaning); downward breaks mirrored. Outputs: last swing high / low price (na until known).',
     params: [int('left', 'left bars', 5, 1, 50), int('right', 'right bars', 5, 1, 50)],
     outputs: [{ key: 'last_high', label: 'last swing high' }, { key: 'last_low', label: 'last swing low' }],
     signals: [
@@ -74,6 +74,9 @@ export const ZONE_INDICATORS: IndicatorBlockDef[] = [
       { key: 'bos_down', label: 'Break of structure down', marker: { ...DOWN, text: 'BOS down' } },
       { key: 'choch_up', label: 'Change of character up', marker: { ...UP, text: 'CHoCH up' } },
       { key: 'choch_down', label: 'Change of character down', marker: { ...DOWN, text: 'CHoCH down' } },
+      // Every break, BOS or CHoCH: what bos_up / bos_down meant before CHoCH existed (no marker: BOS / CHoCH mark it).
+      quiet('break_up', 'Any break up'),
+      quiet('break_down', 'Any break down'),
       quiet('high_confirmed', 'Swing high confirmed'),
       quiet('low_confirmed', 'Swing low confirmed'),
     ],
@@ -84,7 +87,7 @@ export const ZONE_INDICATORS: IndicatorBlockDef[] = [
         return {
           values: {
             last_high: v.lastHigh, last_low: v.lastLow, bos_up: bit(v.bosUp), bos_down: bit(v.bosDown),
-            choch_up: bit(v.chochUp), choch_down: bit(v.chochDown),
+            choch_up: bit(v.chochUp), choch_down: bit(v.chochDown), break_up: bit(v.breakUp), break_down: bit(v.breakDown),
             high_confirmed: bit(v.highConfirmed), low_confirmed: bit(v.lowConfirmed),
           },
           events: v.events,
