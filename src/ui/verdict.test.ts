@@ -98,7 +98,12 @@ describe('buildVerdict', () => {
     expect(v({ fillCount: 0, tradeCount: 0, activity: activity(2000, 2) }).hint).toBe(
       'It placed 2 orders but none filled — a limit price was never reached, or the order was placed on the last bar.');
     expect(v({ fillCount: 0, tradeCount: 0, activity: activity(2000, 3, 1) }).hint).toBe(
-      'It placed 3 orders but none filled (rejected: 1 × insufficient margin (the order needed more margin than was free: lower the size or raise the leverage)) — a limit price was never reached, or the order was placed on the last bar.');
+      'It placed 3 orders but none filled: 1 × insufficient margin (the order needed more margin than was free: lower the size or raise the leverage); the other 2 never filled — a limit price was never reached, or the order was placed on the last bar.');
+  });
+
+  it('almost all rejected (seen in the browser: 500% of equity at 1x): the rejection leads, the last-bar order is a footnote', () => {
+    expect(v({ fillCount: 0, tradeCount: 0, activity: activity(2160, 2160, 2159) }).hint).toBe(
+      'It placed 2,160 orders but none filled: 2,159 × insufficient margin (the order needed more margin than was free: lower the size or raise the leverage); the other 1 never filled — a limit price was never reached, or the order was placed on the last bar.');
   });
 
   it('notes rejected orders on a run that did trade', () => {

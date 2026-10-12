@@ -124,7 +124,10 @@ function noTrades(input: VerdictInput): Verdict {
   return {
     tone: 'warn',
     text: `No trades.${tail}`,
-    hint: `It placed ${plural(a.orderRequests, 'order')} but none filled${rejected > 0 ? ` (rejected: ${reasonsText(a)})` : ''} — a limit price was never reached, or the order was placed on the last bar.`,
+    // Rejections lead (they are the cause for those orders); only the rest is put down to limits / the last bar.
+    hint: rejected > 0
+      ? `It placed ${plural(a.orderRequests, 'order')} but none filled: ${reasonsText(a)}; the other ${(a.orderRequests - rejected).toLocaleString('en-US')} never filled — a limit price was never reached, or the order was placed on the last bar.`
+      : `It placed ${plural(a.orderRequests, 'order')} but none filled — a limit price was never reached, or the order was placed on the last bar.`,
   };
 }
 
