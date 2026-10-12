@@ -5,6 +5,7 @@ import { createApp } from './app';
 import { storedPasswordHash } from './auth';
 import { loadConfig } from './config';
 import { openDatabase } from './db';
+import { acquireInstanceLock } from './instanceLock';
 import { clientFactory, threadWorker } from './worker/factories';
 
 // Built layout: <app>/server/dist/main.js next to worker.js; the frontend in <app>/dist.
@@ -22,6 +23,8 @@ async function main(): Promise<void> {
   }
   if (!permission) log('NOTE: running without the Node permission model; npm run server:start and the systemd unit enable it.');
   mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
+  // One process per data directory: a second one exits cleanly without opening the DB or starting any worker.
+  const lock = acquireInstanceLock(join(config.dataDir, 'quant-sim.lock'));
   const db = openDatabase(config.dbPath);
   if (storedPasswordHash(db) === null) log('WARNING: no password is set; nobody can log in. Run `npm run server:set-password`.');
   if (!existsSync(join(config.distDir, 'index.html'))) log(`WARNING: no built frontend in ${config.distDir} (run \`npm run build\`); only the API is served.`);
@@ -50,6 +53,7 @@ async function main(): Promise<void> {
     }, 10_000);
     void app.close().then(() => {
       db.close();
+      lock.release();
       clearTimeout(force);
       log('stopped');
       process.exit(0);

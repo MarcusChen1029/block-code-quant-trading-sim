@@ -22,6 +22,7 @@ declare var process: {
   version: string;
   cwd(): string;
   exit(code?: number): never;
+  kill(pid: number, signal?: number | string): void;
   on(event: 'SIGTERM' | 'SIGINT' | 'SIGHUP', listener: () => void): void;
   on(event: 'uncaughtException' | 'unhandledRejection', listener: (err: unknown) => void): void;
   stdin: NodeReadable & { isTTY?: boolean; setRawMode?(raw: boolean): void; setEncoding(enc: string): void; pause(): void; resume(): void };

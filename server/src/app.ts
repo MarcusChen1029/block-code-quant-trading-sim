@@ -61,7 +61,6 @@ export async function createApp(options: AppOptions): Promise<App> {
   const auth = new AuthSessions(db, now);
   const throttle = new LoginThrottle({ maxPerAddress: options.loginMaxFailures ?? 5, windowMs: options.loginWindowMs ?? 15 * 60_000, maxQueue: options.loginQueue ?? 20, now });
   const manager = new SessionManager({ ...options.manager, store: new SqliteSessionStore(db), createClient: options.createClient, now });
-  await manager.init();
   const allowed = new Set(options.allowedOrigins ?? []);
   const streams = new Set<Stream>();
   let closing = false;
@@ -278,14 +277,18 @@ export async function createApp(options: AppOptions): Promise<App> {
   return {
     server,
     manager,
-    listen(port, host) {
-      return new Promise((resolveListen, reject) => {
+    async listen(port, host) {
+      const bound = await new Promise<number>((resolveListen, reject) => {
         server.on('error', reject);
         server.listen(port, host, () => {
           const addr = server.address();
           resolveListen(typeof addr === 'object' && addr ? addr.port : port);
         });
       });
+      // Resume running sessions only AFTER the port is bound, so a second process that loses the instance lock (or
+      // fails to bind) never starts workers against the same database.
+      await manager.init();
+      return bound;
     },
     async close() {
       closing = true;
