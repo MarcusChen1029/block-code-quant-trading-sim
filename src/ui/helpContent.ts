@@ -60,6 +60,7 @@ export const BUTTON_GUIDE: ReadonlyArray<{ name: string; text: string }> = [
   { name: 'Fees and slippage', text: `${FIELD_TEXT.takerFee} ${FIELD_TEXT.makerFee} ${FIELD_TEXT.slippage}` },
   { name: 'Blocks tab', text: TAB_TEXT.blocks.on },
   { name: 'Pine (advanced) tab', text: TAB_TEXT.pine.on },
+  { name: 'Undo and Redo', text: 'Undo takes back your last change to the blocks; Redo puts it back. Handy when a block lands in the wrong place.' },
   { name: 'Fit', text: 'Zooms and moves the block editor so you can see all of your blocks at once.' },
   { name: 'Hide', text: 'Hides a panel to make room. A strip appears with a button to bring it back.' },
   { name: 'Full page', text: 'Makes one panel fill the whole page. Press Esc or "Exit full page" to go back.' },

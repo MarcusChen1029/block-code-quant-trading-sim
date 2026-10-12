@@ -1,4 +1,5 @@
 import { DEFAULT_WARMUP_BARS } from '../live/session';
+import { setExplain } from './explain';
 import { h } from './dom';
 import { toUtcDateTimeValue, type Badge, type SessionRow } from './liveFormat';
 import type { Verdict } from './verdict';
@@ -37,7 +38,10 @@ export function createLivePanel(container: HTMLElement, handlers: LivePanelHandl
   const pastStart = h('input', { type: 'datetime-local', name: 'livePastStart', step: '60' });
   pastStart.value = toUtcDateTimeValue(nowMs - 3 * 3_600_000);
   const pastField = h('label', { hidden: '' }, h('span', {}, 'From (UTC)'), pastStart);
-  startMode.addEventListener('change', () => { pastField.hidden = startMode.value !== 'past'; });
+  const explainStart = () => setExplain(startMode, 'Where the session starts',
+    startMode.value === 'past' ? 'The session will first replay the candles since the time you pick, quickly, then carry on live.' : 'The session will start at this moment and follow the live prices.');
+  explainStart();
+  startMode.addEventListener('change', () => { pastField.hidden = startMode.value !== 'past'; explainStart(); });
   const warmup = h('input', { type: 'number', name: 'liveWarmup', min: '0', max: '5000', step: '1', style: 'width:70px', title: 'Closed bars before the start that warm up the indicators; orders are ignored during warm-up' });
   warmup.value = String(DEFAULT_WARMUP_BARS);
   const start = h('button', { type: 'submit', class: 'run' }, 'Start live session');

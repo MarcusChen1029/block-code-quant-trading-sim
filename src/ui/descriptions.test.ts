@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { OVERLAYS } from './overlays';
 import { zoneToggleOverlays } from './blockOverlays';
-import { BLOCK_GROUP_TEXT, FIELD_TEXT, OVERLAY_TEXT, overlayText, PANEL_BUTTON_TEXT, PANEL_TEXT } from './descriptions';
+import { BLOCK_GROUP_TEXT, FIELD_TEXT, OVERLAY_TEXT, overlayText, PANEL_BUTTON_TEXT, PANEL_TEXT, timeframeWords } from './descriptions';
+import { TIMEFRAMES } from '../data/types';
 import { BUTTON_GUIDE, DISCLAIMER, GLOSSARY, QUICK_START } from './helpContent';
 import { buildToolbox } from '../blocks/toolbox';
 import { STAT_HELP } from './statHelp';
@@ -46,6 +47,16 @@ describe('descriptions', () => {
     const names = BUTTON_GUIDE.map((b) => b.name);
     expect(new Set(names).size).toBe(names.length);
     for (const b of BUTTON_GUIDE) expect(b.text.length).toBeGreaterThan(20);
+  });
+
+  it('puts every timeframe into words', () => {
+    expect(timeframeWords('1m')).toBe('1 minute');
+    expect(timeframeWords('15m')).toBe('15 minutes');
+    expect(timeframeWords('1h')).toBe('1 hour');
+    expect(timeframeWords('4h')).toBe('4 hours');
+    expect(timeframeWords('1d')).toBe('1 day');
+    expect(timeframeWords('weird')).toBe('weird');
+    for (const tf of TIMEFRAMES) expect(timeframeWords(tf)).toMatch(/^\d+ (minute|hour|day)s?$/);
   });
 
   it('panel button notes name the panel', () => {

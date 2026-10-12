@@ -24,6 +24,9 @@ export interface BlockEditor {
   /** Highlights, selects and scrolls to a block that failed at runtime. */
   highlightError(blockId: string, message: string): void;
   resize(): void;
+  /** Steps back / forward through the edits (the same as Ctrl+Z / Ctrl+Shift+Z in the editor). */
+  undo(): void;
+  redo(): void;
   /** Replaces the workspace with an example: the SMA cross (default) or the order block + FVG zones example. */
   resetToExample(example?: 'smaCross' | 'zones'): void;
   /**
@@ -198,6 +201,8 @@ export function createBlockEditor(
       ws.highlightBlock(blockId);
       block.setWarningText(message, ISSUE_WARNING_ID);
     },
+    undo() { ws.undo(false); },
+    redo() { ws.undo(true); },
     resize() {
       Blockly.svgResize(ws);
       if (pendingFit) fit();

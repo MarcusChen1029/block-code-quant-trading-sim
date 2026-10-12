@@ -18,6 +18,8 @@ const PATHS: Record<string, string> = {
   chart: 'M4 20V4M4 20h16M8 16v-4M12 16V8M16 16v-6',
   list: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01',
   radio: 'M12 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2zM8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.5 5.5a9 9 0 0 0 0 13M18.5 5.5a9 9 0 0 1 0 13',
+  undo: 'M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3',
+  redo: 'M15 14l5-5-5-5M20 9H10a6 6 0 0 0 0 12h3',
   copy: 'M9 9h10v11H9zM5 15V4h10',
   check: 'M5 12.5l4.5 4.5L19 7',
   close: 'M6 6l12 12M18 6L6 18',

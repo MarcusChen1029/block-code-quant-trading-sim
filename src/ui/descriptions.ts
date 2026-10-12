@@ -38,6 +38,14 @@ export const FIELD_TEXT = {
   strategy: 'What Run tests: the blocks you built, or a ready-made example robot.',
 } as const;
 
+/** "15m" -> "15 minutes", "1h" -> "1 hour", "1d" -> "1 day" (anything else comes back as typed). */
+export function timeframeWords(tf: string): string {
+  const m = /^(\d+)([mhd])$/.exec(tf);
+  if (!m) return tf;
+  const unit = { m: 'minute', h: 'hour', d: 'day' }[m[2] as 'm' | 'h' | 'd'];
+  return `${m[1]} ${unit}${m[1] === '1' ? '' : 's'}`;
+}
+
 export const ACCOUNT_TEXT: ToggleText = {
   title: 'Advanced money settings',
   on: 'Here you can change leverage (a loan that makes wins and losses bigger), trading fees and slippage. The defaults are fine to start with.',

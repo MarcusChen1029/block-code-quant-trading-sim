@@ -94,6 +94,20 @@ applyTheme(resolveTheme(loadText(THEME_STORAGE_KEY), window.matchMedia('(prefers
 installTooltips();
 installExplainers();
 
+let lastCrashNote = 0;
+/** A bug nobody caught: log it for the developer, and tell the person once in plain words (their work is saved). */
+function reportCrash(what: unknown): void {
+  console.error(what);
+  if (Date.now() - lastCrashNote < 10_000) return;
+  lastCrashNote = Date.now();
+  toast('Something unexpected happened', 'If anything looks stuck, reload the page. Your blocks and settings are saved in this browser.', 'warn');
+}
+window.addEventListener('error', (ev) => {
+  if (/ResizeObserver loop|^Script error\.?$/.test(ev.message)) return; // browser noise, not a bug in this page
+  reportCrash(ev.error ?? ev.message);
+});
+window.addEventListener('unhandledrejection', (ev) => reportCrash(ev.reason));
+
 let lastErrorToast = { text: '', at: 0 };
 
 /** The footer line. Errors are put in plain words and also pop up once (the footer alone is easy to miss). */
@@ -179,7 +193,7 @@ function onWorkspaceChange(json: unknown): void {
     setStatus(`Blocks: ${result.errors.length} problem${result.errors.length > 1 ? 's' : ''}: ${result.errors[0].message}`, true, false); // listed under the blocks too
     return;
   }
-  if (hadErrors) setStatus('Blocks compile again. Press Run to backtest.');
+  if (hadErrors) setStatus('Your blocks are fixed. Press Run to backtest.');
   const overlayKey = JSON.stringify(result.program.indicators.map(({ blockId: _id, ...use }) => use));
   blockIndicators = result.program.indicators;
   if (overlayKey !== blockOverlayKey && strategyChoice === 'blocks') {
@@ -191,7 +205,7 @@ function onWorkspaceChange(json: unknown): void {
 /** The block editor, once its lazily loaded chunk (Blockly) is in; null until then. */
 let editor: BlockEditor | null = null;
 const blocklyEl = document.getElementById('blockly')!;
-const blocksLoading = h('div', { class: 'blocks-loading', role: 'status' }, 'Loading blocks…');
+const blocksLoading = h('div', { class: 'blocks-loading', role: 'status' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Loading blocks…');
 blocklyEl.append(blocksLoading);
 /** Shown over an empty workspace so a blank grid never looks broken. */
 const blocksEmpty = h('div', { class: 'blocks-empty', hidden: '' },
@@ -220,7 +234,7 @@ const editorLoader = new LazyLoader<BlockEditor>(() => import('./ui/blockEditor'
 }), (error) => {
   const retry = h('button', { type: 'button', class: 'blocks-retry' }, 'Retry');
   retry.addEventListener('click', () => {
-    blocksLoading.textContent = 'Loading blocks…';
+    blocksLoading.replaceChildren(h('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Loading blocks…');
     setStatus('Retrying the block editor load…');
     editorLoader.get().catch(() => {}); // a new failure is reported by this same handler
   });
@@ -559,8 +573,12 @@ const exportTrades = panelAction('Export trades', 'download', 'Save your list of
   toast('Trades saved', `${trades.length} trade${trades.length === 1 ? '' : 's'} saved as a spreadsheet file in your Downloads folder.`, 'good');
 });
 
+const undoButton = panelAction('Undo', 'undo', 'Take back your last change to the blocks (shortcut: Ctrl + Z)', () => editor?.undo());
+const redoButton = panelAction('Redo', 'redo', 'Put back the change you just took back (shortcut: Ctrl + Shift + Z)', () => editor?.redo());
+for (const b of [undoButton, redoButton]) b.classList.add('blocks-only');
+
 const chrome: PanelChrome = createPanelChrome([
-  { id: 'strategy', el: document.getElementById('left')! },
+  { id: 'strategy', el: document.getElementById('left')!, actions: [undoButton, redoButton] },
   { id: 'chart', el: document.getElementById('chart-panel')!, actions: [fitChart, chartPicture] },
   { id: 'results', el: document.getElementById('results-panel')!, actions: [copySummary, exportTrades] },
   { id: 'live', el: document.getElementById('live')! },

@@ -1,6 +1,6 @@
 import { TIMEFRAMES } from '../data/types';
 import { accountSummary } from './accountSummary';
-import { ACCOUNT_TEXT, FIELD_TEXT, MODE_TEXT } from './descriptions';
+import { ACCOUNT_TEXT, FIELD_TEXT, MODE_TEXT, timeframeWords } from './descriptions';
 import { h } from './dom';
 import { setExplain } from './explain';
 import { icon } from './icons';
@@ -48,6 +48,9 @@ export function createTopBar(
   const symbols = h('datalist', { id: 'symbols' }, ...['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'].map((s) => h('option', { value: s })));
   const timeframe = h('select', { name: 'timeframe' }, ...TIMEFRAMES.map((tf) => h('option', { value: tf }, tf)));
   timeframe.value = initial.timeframe;
+  const explainTimeframe = () => setExplain(timeframe, 'Candle size', `Each candle now covers ${timeframeWords(timeframe.value)}. Smaller candles mean more candles and usually more trades. Press Run to try it.`);
+  explainTimeframe();
+  timeframe.addEventListener('change', explainTimeframe);
   const startDate = input('startDate', 'date', '130px');
   const balance = input('balance', 'number', '90px', { min: '0', step: '100' });
   const leverage = input('leverage', 'number', '55px', { min: '1', max: '125', step: '1' });

@@ -304,7 +304,7 @@ body[data-hidden~='strategy'] #layout { padding-left: 12px; }
 .pane-switch { display: none; }
 
 /* Left pane tabs: Blocks | Pine. */
-body[data-left-tab='pine'] #blockly, body[data-left-tab='pine'] #problems, body[data-left-tab='pine'] .fit-blocks { display: none; }
+body[data-left-tab='pine'] #blockly, body[data-left-tab='pine'] #problems, body[data-left-tab='pine'] .fit-blocks, body[data-left-tab='pine'] .blocks-only { display: none; }
 body:not([data-left-tab='pine']) #pine { display: none; }
 .pine-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .pine-toolbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); }
@@ -321,7 +321,7 @@ body:not([data-left-tab='pine']) #pine { display: none; }
 .pine-note { padding: 6px 10px 8px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); }
 .pine-show { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text); cursor: pointer; white-space: nowrap; }
 .pine-show.disabled { opacity: 0.45; cursor: not-allowed; }
-.blocks-loading { padding: 18px; color: var(--muted); font-size: 13.5px; }
+.blocks-loading { display: flex; align-items: center; gap: 10px; padding: 18px; color: var(--muted); font-size: 13.5px; }
 .blocks-retry { margin-left: 6px; }
 
 /* ───────────────────────── Chart & results ───────────────────────── */
