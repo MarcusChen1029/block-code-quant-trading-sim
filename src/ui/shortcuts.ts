@@ -14,7 +14,7 @@ export const SHORTCUT_DOCS: readonly ShortcutDoc[] = [
   { keys: ['F'], what: 'Show the chart full page (again to go back)' },
   { keys: ['Esc'], what: 'Leave full page, or close a menu or window' },
   { keys: ['D'], what: 'Switch between dark and light colours' },
-  { keys: ['Ctrl', 'Z'], what: 'Undo a change to your blocks (Ctrl Shift Z to redo)' },
+  { keys: ['Ctrl', 'Z'], what: 'Undo a change to your blocks (Ctrl Y to redo)' },
   { keys: ['Ctrl', 'S'], what: 'In the Pine tab: check and save the script' },
 ];
 

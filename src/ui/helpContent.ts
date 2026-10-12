@@ -77,5 +77,5 @@ export const FAQ: readonly Faq[] = [
   { q: 'Why did my strategy make no trades?', a: 'Usually the rules never became true, or the indicators were still warming up. Try an earlier start date, a shorter average, or check the red problem list under the blocks.' },
   { q: 'My strategy made money. Will it work in the future?', a: 'Not necessarily. Past prices never promise future prices. A strategy that is tuned very tightly to the past often fails later. Test it on different coins and dates.' },
   { q: 'What does the warning “na” mean?', a: 'Not available: an indicator does not have enough candles yet to give a number. It is normal at the very start of a test.' },
-  { q: 'Can I undo a mistake in the blocks?', a: 'Yes: Ctrl+Z (Cmd+Z on a Mac) undoes and Ctrl+Shift+Z redoes. Loading a starter also keeps your last 3 workspaces under “Start from…”.' },
+  { q: 'Can I undo a mistake in the blocks?', a: 'Yes: use the ↶ Undo and ↷ Redo buttons above the blocks, or Ctrl+Z to undo and Ctrl+Y to redo (⌘ on a Mac). Loading a starter also keeps your last 3 workspaces under “Start from…”.' },
 ];

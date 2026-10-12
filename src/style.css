@@ -372,7 +372,9 @@ body[data-full='results'] #stats { height: auto; flex: 1; }
 .tabs [role='tab'] { display: inline-flex; align-items: center; gap: 6px; border: none; background: transparent; color: var(--text-2); padding: 5px 12px; border-radius: 999px; font-weight: 550; }
 .tabs [role='tab']:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
 .tabs [role='tab'][aria-selected='true'] { background: var(--accent-soft); color: var(--accent-text); }
-.tabs .fit-blocks { margin-left: auto; }
+.blocks-tools { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+.blocks-tools .icon-btn { width: 28px; height: 28px; }
+body[data-left-tab='pine'] .blocks-tools { display: none; }
 #blockly { flex: 1; min-height: 0; position: relative; }
 .injectionDiv pattern line { stroke: var(--bk-grid) !important; }
 .blocklyToolboxDiv { border-right: 1px solid var(--border); }
@@ -397,6 +399,19 @@ body[data-full='results'] #stats { height: auto; flex: 1; }
 .blocklyDropDownDiv { border-radius: var(--radius) !important; box-shadow: var(--shadow) !important; }
 .blocklyMenuItemCheckbox { filter: invert(var(--invert, 0)); }
 :root[data-theme='dark'] { --invert: 1; }
+
+/* Blockly's own confirm / prompt window (delete all blocks, new variable name) */
+dialog.blocklyDialog {
+  border: 1px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--text); box-shadow: var(--shadow);
+  padding: 18px 20px; min-width: min(360px, calc(100vw - 24px)); font: 0.95rem var(--font);
+}
+dialog.blocklyDialog::backdrop { background: rgba(5, 8, 14, 0.55); backdrop-filter: blur(2px); }
+.blocklyDialogPrompt { display: block; font-weight: 600; margin-bottom: 14px; }
+.blocklyDialogForm input { width: 100%; margin-bottom: 14px; }
+.blocklyDialogButtonRow { display: flex; justify-content: flex-end; gap: 8px; }
+.blocklyDialogButtonRow button { min-width: 84px; font-weight: 600; padding: 7px 14px; }
+.blocklyDialogConfirmButton { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.blocklyDialogConfirmButton:hover:not(:disabled) { background: var(--accent-hover) !important; border-color: var(--accent-hover) !important; }
 
 /* Drag handle between the chart and the results (wide layouts) */
 .row-splitter { flex: none; height: 8px; cursor: row-resize; position: relative; z-index: 4; touch-action: none; }

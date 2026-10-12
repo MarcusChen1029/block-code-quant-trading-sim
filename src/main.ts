@@ -240,7 +240,13 @@ new ResizeObserver(() => editor?.resize()).observe(blocklyEl);
 const fitButton = tip(h('button', { type: 'button', class: 'btn btn-small fit-blocks' }, icon('fit', 14), h('span', {}, 'Fit')),
   'Zoom so your whole strategy fits on screen (as far as the blocks stay readable).');
 fitButton.addEventListener('click', () => editor?.fit());
-document.getElementById('left-tabs')!.append(fitButton);
+const undoButton = tip(h('button', { type: 'button', class: 'icon-btn' }, icon('undo')), 'Undo your last change to the blocks. Shortcut: Ctrl + Z');
+undoButton.setAttribute('aria-label', 'Undo');
+undoButton.addEventListener('click', () => editor?.undo());
+const redoButton = tip(h('button', { type: 'button', class: 'icon-btn' }, icon('redo')), 'Redo: bring back the change you just undid. Shortcut: Ctrl + Y');
+redoButton.setAttribute('aria-label', 'Redo');
+redoButton.addEventListener('click', () => editor?.undo(true));
+document.getElementById('left-tabs')!.append(h('div', { class: 'blocks-tools' }, undoButton, redoButton, fitButton));
 /** Fit after Blockly has laid the new blocks out (animation frames may stall in a hidden window: use a timer). */
 function fitSoon(): void {
   setTimeout(() => editor?.fit(), 60);
