@@ -65,7 +65,7 @@ describe('zone blocks: definitions and toolbox', () => {
     expect(((signalBlockJson(getIndicator('fvg')!).args0 as Array<Record<string, unknown>>).find((a) => a.name === 'SIGOUT')?.options as string[][])[2])
       .toEqual(['Price inside bullish FVG', 'in_bull']);
     expect(((signalBlockJson(getIndicator('swing')!).args0 as Array<Record<string, unknown>>).find((a) => a.name === 'SIGOUT')?.options as string[][]).map((o) => o[0]))
-      .toEqual(['Break of structure up', 'Break of structure down', 'Swing high confirmed', 'Swing low confirmed']);
+      .toEqual(['Break of structure up', 'Break of structure down', 'Change of character up', 'Change of character down', 'Any break up', 'Any break down', 'Swing high confirmed', 'Swing low confirmed']);
     // Tooltips state the definition (fixed strings).
     expect(String(ind.tooltip)).toMatch(/LAST bearish candle/);
   });
@@ -233,5 +233,52 @@ describe('zone events through the instance (what the chart draws)', () => {
         expect(z.top).toBeGreaterThanOrEqual(z.bottom);
       }
     }
+  });
+});
+
+describe('swing structure: CHoCH signals next to the stable BOS keys', () => {
+  it('a saved workspace using BOS (JSON round trip) still compiles and reads bos_up / bos_down; choch_* read CHoCH', () => {
+    const P = { LEFT: 3, RIGHT: 3 };
+    const saved = JSON.parse(JSON.stringify(workspace({
+      onBar: [log(signal('swing', 'bos_up', P, null)), log(signal('swing', 'bos_down', P, null)), log(signal('swing', 'choch_up', P, null)), log(signal('swing', 'choch_down', P, null))],
+    })));
+    expect(compileBlocks(saved).ok).toBe(true);
+    const bars = CANDLES.slice(0, 600);
+    const s = new SwingStructure(3, 3);
+    const want = bars.flatMap((c) => {
+      const v = s.update(c);
+      return [String(v.bosUp), String(v.bosDown), String(v.chochUp), String(v.chochDown)];
+    });
+    const got = logs(saved, bars);
+    expect(got).toEqual(want);
+    // Both kinds occur, and never on the same bar for the same direction.
+    expect(got.filter((l, i) => i % 4 === 2 && l === 'true').length).toBeGreaterThan(0);
+    expect(got.filter((l, i) => i % 4 === 0 && l === 'true').length).toBeGreaterThan(0);
+    for (let i = 0; i < got.length; i += 4) expect(got[i] === 'true' && got[i + 2] === 'true').toBe(false);
+  });
+
+  it('keys and labels: the BOS entries are unchanged, CHoCH entries are new', () => {
+    const sigs = getIndicator('swing')!.signals!.map((x) => [x.key, x.label]);
+    expect(sigs.slice(0, 2)).toEqual([['bos_up', 'Break of structure up'], ['bos_down', 'Break of structure down']]);
+    expect(sigs).toContainEqual(['choch_up', 'Change of character up']);
+    expect(sigs).toContainEqual(['choch_down', 'Change of character down']);
+  });
+});
+
+describe('swing structure: "Any break" signals keep the old BOS meaning', () => {
+  it('break_up / break_down fire on every break (BOS or CHoCH), with no chart marker', () => {
+    const sigs = getIndicator('swing')!.signals!;
+    expect(sigs.filter((s) => s.key.startsWith('break_')).map((s) => [s.key, s.label, s.marker])).toEqual([
+      ['break_up', 'Any break up', undefined], ['break_down', 'Any break down', undefined],
+    ]);
+    const P = { LEFT: 5, RIGHT: 5 };
+    const ws = workspace({ onBar: [log(signal('swing', 'break_up', P, null)), log(signal('swing', 'break_down', P, null))] });
+    const bars = CANDLES.slice(0, 600);
+    const s = new SwingStructure(5, 5);
+    const want = bars.flatMap((c) => {
+      const v = s.update(c);
+      return [String(v.bosUp || v.chochUp), String(v.bosDown || v.chochDown)];
+    });
+    expect(logs(ws, bars)).toEqual(want);
   });
 });

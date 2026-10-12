@@ -102,7 +102,8 @@ describe('Pine v6: bool is never na', () => {
     expect(compileErrors(v6('b = close > open\nplot(na(b) ? 1 : 0, "x")'))).toEqual([at(4, 6, /^Pine v6: bool values cannot be na, so na\(\) does not accept a bool$/)]);
     expect(compileErrors(v6('b = close > open\nc = nz(b)\nplot(c ? 1 : 0, "x")'))).toEqual([at(4, 5, /so nz\(\) does not accept a bool/)]);
     expect(compileErrors(v6('var bool b = na\nplot(close, "x")'))).toEqual([at(3, 14, /a bool variable cannot be na; initialise "b"/)]);
-    expect(compileErrors(v6('bool b = true\nb := na\nplot(close, "x")'))).toEqual([at(4, 6, /a bool variable cannot be na; assign true or false to "b"/)]);
+    // [M6] only forbids na as a bool's DEFAULT value; `b := na` compiles and stores false (bool is never na in v6).
+    expect(runPine(compileOk(v6('bool b = true\nb := na\nplot(b ? 1 : 0, "x")')), CANDLES.slice(0, 2)).x).toEqual([0, 0]);
     // v5 accepts all of these.
     expect(compilePine(v5('b = close > open\nplot(na(b) ? 1 : 0, "x")')).ok).toBe(true);
     expect(compilePine(v5('var bool b = na\nplot(close, "x")')).ok).toBe(true);

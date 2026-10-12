@@ -11,7 +11,7 @@ export interface Arg extends Pos {
 }
 
 export type Expr =
-  | (Pos & { k: 'num'; value: number })
+  | (Pos & { k: 'num'; value: number; /** Written as a float (`1.0`, `1e3`) although integral. */ float?: true })
   | (Pos & { k: 'str'; value: string })
   | (Pos & { k: 'bool'; value: boolean })
   | (Pos & { k: 'color'; value: string })

@@ -142,7 +142,7 @@ function compileUnguarded(source: string): PineCompileResult {
 
   const analysis = analyze(program, version === 4 ? 'study' : 'indicator', version);
   // A string or colour series can never be true: reject it rather than compile a signal that never fires.
-  const typeOf = exprTyper(program);
+  const typeOf = exprTyper(program, version);
   for (const sg of analysis.signals) {
     for (const site of sg.sites) {
       const t = site.value ? typeOf(site.value) : 'unknown';
@@ -189,7 +189,7 @@ function compileUnguarded(source: string): PineCompileResult {
 
   const gen = generate({
     program, inputs: bindings, plotIndex, reassigned: analysis.reassigned, dialect: dialectFor(version), boolHistory: v6?.boolHistory,
-    signals: signalSites,
+    signals: signalSites, typeOf,
   });
   // An input used as a ta.* length can only be 1..MAX_TA_LENGTH: make that the block field's range, so a bad
   // value is a block compile error rather than a failure when the run starts.

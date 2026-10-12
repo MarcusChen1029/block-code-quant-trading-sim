@@ -20,14 +20,18 @@ const sig = (params: string, required: number): Signature => ({ params: params.s
 /** Pine v4 reference signatures (positional order differs from v5 after the first few parameters). */
 const STUDY_SIG = sig('title, shorttitle, overlay, format, precision, scale, max_bars_back, max_lines_count, max_labels_count, resolution, resolution_gaps, max_boxes_count, explicit_plot_zorder', 1);
 const PLOT_SIG_V4 = sig('series, title, color, linewidth, style, trackprice, transp, histbase, offset, join, editable, show_last, display', 1);
+/** Every parameter of any v4 input() overload (the integer / float order), used to find defval and type. */
 const INPUT_SIG_V4 = sig('defval, title, type, minval, maxval, confirm, step, options, tooltip, inline, group', 1);
 
-/** Parameters each v5 input function accepts (from the v4 call), in v5 naming. */
-const INPUT_PARAMS = new Map<string, ReadonlySet<string>>([
-  ['int', new Set(['defval', 'title', 'minval', 'maxval', 'confirm', 'step', 'options', 'tooltip', 'inline', 'group'])],
-  ['float', new Set(['defval', 'title', 'minval', 'maxval', 'confirm', 'step', 'options', 'tooltip', 'inline', 'group'])],
-  ['bool', new Set(['defval', 'title', 'confirm', 'tooltip', 'inline', 'group'])],
-  ['source', new Set(['defval', 'title', 'tooltip', 'inline', 'group'])],
+/**
+ * The v4 input() overloads [R4]: the positional order differs per type, e.g. the bool overload is
+ * input(defval, title, type, confirm, tooltip, inline, group), so `input(true, "B", input.bool, true)` passes confirm.
+ */
+const INPUT_SIGS_V4 = new Map<'int' | 'float' | 'bool' | 'source', Signature>([
+  ['int', INPUT_SIG_V4],
+  ['float', INPUT_SIG_V4],
+  ['bool', sig('defval, title, type, confirm, tooltip, inline, group', 1)],
+  ['source', sig('defval, title, type, inline, group, tooltip', 1)],
 ]);
 const V4_TYPE_NAME = new Map([['int', 'integer'], ['float', 'float'], ['bool', 'bool'], ['source', 'source']]);
 
@@ -215,11 +219,14 @@ class V4Normalizer {
 
   /** `x = input(defval, title, type=input.integer, …)` -> `x = input.int(defval, title, …)`. */
   private input(e: CallExpr): Expr {
-    const issues: Issue[] = [];
-    const bound = bindArgs('input', INPUT_SIG_V4, e.args, pos(e), issues);
-    this.errors.push(...issues);
-    const [defval, , typeArg] = bound;
-    if (!defval || issues.length > 0) return ident('na', e);
+    // defval and type sit at the same position in every overload; the rest is bound per type below.
+    const positional = e.args.filter((a) => a.name === undefined);
+    const defval = e.args.find((a) => a.name === 'defval')?.value ?? positional[0]?.value;
+    const typeArg = e.args.find((a) => a.name === 'type')?.value ?? positional[2]?.value;
+    if (!defval) {
+      bindArgs('input', INPUT_SIG_V4, e.args, pos(e), this.errors);
+      return ident('na', e);
+    }
     let kind: 'int' | 'float' | 'bool' | 'source' | undefined;
     if (typeArg) {
       const t = dottedName(typeArg);
@@ -240,12 +247,17 @@ class V4Normalizer {
       this.error(defval, 'input() default must be a number, true/false or a price source such as close (string and other inputs are not supported in v1)');
       return ident('na', e);
     }
-    const allowed = INPUT_PARAMS.get(kind)!;
-    INPUT_SIG_V4.params.forEach((p, i) => {
-      const a = bound[i];
-      if (a && p !== 'type' && !allowed.has(p)) this.error(a, `input(type=input.${V4_TYPE_NAME.get(kind!)}) does not take "${p}"`);
+    const typeSig = INPUT_SIGS_V4.get(kind)!;
+    const issues: Issue[] = [];
+    const args = e.args.filter((a) => {
+      if (a.name === undefined || typeSig.params.includes(a.name) || !INPUT_SIG_V4.params.includes(a.name)) return true;
+      issues.push({ ...pos(a.value), message: `input(type=input.${V4_TYPE_NAME.get(kind!)}) does not take "${a.name}"` });
+      return false;
     });
-    return { ...e, callee: dotted('input', kind, e.callee), args: named(INPUT_SIG_V4.params, bound, new Set(['type'])) };
+    const bound = bindArgs('input', typeSig, args, pos(e), issues);
+    this.errors.push(...issues);
+    if (issues.length > 0) return ident('na', e);
+    return { ...e, callee: dotted('input', kind, e.callee), args: named(typeSig.params, bound, new Set(['type'])) };
   }
 }
 

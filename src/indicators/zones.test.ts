@@ -66,6 +66,9 @@ const bars = (rows: Array<[number, number, number, number]>): ZoneBar[] =>
 
 interface RefSwing {
   lastHigh: number[]; lastLow: number[]; highConfirmed: boolean[]; lowConfirmed: boolean[]; bosUp: boolean[]; bosDown: boolean[];
+  chochUp: boolean[]; chochDown: boolean[];
+  /** Every break, exactly master's (pre-CHoCH) bosUp / bosDown definition. */
+  breakUp: boolean[]; breakDown: boolean[];
   /** Pivot bar index -> confirmation bar index. */
   pivotHighs: Array<[number, number]>; pivotLows: Array<[number, number]>;
 }
@@ -79,9 +82,11 @@ function refSwing(b: ZoneBar[], left: number, right: number): RefSwing {
     for (let j = i + 1; j <= i + right; j++) if (v(j) > v(i)) return false;
     return true;
   };
-  const out: RefSwing = { lastHigh: [], lastLow: [], highConfirmed: [], lowConfirmed: [], bosUp: [], bosDown: [], pivotHighs: [], pivotLows: [] };
+  const out: RefSwing = { lastHigh: [], lastLow: [], highConfirmed: [], lowConfirmed: [], bosUp: [], bosDown: [], chochUp: [], chochDown: [], breakUp: [], breakDown: [], pivotHighs: [], pivotLows: [] };
   let lh = NaN, ll = NaN;
   let upLevel: number | null = null, downLevel: number | null = null;
+  /** +1 after an upward break, -1 after a downward one, 0 before the first. */
+  let last = 0;
   for (let t = 0; t < n; t++) {
     const i = t - right;
     const ph = i >= 0 && isPivot(i, 'high');
@@ -92,7 +97,14 @@ function refSwing(b: ZoneBar[], left: number, right: number): RefSwing {
     const down = downLevel !== null && b[t].close < downLevel;
     if (up) upLevel = null;
     if (down) downLevel = null;
-    out.lastHigh.push(lh); out.lastLow.push(ll); out.highConfirmed.push(ph); out.lowConfirmed.push(pl); out.bosUp.push(up); out.bosDown.push(down);
+    // The upward break is classified first, against the previous break; the downward one against the result.
+    const chUp = up && last === -1;
+    if (up) last = 1;
+    const chDown = down && last === 1;
+    if (down) last = -1;
+    out.lastHigh.push(lh); out.lastLow.push(ll); out.highConfirmed.push(ph); out.lowConfirmed.push(pl);
+    out.bosUp.push(up && !chUp); out.bosDown.push(down && !chDown); out.chochUp.push(chUp); out.chochDown.push(chDown);
+    out.breakUp.push(up); out.breakDown.push(down);
   }
   return out;
 }
@@ -160,7 +172,8 @@ function refOrderBlocks(b: ZoneBar[], o: OrderBlockOptions) {
   return refBook(b, o.maxActive, o.maxAgeBars, (t, active) => {
     const out: RefZone[] = [];
     for (const kind of ['bullish', 'bearish'] as const) {
-      if (!(kind === 'bullish' ? s.bosUp[t] : s.bosDown[t])) continue;
+      // Every break (BOS or CHoCH) forms a block.
+      if (!(kind === 'bullish' ? s.bosUp[t] || s.chochUp[t] : s.bosDown[t] || s.chochDown[t])) continue;
       for (let j = t - 1; j >= Math.max(0, t - o.lookback); j--) {
         const c = b[j];
         const opposite = kind === 'bullish' ? c.close < c.open : c.close > c.open;
@@ -270,6 +283,8 @@ describe('zone indicators match the reference implementations on every fixture',
         expect(got.map((v) => v.lowConfirmed)).toEqual(ref.lowConfirmed);
         expect(got.map((v) => v.bosUp)).toEqual(ref.bosUp);
         expect(got.map((v) => v.bosDown)).toEqual(ref.bosDown);
+        expect(got.map((v) => v.chochUp)).toEqual(ref.chochUp);
+        expect(got.map((v) => v.chochDown)).toEqual(ref.chochDown);
       }
     });
     it(`order blocks on '${shapeName}'`, () => {
@@ -533,4 +548,102 @@ it('performance: 10k bars through all three indicators well under a second', () 
   expect(ms).toBeLessThan(500);
   expect(ob.activeCount('bullish')).toBeLessThanOrEqual(5);
   expect(fvg.activeCount('bearish')).toBeLessThanOrEqual(5);
+});
+
+describe('change of character (CHoCH)', () => {
+  // left = right = 1. SH 12 (bar 1, known bar 2); bar 3 closes 12.5 > 12: first break -> BOS up. SL 9.5 (bar 2, known
+  // bar 3); bar 5 closes 9.2 < 9.5 after an up break -> CHoCH down. SL 8.5 (bar 6, known bar 7); bar 8 closes 8.2:
+  // down after down -> BOS down. SH 10.5 (bar 7, known bar 8, superseding SH 13); bar 9 closes 10.8 -> CHoCH up.
+  const b = bars([
+    [9.5, 10, 9, 9.5], [9.5, 12, 10, 11], [11, 11, 9.5, 10], [10, 13, 10, 12.5], [12.5, 12.8, 11, 11.5], [11.5, 11.6, 9, 9.2],
+    [9.2, 10, 8.5, 9.8], [9.8, 10.5, 9.6, 10.2], [10.2, 10.4, 8, 8.2], [8.2, 11, 8.1, 10.8], [10.8, 12, 10.5, 11.8],
+  ]);
+  const flags = (v: Array<Omit<ReturnType<SwingStructure['update']>, 'events'>>, t: number) =>
+    [v[t].bosUp, v[t].chochUp, v[t].bosDown, v[t].chochDown].map(Number).join('');
+
+  it('hand example: BOS up, CHoCH down, BOS down, CHoCH up (bos up / choch up / bos down / choch down per bar)', () => {
+    const v = run(() => new SwingStructure(1, 1), b).values;
+    expect(v.map((_, t) => flags(v, t))).toEqual([
+      '0000', '0000', '0000', '1000', '0000', '0001', '0000', '0000', '0010', '0100', '0000',
+    ]);
+    // The broken levels end as 'broken' whichever kind of break it was.
+    const ended = [...run(() => new SwingStructure(1, 1), b).zones.values()].filter((z) => z.endReason === 'broken').map((z) => [z.label, z.top, z.endTime! / HOUR]);
+    expect(ended).toEqual([['SH', 12, 3], ['SL', 9.5, 5], ['SL', 8.5, 8], ['SH', 10.5, 9]]);
+  });
+
+  it('every break is exactly one of BOS / CHoCH; together they are exactly the closes through an unbroken level', () => {
+    let chochs = 0;
+    for (const shapeName of SHAPES) {
+      const b2 = shape(shapeName);
+      for (const [l, r] of [[5, 5], [3, 2], [1, 1]]) {
+        const v = run(() => new SwingStructure(l, r), b2).values;
+        const ref = refSwing(b2, l, r);
+        v.forEach((x, t) => {
+          expect(x.bosUp && x.chochUp).toBe(false);
+          expect(x.bosDown && x.chochDown).toBe(false);
+          // Breaks alternate classification exactly as the reference (written independently, index based).
+          expect(x.bosUp || x.chochUp).toBe(ref.bosUp[t] || ref.chochUp[t]);
+          expect(x.bosDown || x.chochDown).toBe(ref.bosDown[t] || ref.chochDown[t]);
+        });
+        chochs += v.filter((x) => x.chochUp || x.chochDown).length;
+      }
+    }
+    expect(chochs).toBeGreaterThan(20); // the fixtures exercise CHoCH
+  });
+
+  it('a CHoCH needs a previous break the other way: the first break is always a BOS', () => {
+    for (const shapeName of SHAPES) {
+      const v = run(() => new SwingStructure(3, 2), shape(shapeName)).values;
+      const firstBreak = v.find((x) => x.bosUp || x.bosDown || x.chochUp || x.chochDown);
+      if (firstBreak) expect(firstBreak.chochUp || firstBreak.chochDown).toBe(false);
+    }
+  });
+
+  it('no look-ahead: CHoCH / BOS on bars[0..t] equal the full run at every t (prefix invariance)', () => {
+    for (const shapeName of ['chop', 'gaps']) {
+      const b2 = shape(shapeName);
+      const full = run(() => new SwingStructure(3, 2), b2).values;
+      for (let t = 0; t < b2.length; t++) {
+        const prefix = run(() => new SwingStructure(3, 2), b2.slice(0, t + 1)).values;
+        expect([prefix[t].bosUp, prefix[t].bosDown, prefix[t].chochUp, prefix[t].chochDown], `bar ${t}`)
+          .toEqual([full[t].bosUp, full[t].bosDown, full[t].chochUp, full[t].chochDown]);
+      }
+    }
+  });
+
+  it('order blocks still form on every break (BOS or CHoCH)', () => {
+    const o = { swingLength: 1, lookback: 3, useBody: false, maxActive: 5, maxAgeBars: 300 };
+    const v = run(() => new OrderBlocks(o), b).values;
+    // Bullish breaks on bars 3 (BOS) and 9 (CHoCH); bearish on 5 (CHoCH) and 8 (BOS).
+    expect(v.map((x, t) => (x.newBull ? `+${t}` : x.newBear ? `-${t}` : '')).filter(Boolean)).toEqual(['+3', '-5', '-8', '+9']);
+  });
+});
+
+describe('any break (the pre-CHoCH BOS meaning)', () => {
+  it('breakUp / breakDown fire on every break (BOS or CHoCH), equal to the old bosUp / bosDown on every fixture', () => {
+    for (const shapeName of SHAPES) {
+      const b2 = shape(shapeName);
+      for (const [l, r] of [[5, 5], [3, 2], [1, 1]]) {
+        const v = run(() => new SwingStructure(l, r), b2).values;
+        const ref = refSwing(b2, l, r);
+        expect(v.map((x) => x.breakUp)).toEqual(ref.breakUp);
+        expect(v.map((x) => x.breakDown)).toEqual(ref.breakDown);
+        v.forEach((x) => {
+          expect(x.breakUp).toBe(x.bosUp || x.chochUp);
+          expect(x.breakDown).toBe(x.bosDown || x.chochDown);
+        });
+      }
+    }
+  });
+
+  it('no look-ahead: breakUp / breakDown on bars[0..t] equal the full run at every t', () => {
+    for (const shapeName of ['trend', 'ties']) {
+      const b2 = shape(shapeName);
+      const full = run(() => new SwingStructure(3, 2), b2).values;
+      for (let t = 0; t < b2.length; t++) {
+        const prefix = run(() => new SwingStructure(3, 2), b2.slice(0, t + 1)).values;
+        expect([prefix[t].breakUp, prefix[t].breakDown], `bar ${t}`).toEqual([full[t].breakUp, full[t].breakDown]);
+      }
+    }
+  });
 });

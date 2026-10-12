@@ -342,9 +342,10 @@ class Generator {
         const unit = this.option(f.UNIT, SIZE_UNIT_OPTIONS, block, 'size unit');
         const size = this.value(block, 'SIZE', 'size');
         const fn = side === 'sell' ? 'sell' : 'buy';
-        if (block.type === BT.marketOrder) return `${at}ctx.${fn}({ type: "market", size: ${size}, unit: ${jsString(unit)} });`;
+        // Through the runtime: an na size / limit price skips the order with a warning instead of aborting (runtime.ts).
+        if (block.type === BT.marketOrder) return `${at}rt.order(ctx, "${fn}", { type: "market", size: ${size}, unit: ${jsString(unit)} });`;
         const price = this.value(block, 'PRICE', 'limit price');
-        return `${at}ctx.${fn}({ type: "limit", size: ${size}, unit: ${jsString(unit)}, price: ${price} });`;
+        return `${at}rt.order(ctx, "${fn}", { type: "limit", size: ${size}, unit: ${jsString(unit)}, price: ${price} });`;
       }
       case BT.setExit: {
         const kind = this.option(f.KIND, EXIT_OPTIONS, block, 'exit type');
