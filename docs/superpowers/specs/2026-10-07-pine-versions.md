@@ -101,8 +101,9 @@ as that number before; the docs only show plain numbers (unverified), so it stay
     UNVERIFIED, so it stays fractional like v5, as before 2026-10-08.
 - v5: integer only when BOTH operands are "const". [M6 "Fractional division of constants"]: const/const `5/2 = 2`,
   but with an "input", "simple" or "series" operand `5/2 = 2.5`.
-  - Our "const": int literals; arithmetic on them; names with a single plain (not `var`) declaration from such an
-    expression that are never reassigned.
+  - Our "const": int literals; arithmetic on them; `int()` / `float()` of a const (the references list a
+    `int(x) → const int` overload), so `int(5) / int(2)` is 2; names with a single plain (not `var`) declaration
+    from such an expression that are never reassigned.
   - Inputs, `var` names, reassigned names, function parameters and series are not const.
 - v6: always fractional [M6]: "dividing two 'int' values ... always results in a number with a fractional value,
   regardless of the type and qualifier". Use `int(a / b)` for the integer quotient.

@@ -77,6 +77,11 @@ describe('int / int division per version', () => {
     expect([first(4, body).x, first(5, body).x, first(6, body).x]).toEqual([3.5, 3.5, 3.5]);
   });
 
+  it('int() of a const is const: int(5) / int(2) truncates in v4 / v5, not in v6; int(series) stays fractional', () => {
+    const body = 'plot(int(5) / int(2), "c")\nplot(int(7.9) / 2, "d")\nplot(int(bar_index + 5) / 2, "s")';
+    expect([4, 5, 6].map((v) => first(v as V, body))).toEqual([{ c: 2, d: 3, s: 2.5 }, { c: 2, d: 3, s: 2.5 }, { c: 2.5, d: 3.5, s: 2.5 }]);
+  });
+
   it('unknown operand types divide fractionally (function parameters)', () => {
     expect(first(4, 'half(v) => v / 2\nplot(half(5), "h")').h).toBe(2.5);
   });

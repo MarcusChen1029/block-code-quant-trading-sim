@@ -167,6 +167,12 @@ class TypeInference {
         return (e.op === '-' || e.op === '+') && this.isConst(e.operand);
       case 'binary':
         return ARITH.has(e.op) && this.isConst(e.left) && this.isConst(e.right);
+      case 'call': {
+        // int() / float() of a const is const ([R5]/[R6] list a "const" overload, e.g. `int(x) → const int`).
+        const name = dottedName(e.callee);
+        return (name === 'int' || name === 'float') && !this.funcs.has(name) && e.args.length === 1 && e.args[0].name === undefined &&
+          this.isConst(e.args[0].value);
+      }
       case 'ident': {
         const src = this.sources.get(e.name);
         const decls = this.decls.get(e.name);
