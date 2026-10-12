@@ -20,6 +20,7 @@ import { computeOverlaySeries, dedupeOverlaySignals, lineTitle, overlayPoint, si
 import type { LogicalRange } from './viewRange';
 import { ZoneStore, type ZoneRect } from './zoneGeometry';
 import { ZoneLayer } from './zonePrimitive';
+import { CANVAS_COLORS, onThemeChange, type Theme } from './theme';
 
 interface ActiveSignal {
   signal: OverlaySignal;
@@ -70,11 +71,13 @@ export class ChartPanel {
   private viewToken = 0;
 
   constructor(private readonly container: HTMLElement) {
+    const colors = CANVAS_COLORS.dark;
     this.chart = createChart(container, {
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: '#131722' }, textColor: '#d1d4dc' },
-      grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
-      timeScale: { timeVisible: true, secondsVisible: false },
+      layout: { background: { type: ColorType.Solid, color: colors.background }, textColor: colors.text },
+      grid: { vertLines: { color: colors.grid }, horzLines: { color: colors.grid } },
+      timeScale: { timeVisible: true, secondsVisible: false, borderColor: colors.border },
+      rightPriceScale: { borderColor: colors.border },
     });
     this.candles = this.chart.addSeries(CandlestickSeries, {
       upColor: UP_COLOR,
@@ -91,12 +94,29 @@ export class ChartPanel {
     this.legend.className = 'signal-legend';
     this.legend.hidden = true;
     container.append(this.legend);
+    onThemeChange((theme) => this.setTheme(theme));
     this.chart.subscribeCrosshairMove((param) => {
       const t = typeof param.time === 'number' ? param.time * 1000 : null;
       if (t === this.hoverTime) return;
       this.hoverTime = t;
       this.renderLegend();
     });
+  }
+
+  /** Re-colours the chart for the page's colour scheme. */
+  setTheme(theme: Theme): void {
+    const c = CANVAS_COLORS[theme];
+    this.chart.applyOptions({
+      layout: { background: { type: ColorType.Solid, color: c.background }, textColor: c.text },
+      grid: { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
+      timeScale: { borderColor: c.border },
+      rightPriceScale: { borderColor: c.border },
+    });
+  }
+
+  /** A picture of the chart as it is on screen (candles, overlays, markers), for "Chart picture". */
+  screenshot(): HTMLCanvasElement {
+    return this.chart.takeScreenshot();
   }
 
   /**

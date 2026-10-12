@@ -1,4 +1,9 @@
 import { ColorType, LineSeries, LineStyle, createChart, type IChartApi, type ISeriesApi } from 'lightweight-charts';
+import { BENCH_TEXT } from './descriptions';
+import { setExplain } from './explain';
+import { icon } from './icons';
+import { EXIT_REASON_HELP, EXIT_REASON_LABEL, STAT_HELP, TRADE_COLUMNS } from './statHelp';
+import { CANVAS_COLORS, onThemeChange, type Theme } from './theme';
 import { BENCHMARK_DEFINITION, benchmarkDefinition, benchmarkLabel, type Benchmark } from '../engine/benchmark';
 import type { BacktestResult } from '../engine/engine';
 import type { EquityPoint, Stats } from '../engine/stats';
@@ -25,12 +30,14 @@ export class StatsPanel {
   private readonly benchLabelText: Text;
   private readonly trades: HTMLElement;
   private readonly log: HTMLElement;
+  private shownTrades: readonly Trade[] = [];
 
   constructor(container: HTMLElement) {
     this.cards = h('div', { class: 'stat-cards' });
     const equityEl = h('div', { class: 'equity' });
     this.benchToggle = h('input', { type: 'checkbox' });
     this.benchToggle.checked = loadText(BENCHMARK_LINE_STORAGE_KEY) !== '0';
+    setExplain(this.benchToggle, BENCH_TEXT.title, BENCH_TEXT.on, BENCH_TEXT.off);
     this.benchLabel = h('label', { class: 'bench-toggle', title: BENCHMARK_DEFINITION }, this.benchToggle, (this.benchLabelText = document.createTextNode('Buy & hold line')));
     this.benchLabel.hidden = true;
     this.trades = h('div', { class: 'trades' });
@@ -39,11 +46,13 @@ export class StatsPanel {
       h('div', { class: 'stats-left' }, this.cards, h('div', { class: 'equity-wrap' }, equityEl, this.benchLabel)),
       h('div', { class: 'stats-right' }, this.trades, this.log),
     );
+    const colors = CANVAS_COLORS.dark;
     this.equityChart = createChart(equityEl, {
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: '#131722' }, textColor: '#d1d4dc' },
-      grid: { vertLines: { visible: false }, horzLines: { color: '#1e222d' } },
-      timeScale: { timeVisible: true },
+      layout: { background: { type: ColorType.Solid, color: colors.background }, textColor: colors.text },
+      grid: { vertLines: { visible: false }, horzLines: { color: colors.gridSoft } },
+      timeScale: { timeVisible: true, borderColor: colors.border },
+      rightPriceScale: { borderColor: colors.border },
     });
     this.equitySeries = this.equityChart.addSeries(LineSeries, { color: '#42a5f5', lineWidth: 2, title: 'Equity' });
     // Muted and dashed: a reference line, not a second result.
@@ -55,14 +64,35 @@ export class StatsPanel {
       this.benchSeries.applyOptions({ visible: this.benchToggle.checked });
       saveText(BENCHMARK_LINE_STORAGE_KEY, this.benchToggle.checked ? '1' : '0');
     });
+    onThemeChange((theme) => this.setTheme(theme));
     this.clear();
   }
 
-  clear(hint = 'Press Run to backtest the selected strategy (blocks on the left, or the built-in example).'): void {
-    this.cards.replaceChildren(h('div', { class: 'hint' }, hint));
+  /** Re-colours the equity chart for the page's colour scheme. */
+  setTheme(theme: Theme): void {
+    const c = CANVAS_COLORS[theme];
+    this.equityChart.applyOptions({
+      layout: { background: { type: ColorType.Solid, color: c.background }, textColor: c.text },
+      grid: { vertLines: { visible: false }, horzLines: { color: c.gridSoft } },
+      timeScale: { borderColor: c.border },
+      rightPriceScale: { borderColor: c.border },
+    });
+    this.benchSeries.applyOptions({ color: c.muted });
+  }
+
+  /** The trades of the result on screen (for "Export trades"); empty after clear(). */
+  get currentTrades(): readonly Trade[] {
+    return this.shownTrades;
+  }
+
+  clear(hint = 'Press Run and the computer replays old prices with your strategy. Your score card shows up here.'): void {
+    this.shownTrades = [];
+    this.cards.replaceChildren(hint === ''
+      ? h('div', { class: 'hint' })
+      : h('div', { class: 'empty' }, h('span', { class: 'empty-icon' }, icon('play', 18)), h('div', {}, h('strong', {}, 'No results yet'), hint)));
     this.equitySeries.setData([]);
     this.setBenchmark(null);
-    this.trades.replaceChildren();
+    this.trades.replaceChildren(hint === '' ? '' : h('div', { class: 'empty' }, h('span', { class: 'empty-icon' }, icon('list', 18)), h('div', {}, h('strong', {}, 'No trades yet'), 'Every time your robot buys or sells, a row appears here.')));
     this.log.replaceChildren();
   }
 
@@ -78,9 +108,9 @@ export class StatsPanel {
   /** The stat cards (live sessions call this per update, without a benchmark). */
   showStats(stats: Stats, wiped: boolean, benchmark: Benchmark | null = null): void {
     const card = (row: StatRow, cls = '', title?: string) =>
-      h('div', { class: `card ${row.tone}${cls}`, title }, h('div', { class: 'label' }, row.label), h('div', { class: 'value' }, row.value));
+      h('div', { class: `card ${row.tone}${cls}`, 'data-tip': title }, h('div', { class: 'label' }, row.label), h('div', { class: 'value' }, row.value));
     const rows = statsRows(stats);
-    const cards = rows.map((row) => card(row));
+    const cards = rows.map((row) => card(row, '', STAT_HELP[row.label]));
     if (benchmark) {
       const at = rows.findIndex((r) => r.label === 'Max drawdown') + 1;
       const info = benchmarkDefinition(benchmark.leverage ?? 1);
@@ -121,7 +151,12 @@ export class StatsPanel {
   }
 
   setTrades(trades: readonly Trade[]): void {
-    const header = h('tr', {}, ...['#', 'Side', 'Entry', 'Entry px', 'Exit', 'Exit px', 'Qty', 'Net PnL', 'Exit by'].map((t) => h('th', {}, t)));
+    this.shownTrades = trades;
+    if (trades.length === 0) {
+      this.trades.replaceChildren(h('div', { class: 'empty' }, h('span', { class: 'empty-icon' }, icon('list', 18)), h('div', {}, h('strong', {}, 'No trades yet'), 'Every time your robot buys or sells, a row appears here.')));
+      return;
+    }
+    const header = h('tr', {}, ...TRADE_COLUMNS.map((c) => h('th', { 'data-tip': c.help }, c.title)));
     const shown = trades.slice(-MAX_TRADE_ROWS);
     const offset = trades.length - shown.length;
     const rows = shown.map((t, i) =>
@@ -135,7 +170,7 @@ export class StatsPanel {
         h('td', {}, fmtNum(t.exitPrice)),
         h('td', {}, fmtNum(t.qty, 4)),
         h('td', { class: t.netPnl >= 0 ? 'pos' : 'neg' }, fmtNum(t.netPnl)),
-        h('td', {}, t.exitReason),
+        h('td', { 'data-tip': EXIT_REASON_HELP[t.exitReason] }, EXIT_REASON_LABEL[t.exitReason] ?? t.exitReason),
       ),
     );
     const note = offset > 0 ? [h('div', { class: 'hint' }, `showing last ${MAX_TRADE_ROWS} of ${trades.length} trades`)] : [];

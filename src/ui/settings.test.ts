@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { defaultRawSettings, defaultStartDate, parseSettings, type RawSettings } from './settings';
+import { defaultRawSettings, defaultStartDate, mergeStoredSettings, parseSettings, type RawSettings } from './settings';
 
 const NOW = Date.parse('2026-10-05T12:00:00Z');
 const base: RawSettings = defaultRawSettings(NOW);
@@ -42,5 +42,18 @@ describe('parseSettings', () => {
     const r = parseSettings({ ...base, timeframe: '1m', startDate: '2026-01-01' }, NOW);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toMatch(/^range too large: \d+ bars \(max 100000\)/);
+  });
+});
+
+describe('mergeStoredSettings', () => {
+  const defaults = defaultRawSettings(Date.parse('2026-10-12T00:00:00Z'));
+
+  it('lays remembered values over the defaults', () => {
+    expect(mergeStoredSettings(defaults, { symbol: 'ETHUSDT', timeframe: '15m', balance: '500' })).toEqual({ ...defaults, symbol: 'ETHUSDT', timeframe: '15m', balance: '500' });
+  });
+
+  it('ignores anything that is not a short text for a known field', () => {
+    expect(mergeStoredSettings(defaults, { symbol: 5, leverage: null, hacked: 'x', balance: 'y'.repeat(41) })).toEqual(defaults);
+    for (const junk of [undefined, null, 'text', 7, ['BTCUSDT']]) expect(mergeStoredSettings(defaults, junk)).toBe(defaults);
   });
 });

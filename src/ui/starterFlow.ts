@@ -1,4 +1,3 @@
-import type { StarterDef } from '../blocks/starters';
 import { fmtTime } from './format';
 import { isEmptyWorkspace, MAX_PREVIOUS, type PreviousWorkspace, type StarterMemory } from './starterMemory';
 
@@ -17,6 +16,14 @@ export interface FlowDeps {
   now(): number;
 }
 
+/** What the flow needs from a starter: the built-in ones, or blocks opened from a file. */
+export interface StarterLike {
+  id: string;
+  label: string;
+  description: string;
+  build(): unknown;
+}
+
 /** "Edited SMA 10/30 cross · 14:40 UTC" */
 export function previousTitle(p: Pick<PreviousWorkspace, 'label' | 'savedAt'>): string {
   return `${p.label} · ${fmtTime(p.savedAt).slice(11)} UTC`;
@@ -27,7 +34,7 @@ export function previousTitle(p: Pick<PreviousWorkspace, 'label' | 'savedAt'>): 
  * BEFORE the load; reverted exactly if the load fails, so a failed load never consumes or overwrites a slot).
  * True when the starter was loaded.
  */
-export function pickStarter(deps: FlowDeps, starter: Pick<StarterDef, 'id' | 'label' | 'description' | 'build'>): boolean {
+export function pickStarter(deps: FlowDeps, starter: StarterLike): boolean {
   const { editor, memory } = deps;
   const current = editor.save();
   const plan = memory.planReplace(JSON.stringify(current), isEmptyWorkspace(current));

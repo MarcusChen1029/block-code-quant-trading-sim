@@ -42,13 +42,13 @@ export function createLivePanel(container: HTMLElement, handlers: LivePanelHandl
   warmup.value = String(DEFAULT_WARMUP_BARS);
   const start = h('button', { type: 'submit', class: 'run' }, 'Start live session');
 
-  const field = (label: string, el: HTMLElement) => h('label', {}, h('span', {}, label), el);
+  const field = (label: string, el: HTMLElement, tip?: string) => h('label', { 'data-tip': tip }, h('span', { class: tip ? 'field-label' : undefined }, label), el);
   const form = h(
     'form', { class: 'run-form live-form' },
-    field('Session name', name),
-    field('Start', startMode),
+    field('Session name', name, 'A name so you can find this session in the list later. You can leave it empty.'),
+    field('Start', startMode, '"Now" starts at this moment. "Past time" replays the candles since the time you pick, quickly, and then carries on live.'),
     pastField,
-    field('Warm-up bars', warmup),
+    field('Warm-up bars', warmup, 'Some helper lines (like moving averages) need a few old candles before they work. These candles are read first, but your robot does not trade on them.'),
     start,
   );
   form.addEventListener('submit', (ev) => {
@@ -56,7 +56,7 @@ export function createLivePanel(container: HTMLElement, handlers: LivePanelHandl
     handlers.onStart({ name: name.value, startMode: startMode.value === 'past' ? 'past' : 'now', pastStart: pastStart.value, warmupBars: warmup.value });
   });
 
-  const honesty = h('div', { class: 'live-honesty' }, 'Paper trading — no real orders are ever sent. Fake money, real Binance prices (market data only).');
+  const honesty = h('div', { class: 'live-honesty' }, 'Paper trading: no real orders are ever sent. Pretend money, real Binance prices (market data only).');
   const badge = h('span', { class: 'live-badge', hidden: '' });
   const badgeDetail = h('span', { class: 'live-detail' });
   const mark = h('span', { class: 'live-mark', hidden: '' });
@@ -99,7 +99,7 @@ export function createLivePanel(container: HTMLElement, handlers: LivePanelHandl
     },
     setSessions(rows, viewedId) {
       if (rows.length === 0) {
-        list.replaceChildren(h('div', { class: 'hint' }, 'No live sessions yet. Pick product, timeframe, account settings and a strategy above, then start one.'));
+        list.replaceChildren(h('div', { class: 'hint' }, 'No live sessions yet. Choose a coin, candle size and strategy above, then press "Start live session". It will show up here.'));
         return;
       }
       const button = (label: string, title: string, onClick: () => void, cls = '') => {

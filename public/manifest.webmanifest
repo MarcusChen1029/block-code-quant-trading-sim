@@ -1,0 +1,10 @@
+{
+  "name": "Quant Sim",
+  "short_name": "Quant Sim",
+  "description": "Build a trading robot out of puzzle blocks and test it with pretend money on real prices.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0b0e17",
+  "theme_color": "#131722",
+  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

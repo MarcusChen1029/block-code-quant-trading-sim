@@ -9,7 +9,9 @@ import { buildToolbox } from '../blocks/toolbox';
 import { readStaleChoice } from '../blocks/staleChoice';
 import { fixupIndicatorBlocks } from '../blocks/workspaceFixup';
 import { loadWorkspaceSafely, type LoadResult } from '../blocks/workspaceLoad';
+import { BLOCK_GROUP_TEXT } from './descriptions';
 import { loadJson, saveJson } from './storage';
+import { currentTheme, onThemeChange } from './theme';
 
 export const WORKSPACE_STORAGE_KEY = 'quant-sim.blocks.workspace.v1';
 const ISSUE_WARNING_ID = 'compile';
@@ -58,15 +60,30 @@ export function createBlockEditor(
   defineBlocks();
   const ws = Blockly.inject(container, {
     toolbox: buildToolbox() as unknown as Blockly.utils.toolbox.ToolboxDefinition,
-    theme: quantTheme(),
+    theme: quantTheme(currentTheme()),
     renderer: 'zelos',
     trashcan: true,
     sounds: false,
-    grid: { spacing: 24, length: 2, colour: '#2a2e39', snap: true },
+    media: `${import.meta.env.BASE_URL}blockly-media/`, // Blockly's icons, served by this site (its default is a third-party CDN)
+    grid: { spacing: 24, length: 2, colour: '#7a829e', snap: true },
     zoom: { controls: true, wheel: true, startScale: 0.65, maxScale: 2, minScale: 0.2, scaleSpeed: 1.15 },
     move: { scrollbars: true, drag: true, wheel: false },
     maxInstances: { ...HAT_MAX_INSTANCES },
   });
+
+  /** Hover notes for the block groups in the menu on the left (what each group is for). */
+  const describeToolbox = () => {
+    const toolbox = ws.getToolbox();
+    if (!toolbox) return;
+    for (const item of toolbox.getToolboxItems()) {
+      const name = 'getName' in item && typeof item.getName === 'function' ? item.getName() : '';
+      const text = BLOCK_GROUP_TEXT[name];
+      const div = item.getDiv();
+      if (text && div) div.setAttribute('data-tip', text);
+    }
+  };
+  describeToolbox();
+  onThemeChange((theme) => ws.setTheme(quantTheme(theme)));
 
   let loading = false;
   let lastJson = '';
@@ -206,6 +223,7 @@ export function createBlockEditor(
       const { scrollX, scrollY } = ws;
       defineBlocks();
       ws.updateToolbox(buildToolbox() as unknown as Blockly.utils.toolbox.ToolboxDefinition);
+      describeToolbox();
       const result = load(json, true);
       if (!result.ok) {
         // The workspace still shows (and storage still holds) the previous blocks.

@@ -1,16 +1,37 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Quant Sim</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Quant Sim: build a trading robot with blocks</title>
+    <meta name="description" content="Build a trading robot out of puzzle blocks and test it with pretend money on real crypto prices. Backtest the past or practice live. Free, no sign-up, nothing real is ever traded." />
+    <meta name="theme-color" content="#131722" />
+    <meta name="color-scheme" content="dark light" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Quant Sim: build a trading robot with blocks" />
+    <meta property="og:description" content="Snap puzzle blocks together to make a trading strategy, then see how it would have done. Pretend money, real prices." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <script>
+      // Pick the colours before the first paint, so a light-mode visitor never sees a dark flash.
+      try {
+        var saved = localStorage.getItem('quant-sim.theme');
+        var light = saved ? saved === 'light' : window.matchMedia('(prefers-color-scheme: light)').matches;
+        document.documentElement.dataset.theme = light ? 'light' : 'dark';
+      } catch (e) {}
+    </script>
   </head>
   <body>
-    <header id="topbar"></header>
+    <a class="skip-link" href="#layout">Skip to the workspace</a>
+    <header id="appbar" class="appbar"></header>
+    <noscript><p class="noscript">Quant Sim needs JavaScript to run. Please turn it on in your browser and reload the page.</p></noscript>
+    <section id="topbar" class="topbar" aria-label="Settings"></section>
+    <div id="mode-note" class="mode-note" role="status"></div>
+    <div id="dock" class="dock" aria-label="Hidden panels"></div>
     <section id="live" class="live-panel" aria-label="Live paper trading"></section>
-    <nav id="pane-switch" class="pane-switch"></nav>
+    <nav id="pane-switch" class="pane-switch" aria-label="Choose a panel"></nav>
     <div id="layout">
-      <section id="left" class="pane">
+      <section id="left" class="pane" data-tour="strategy">
         <div id="left-tabs" class="tabs"></div>
         <div id="blockly"></div>
         <ul id="problems" class="problems" hidden></ul>
@@ -18,12 +39,19 @@
       </section>
       <div id="splitter" class="splitter"></div>
       <main id="main" class="pane">
-        <div id="chart"></div>
-        <div id="verdict" class="verdict" hidden></div>
-        <section id="stats"></section>
+        <section id="chart-panel" data-tour="chart">
+          <div id="chart"></div>
+        </section>
+        <section id="results-panel" data-tour="results">
+          <div id="verdict" class="verdict" hidden></div>
+          <div id="stats"></div>
+        </section>
       </main>
     </div>
-    <footer id="status">Loading…</footer>
+    <footer class="footer">
+      <div id="status" role="status" aria-live="polite">Loading…</div>
+      <button type="button" id="footer-help" class="footer-link">Pretend money only. Not financial advice.</button>
+    </footer>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
