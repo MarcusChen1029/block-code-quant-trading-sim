@@ -32,7 +32,7 @@ export default defineConfig({
   build: { chunkSizeWarningLimit: Math.max(CHUNK_BUDGET_KB, ...Object.values(LAZY_CHUNK_BUDGET_KB)) },
   worker: { format: 'es' },
   test: {
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'server/src/**/*.test.ts'],
     environment: 'node',
   },
 });

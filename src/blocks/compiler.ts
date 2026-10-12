@@ -1,5 +1,6 @@
 import type { Strategy, StrategyContext } from '../engine/strategy';
 import { generateProgram, type CompileIssue, type GeneratedProgram } from './generator';
+import { loadFactory } from '../sandbox/codeLoader';
 import { BlockRuntime, DEFAULT_LIMITS, type RuntimeLimits } from './runtime';
 
 /**
@@ -44,7 +45,7 @@ interface CompiledProgram {
  * as StrategyError carrying the id of the block that was executing.
  */
 export function strategyFromProgram(program: GeneratedProgram, limits: RuntimeLimits = DEFAULT_LIMITS): Strategy {
-  const factory = new Function('rt', ...SHADOWED_GLOBALS, program.source) as (rt: BlockRuntime) => CompiledProgram;
+  const factory = loadFactory(['rt', ...SHADOWED_GLOBALS], program.source) as (rt: BlockRuntime) => CompiledProgram;
   const rt = new BlockRuntime(program.blockIds, program.maxOffset, limits);
   let compiled: CompiledProgram;
   try {

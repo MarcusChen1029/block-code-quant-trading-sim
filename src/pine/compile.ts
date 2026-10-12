@@ -9,6 +9,7 @@ import { byPosition, type PineDiagnostic, PineRuntimeError, PineSyntaxError } fr
 import { parse } from './parser';
 import { MAX_TA_LENGTH, PineRuntime } from './runtime';
 import { forbiddenReferences, SHADOWED_GLOBALS } from './safety';
+import { loadFactory } from '../sandbox/codeLoader';
 import { normalizeV4 } from './v4';
 import type { SignalMarkerSpec, SignalSite } from './signals';
 import { checkV6, exprTyper } from './v6';
@@ -206,7 +207,7 @@ function compileUnguarded(source: string): PineCompileResult {
   if (forbidden.length > 0) return fail([{ line: 1, col: 1, message: `internal compiler error: generated code mentions ${forbidden.join(', ')}` }], warnings);
   let factory: (rt: PineRuntime, P: number[]) => { step(): void };
   try {
-    factory = new Function('rt', 'P', ...SHADOWED_GLOBALS, gen.js) as typeof factory;
+    factory = loadFactory(['rt', 'P', ...SHADOWED_GLOBALS], gen.js) as typeof factory;
   } catch (err) {
     return fail([{ line: 1, col: 1, message: `internal compiler error: ${err instanceof Error ? err.message : String(err)}` }], warnings);
   }
