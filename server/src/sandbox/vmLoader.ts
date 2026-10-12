@@ -278,14 +278,70 @@ export const VM_FORBIDDEN_IDENTIFIERS: ReadonlySet<string> = new Set([
   'getOwnPropertyDescriptor', '__defineGetter__', '__lookupGetter__',
 ]);
 
-/** Forbidden identifier tokens of `js` (string literals are data and skipped; template literals are refused outright). */
+/** Property names that must never be reached, even through a bracket with a string key (`x["constructor"]`). */
+const FORBIDDEN_STRING_KEYS: ReadonlySet<string> = new Set(['constructor', '__proto__', 'prototype', 'caller', 'callee', 'arguments', 'stack']);
+
+/**
+ * A single-pass scanner over generated `js` that reports every reason it must not run. It is deliberately strict:
+ * the block/Pine generators emit a narrow, comment-free, escape-free subset, so anything outside that subset is a
+ * generator bug or an evasion attempt. Outside string literals it refuses comments (`//`, `/*`), line
+ * continuations / escapes (`\`), template literals (`` ` ``) and regex literals, and any forbidden identifier
+ * token; a regex literal would also hide identifiers from a naive tokenizer, so it is refused wholesale. Inside a
+ * string literal the text is data (skipped), except that a string whose content is exactly a dangerous property
+ * name is refused, which blocks `x["constructor"]` and `x["__proto__"]`. The concatenated form (`"con"+"structor"`)
+ * is left to the frozen vm realm and membrane, which deny `constructor` and cannot compile code from strings.
+ */
 export function vmForbiddenReferences(js: string): string[] {
   const found = new Set<string>();
-  const token = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`|[A-Za-z_$][\w$]*/g;
-  for (const m of js.matchAll(token)) {
-    const t = m[0];
-    if (t === '`') found.add('template literal');
-    else if (t[0] !== '"' && t[0] !== "'" && VM_FORBIDDEN_IDENTIFIERS.has(t)) found.add(t);
+  let i = 0;
+  const n = js.length;
+  // After one of these tokens a `/` begins a regex literal; after a value/identifier/`)`/`]` it is division.
+  let prevSignificant = '';
+  while (i < n) {
+    const ch = js[i];
+    if (ch === '"' || ch === "'") {
+      let j = i + 1;
+      let content = '';
+      while (j < n && js[j] !== ch) {
+        if (js[j] === '\\') { j += 2; content += '.'; continue; } // escapes are allowed inside strings
+        if (js[j] === '\n') break;
+        content += js[j];
+        j++;
+      }
+      if (FORBIDDEN_STRING_KEYS.has(content)) found.add(`string "${content}"`);
+      i = j + 1;
+      prevSignificant = 'str';
+      continue;
+    }
+    if (ch === '`') { found.add('template literal'); i++; continue; }
+    if (ch === '\\') { found.add('backslash'); i++; continue; }
+    if (ch === '/' && i + 1 < n && (js[i + 1] === '/' || js[i + 1] === '*')) { found.add('comment'); i += 2; continue; }
+    if (ch === '/' && !['id', 'num', ')', ']', 'str'].includes(prevSignificant)) { found.add('regex literal'); i++; continue; }
+    if (/[A-Za-z_$]/.test(ch)) {
+      let j = i + 1;
+      while (j < n && /[\w$]/.test(js[j])) j++;
+      const word = js.slice(i, j);
+      if (VM_FORBIDDEN_IDENTIFIERS.has(word)) found.add(word);
+      i = j;
+      prevSignificant = 'id';
+      continue;
+    }
+    if (/[0-9]/.test(ch)) {
+      let j = i + 1;
+      while (j < n && /[\w.]/.test(js[j])) j++;
+      i = j;
+      prevSignificant = 'num';
+      continue;
+    }
+    if (ch === '[' && ['id', ')', ']', 'str'].includes(prevSignificant)) {
+      // Member access: the key must be a number or string literal (generated code only uses C[0]["value"], P[1]).
+      let j = i + 1;
+      while (j < n && /\s/.test(js[j])) j++;
+      if (!(j < n && /[0-9"']/.test(js[j]))) found.add('computed member key');
+    }
+    if (ch === ')' || ch === ']') prevSignificant = ch;
+    else if (!/\s/.test(ch)) prevSignificant = 'op';
+    i++;
   }
   return [...found];
 }
