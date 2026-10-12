@@ -94,3 +94,38 @@ describe('liveVerdict', () => {
     expect(benchmark!.entryPrice).toBeCloseTo(BARS[1].open * (1 + DEFAULT_BROKER_CONFIG.slippageBps / 10_000), 9);
   });
 });
+
+describe('liveVerdict with leverage (same wording as a backtest)', () => {
+  it('a 3x session names the 3x hold, says when it was wiped, and carries the 3x tooltip', async () => {
+    const { benchmarkDefinition, benchmarkLabel } = await import('../engine/benchmark');
+    const broker = { ...DEFAULT_BROKER_CONFIG, leverage: 3 };
+    // Trading bars: flat, then a 50% crash (a 3x long is wiped), warm-up before the start.
+    const bars: Candle[] = Array.from({ length: 40 }, (_, i) => {
+      const p = i < 25 ? 100 : 50;
+      return { time: i * MINUTE, open: p, high: p, low: p, close: p, volume: 1 };
+    });
+    const lev = testSession({ startTime: 10 * MINUTE, warmupBars: 10, brokerConfig: broker });
+    const engine = new SessionEngine(lev, createSmaCross({ fast: 5, slow: 20, sizePct: 50 }));
+    for (const bar of bars) engine.push(bar);
+    const d = engine.drain();
+    const out = liveVerdict({
+      startTime: lev.startTime, broker, candles: d.candles, tradeCount: d.trades.length, fillCount: d.fills.length,
+      equityPoints: d.equity.length, stats: d.stats, wiped: d.wiped, position: d.position, activity: d.activity,
+    });
+    expect(out.benchmark!.leverage).toBe(3);
+    expect(out.benchmark!.wipedTime).not.toBeNull();
+    expect(out.verdict.text).toContain(benchmarkLabel(3));
+    expect(out.verdict.text).toMatch(/wiped/);
+    // A wiped hold shows at most -100% (clamped like the backtest), never "-150%".
+    const big = out.verdict.text.match(/-\d{3,}\.\d\d%/g) ?? [];
+    expect(big.every((m) => m === '-100.00%'), out.verdict.text).toBe(true);
+    expect(out.benchmarkInfo).toBe(benchmarkDefinition(3));
+  });
+
+  it('1x keeps the plain wording and the 1x tooltip', async () => {
+    const { BENCHMARK_DEFINITION } = await import('../engine/benchmark');
+    const out = liveVerdict(liveRun(BARS));
+    expect(out.verdict.text).toContain('Buy & hold');
+    expect(out.benchmarkInfo).toBe(BENCHMARK_DEFINITION);
+  });
+});

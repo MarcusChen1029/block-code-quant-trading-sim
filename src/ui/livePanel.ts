@@ -27,7 +27,7 @@ export interface LivePanel {
   setSessions(rows: SessionRow[], viewedId: string | null): void;
   setBusy(busy: boolean): void;
   /** The session's plain-language verdict (same wording as a backtest); null hides it. */
-  setVerdict(verdict: Verdict | null): void;
+  setVerdict(verdict: Verdict | null, benchmarkInfo?: string): void;
 }
 
 /** The Live-mode strip: start form, status badge and the session list. */
@@ -93,8 +93,8 @@ export function createLivePanel(container: HTMLElement, handlers: LivePanelHandl
     setBusy(busy) {
       start.disabled = busy;
     },
-    setVerdict(v) {
-      if (v) verdict.show(v);
+    setVerdict(v, info) {
+      if (v) verdict.show(v, info);
       else verdict.clear();
     },
     setSessions(rows, viewedId) {

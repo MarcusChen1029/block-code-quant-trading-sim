@@ -748,13 +748,13 @@ export class LiveMode {
   /** Verdict sentence + buy & hold cards and line for the session on screen (the backtest's own functions). */
   private refreshVerdict(view: SessionView): void {
     if (!this.active || view !== this.viewed) return;
-    const { verdict, benchmark } = liveVerdict({
+    const { verdict, benchmark, benchmarkInfo } = liveVerdict({
       startTime: view.record.startTime, broker: view.record.brokerConfig, candles: view.candles,
       tradeCount: view.trades.length, fillCount: view.fills.length, equityPoints: view.equity.length,
       stats: view.stats, wiped: view.wiped, position: view.position, activity: view.activity,
     });
     view.benchmark = benchmark;
-    this.panel.setVerdict(verdict);
+    this.panel.setVerdict(verdict, benchmarkInfo);
     this.deps.stats.setBenchmark(benchmark);
     if (view.stats) this.deps.stats.showStats(view.stats, view.wiped, benchmark);
   }

@@ -1,5 +1,5 @@
 import type { Candle } from '../data/types';
-import { buyAndHold, type Benchmark } from '../engine/benchmark';
+import { BENCHMARK_DEFINITION, benchmarkDefinition, benchmarkLabel, buyAndHold, type Benchmark } from '../engine/benchmark';
 import type { EngineActivity } from '../engine/engine';
 import type { Stats } from '../engine/stats';
 import type { BrokerConfig, PositionView } from '../engine/types';
@@ -123,12 +123,13 @@ function firstAtOrAfter(candles: readonly Candle[], time: number): number {
  * (from its start, after warm-up) and is entered at the first one a strategy could fill at, the next bar's open:
  * exactly the backtest convention, via the shared buyAndHold. Pure.
  */
-export function liveVerdict(input: LiveVerdictInput): { verdict: Verdict; benchmark: Benchmark | null } {
+export function liveVerdict(input: LiveVerdictInput): { verdict: Verdict; benchmark: Benchmark | null; benchmarkInfo: string } {
   const trading = input.candles.slice(firstAtOrAfter(input.candles, input.startTime));
   if (input.stats === null || trading.length < 2) {
     const warming = trading.length === 0;
     return {
       benchmark: null,
+      benchmarkInfo: benchmarkDefinition(input.broker.leverage),
       verdict: {
         tone: 'neutral',
         text: warming
@@ -147,9 +148,12 @@ export function liveVerdict(input: LiveVerdictInput): { verdict: Verdict; benchm
     wiped: input.wiped,
     barsProcessed: input.equityPoints,
     barsLoaded: trading.length,
-    benchmark: benchmark ? { returnPct: benchmark.returnPct, maxDrawdownPct: benchmark.maxDrawdownPct } : null,
+    // Named and flagged like a backtest's: 'Buy & hold (3x)', and 'account wiped at …' for a wiped leveraged hold.
+    benchmark: benchmark
+      ? { returnPct: benchmark.returnPct, maxDrawdownPct: benchmark.maxDrawdownPct, label: benchmarkLabel(benchmark.leverage), wipedTime: benchmark.wipedTime ?? null }
+      : null,
     activity: input.activity,
     warmup: null, // live sessions warm up on their own bars before the start
   });
-  return { verdict, benchmark };
+  return { verdict, benchmark, benchmarkInfo: benchmark ? benchmarkDefinition(benchmark.leverage) : BENCHMARK_DEFINITION };
 }
