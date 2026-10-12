@@ -37,7 +37,7 @@ export async function startHarness(market: FakeBinanceState, dbPath: string, ext
       sockets.push(s);
       return s;
     },
-    staleAfterMs: 1e12,
+    staleAfterMs: 3e9, // the stale check runs every staleAfterMs / 3 (must fit a 32-bit timer)
   });
   const createClient = clientFactory(() => inThreadWorker({ dbPath }, adapter, { now, yieldFn: () => new Promise((r) => setTimeout(r, 0)) }));
   const app = await createApp({ db, createClient, distDir: null, now, ...extra });

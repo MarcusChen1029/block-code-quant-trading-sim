@@ -212,11 +212,7 @@ export class SessionManager {
     listener({ type: 'snapshot', snapshot: this.snapshot(r) });
     return () => {
       r.watchers.delete(listener);
-      if (r.mode === 'replay' && r.watchers.size === 0 && this.runs.get(r.record.id) === r) {
-        r.idleTimer = setTimeout(() => {
-          if (r.watchers.size === 0) this.dropRun(r);
-        }, this.opt.replayIdleMs);
-      }
+      if (r.mode === 'replay' && r.watchers.size === 0) this.idleDrop(r);
     };
   }
 
@@ -243,6 +239,15 @@ export class SessionManager {
       fatal: (message) => this.onFatal(run, message),
     }, this.options.createClient);
     return run;
+  }
+
+  /** A replay nobody watches is kept a while (a viewer coming back, or polling) and then dropped. */
+  private idleDrop(run: Run): void {
+    if (run.idleTimer !== null || this.runs.get(run.record.id) !== run) return;
+    run.idleTimer = setTimeout(() => {
+      run.idleTimer = null;
+      if (run.watchers.size === 0) this.dropRun(run);
+    }, this.opt.replayIdleMs);
   }
 
   private dropRun(run: Run): void {
@@ -337,7 +342,7 @@ export class SessionManager {
       });
     } else {
       for (const done of waiters) done();
-      if (run.watchers.size === 0) this.dropRun(run);
+      if (run.watchers.size === 0) this.idleDrop(run);
     }
   }
 
