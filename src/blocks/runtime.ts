@@ -130,7 +130,11 @@ export class BlockRuntime {
   setExit(ctx: StrategyContext, kind: 'stopLoss' | 'takeProfit', price: unknown): void {
     const label = kind === 'stopLoss' ? 'stop-loss' : 'take-profit';
     if (isNa(price)) {
-      this.skipNa(ctx, `set ${label}`, 'set stop-loss / take-profit', 'price');
+      // Deliberately NOT cleared: a previous stop / target stays in place (safer than silently removing protection
+      // because one bar had no value). The warning says which: the price that stays, or that none is set.
+      const previous = kind === 'stopLoss' ? ctx.position.stopLoss : ctx.position.takeProfit;
+      const first = previous === null ? `no ${label} is set` : `the previous ${label} (${previous}) stays in place`;
+      this.skipNa(ctx, `set ${label}`, 'set stop-loss / take-profit', 'price', { first, later: `any previous ${label} stays in place` });
       return;
     }
     const p = Number(price);
@@ -144,13 +148,17 @@ export class BlockRuntime {
    * then only at the 10th, 100th, 1000th... skip with the count (a strategy that is na on most bars must not flood the
    * log). Warm-up bars (live) drop warnings: those skips are not counted, so the first trading bar still warns.
    */
-  private skipNa(ctx: StrategyContext, action: string, blockLabel: string, what: string): -1 {
+  private skipNa(
+    ctx: StrategyContext, action: string, blockLabel: string, what: string,
+    /** What the skip leaves in place (stop-loss / take-profit): for the first warning and for the counts. */
+    effect?: { first: string; later: string },
+  ): -1 {
     const i = this.current;
     const n = (this.naSkips.get(i) ?? 0) + 1;
     const block = `block '${blockLabel}' (id ${this.blockIds[i]})`;
     let message: string | null = null;
-    if (n === 1) message = `${action} skipped: its ${what} is na (no value) — ${block}. Further skips by this block are only counted.`;
-    else if (isPowerOf10(n)) message = `${action} skipped ${n.toLocaleString('en-US')} times so far: its ${what} is na — ${block}.`;
+    if (n === 1) message = `${action} skipped: its ${what} is na (no value)${effect ? `, so ${effect.first}` : ''} — ${block}. Further skips by this block are only counted.`;
+    else if (isPowerOf10(n)) message = `${action} skipped ${n.toLocaleString('en-US')} times so far: its ${what} is na${effect ? ` (${effect.later})` : ''} — ${block}.`;
     if (message !== null && !warn(ctx, message)) return -1;
     this.naSkips.set(i, n);
     return -1;

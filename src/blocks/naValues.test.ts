@@ -38,8 +38,8 @@ describe('na into stop / limit / size', () => {
     const r = run(workspace({ onBar: [setExit('sl', 'stopLoss', NA())] }));
     expect(r.barsProcessed).toBe(60);
     expect(warnings(r)).toEqual([
-      "set stop-loss skipped: its price is na (no value) — block 'set stop-loss / take-profit' (id sl). Further skips by this block are only counted.",
-      "set stop-loss skipped 10 times so far: its price is na — block 'set stop-loss / take-profit' (id sl).",
+      "set stop-loss skipped: its price is na (no value), so no stop-loss is set — block 'set stop-loss / take-profit' (id sl). Further skips by this block are only counted.",
+      "set stop-loss skipped 10 times so far: its price is na (any previous stop-loss stays in place) — block 'set stop-loss / take-profit' (id sl).",
     ]);
     expect(r.log.filter((l) => l.level === 'warn')[0].bar).toBe(0);
   });
@@ -49,7 +49,7 @@ describe('na into stop / limit / size', () => {
       onBar: [setExit('tp', 'takeProfit', NA()), limit('lim', num(1), NA()), market('mkt', NA())],
     }), CANDLES.slice(0, 5));
     expect(warnings(r)).toEqual([
-      "set take-profit skipped: its price is na (no value) — block 'set stop-loss / take-profit' (id tp). Further skips by this block are only counted.",
+      "set take-profit skipped: its price is na (no value), so no take-profit is set — block 'set stop-loss / take-profit' (id tp). Further skips by this block are only counted.",
       "limit order skipped: its limit price is na (no value) — block 'limit order' (id lim). Further skips by this block are only counted.",
       "market order skipped: its size is na (no value) — block 'market order' (id mkt). Further skips by this block are only counted.",
     ]);
@@ -64,6 +64,16 @@ describe('na into stop / limit / size', () => {
     expect(warnings(r)).toHaveLength(1);
     expect(r.activity.orderRequests).toBe(2); // bars 3 and 4
     expect(r.fills.map((f) => f.bar)).toEqual([4, 5]);
+  });
+
+  it('a skipped stop-loss keeps the PREVIOUS one (safer than removing it) and says so', () => {
+    // The na block runs before any stop exists (first warning: none set); then a stop at 50 is set and later na skips keep it.
+    const r = run(workspace({ onBar: [setExit('slna', 'stopLoss', NA()), setExit('sl50', 'stopLoss', num(50))] }), CANDLES.slice(0, 5));
+    expect(r.finalPosition.stopLoss).toBe(50);
+    expect(warnings(r)[0]).toBe("set stop-loss skipped: its price is na (no value), so no stop-loss is set — block 'set stop-loss / take-profit' (id slna). Further skips by this block are only counted.");
+    const r2 = run(workspace({ onBar: [setExit('sl50', 'stopLoss', num(50)), setExit('slna', 'stopLoss', NA())] }), CANDLES.slice(0, 5));
+    expect(warnings(r2)[0]).toBe("set stop-loss skipped: its price is na (no value), so the previous stop-loss (50) stays in place — block 'set stop-loss / take-profit' (id slna). Further skips by this block are only counted.");
+    expect(r2.finalPosition.stopLoss).toBe(50);
   });
 
   const halts: Array<[string, BlockState, string, string]> = [
@@ -111,7 +121,7 @@ describe('na into stop / limit / size', () => {
     expect(r.barsProcessed).toBe(candles.length);
     expect(r.fills.length).toBeGreaterThan(0);
     const w = warnings(r);
-    expect(w[0]).toBe("set stop-loss skipped: its price is na (no value) — block 'set stop-loss / take-profit' (id zx-stop). Further skips by this block are only counted.");
+    expect(w[0]).toMatch(/^set stop-loss skipped: its price is na \(no value\), so (no stop-loss is set|the previous stop-loss \([0-9.]+\) stays in place) — block 'set stop-loss \/ take-profit' \(id zx-stop\)\. Further skips by this block are only counted\.$/);
     expect(w.every((m) => m.includes('(id zx-stop)'))).toBe(true);
   });
 });
