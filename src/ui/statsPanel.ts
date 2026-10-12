@@ -75,7 +75,7 @@ export class StatsPanel {
     this.benchToggle.checked = loadText(BENCHMARK_LINE_STORAGE_KEY) !== '0';
     this.benchLabel = h('label', { class: 'bench-toggle', title: BENCHMARK_DEFINITION }, this.benchToggle, (this.benchLabelText = document.createTextNode('Buy & hold line')));
     this.benchLabel.hidden = true;
-    this.trades = h('div', { class: 'trades' });
+    this.trades = h('div', { class: 'trades', tabindex: '0', role: 'region', 'aria-label': 'Trade list' });
     this.log = h('div', { class: 'log' });
     this.csvButton = tip(h('button', { type: 'button', class: 'btn btn-small', disabled: '' }, icon('download', 14), h('span', {}, 'CSV')),
       'Download the trade list as a spreadsheet file (CSV) you can open in Excel, Numbers or Google Sheets.');

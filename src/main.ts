@@ -160,7 +160,7 @@ function onWorkspaceChange(json: unknown): void {
     setStatus(`Blocks: ${result.errors.length} problem${result.errors.length > 1 ? 's' : ''}: ${result.errors[0].message}`, true);
     return;
   }
-  if (hadErrors) setStatus('Blocks compile again. Press Run to backtest.');
+  if (hadErrors) setStatus('All blocks are OK again. Press ▶ Run test to try them.');
   const overlayKey = JSON.stringify(result.program.indicators.map(({ blockId: _id, ...use }) => use));
   blockIndicators = result.program.indicators;
   if (overlayKey !== blockOverlayKey && strategyChoice === 'blocks') {
@@ -238,7 +238,7 @@ setupLayout(document.getElementById('pane-switch')!, document.getElementById('le
 });
 new ResizeObserver(() => editor?.resize()).observe(blocklyEl);
 const fitButton = tip(h('button', { type: 'button', class: 'btn btn-small fit-blocks' }, icon('fit', 14), h('span', {}, 'Fit')),
-  'Zoom and scroll so your whole strategy fits on screen.');
+  'Zoom so your whole strategy fits on screen (as far as the blocks stay readable).');
 fitButton.addEventListener('click', () => editor?.fit());
 document.getElementById('left-tabs')!.append(fitButton);
 /** Fit after Blockly has laid the new blocks out (animation frames may stall in a hidden window: use a timer). */
@@ -287,7 +287,13 @@ async function loadMarket(settings: RunSettings): Promise<void> {
   live?.close();
   live = null;
   setStatus(`Loading ${settings.symbol} ${settings.timeframe} candles…`);
-  candles = await adapter.fetchCandles(settings.symbol, settings.timeframe, settings.startMs, Date.now());
+  const chartPanel = document.getElementById('chart-panel')!;
+  chartPanel.classList.add('loading');
+  try {
+    candles = await adapter.fetchCandles(settings.symbol, settings.timeframe, settings.startMs, Date.now());
+  } finally {
+    chartPanel.classList.remove('loading');
+  }
   chart.setCandles(candles);
   chart.setMarkers([]);
   applyOverlays();
@@ -428,7 +434,7 @@ async function runWith(settings: RunSettings): Promise<void> {
       verdict.show(buildVerdict({ ...EMPTY_VERDICT_INPUT, barsLoaded: candles.length, barsProcessed: candles.length }));
       throw new Error('not enough candles in the selected range');
     }
-    setStatus(`Running backtest on ${candles.length} bars…`);
+    setStatus(`Testing your strategy on ${candles.length.toLocaleString('en-US')} candles…`);
     const result = await runBacktestInWorker({
       type: 'run',
       candles,
@@ -440,9 +446,9 @@ async function runWith(settings: RunSettings): Promise<void> {
     results.ranWith(runKey);
     verdict.show(verdictFor(result, candles.length, strategyWarmup(spec)), benchmarkDefinition(result.benchmark?.leverage ?? 1));
     setStatus(
-      `Backtest done (${spec.id === 'blocks' ? 'block strategy' : 'built-in SMA cross'}): ${result.barsProcessed} bars, ${result.trades.length} trades` +
+      `Backtest done (${spec.id === 'blocks' ? 'your blocks' : 'built-in SMA cross'}): ${result.barsProcessed.toLocaleString('en-US')} candles, ${result.trades.length} trade${result.trades.length === 1 ? '' : 's'}` +
         (result.wiped ? ' (ACCOUNT WIPED)' : '') +
-        '. Indicator warm-up bars may differ slightly from TradingView.',
+        '. See the Results panel below the chart.',
     );
     refreshFreshness(); // edits made while it ran already make it stale
   } catch (err) {
@@ -509,7 +515,7 @@ function switchMode(next: AppMode): void {
     return;
   }
   loadMarket(parsed.settings)
-    .then(() => setStatus(`${parsed.settings.symbol} ${parsed.settings.timeframe}: ${candles.length} bars. Press Run to backtest.` +
+    .then(() => setStatus(`${parsed.settings.symbol} ${parsed.settings.timeframe}: ${candles.length.toLocaleString('en-US')} candles loaded. Press ▶ Run test to try your strategy.` +
       (liveSessions.hasRunning ? ' A live session keeps running in the background.' : '')))
     .catch((err: unknown) => setStatus(err instanceof Error ? err.message : String(err), true));
 }
@@ -648,6 +654,10 @@ initShortcuts({
   theme: toggleTheme,
 });
 
+// Tell people when the internet drops: prices stop updating, and loading new candles fails until it is back.
+window.addEventListener('offline', () => setStatus('You are offline: prices are not updating. Everything you made is still saved in this browser.', true));
+window.addEventListener('online', () => setStatus('Back online. Press ▶ Run test to load fresh prices.'));
+
 // First visit: a short guided tour (after the first paint, so it can point at real things).
 if (!tourDone()) setTimeout(() => startTour(), 900);
 
@@ -667,7 +677,7 @@ if (initial.ok && mode === 'backtest') {
   loadMarket(initial.settings)
     .then(() => {
       if (compileState.errors.length === 0) {
-        setStatus(`${initial.settings.symbol} ${initial.settings.timeframe}: ${candles.length} bars, streaming live. Press Run to backtest.`);
+        setStatus(`${initial.settings.symbol} ${initial.settings.timeframe}: ${candles.length.toLocaleString('en-US')} candles loaded, live prices on. Press ▶ Run test to try your strategy.`);
       }
     })
     .catch((err: unknown) => setStatus(err instanceof Error ? err.message : String(err), true));

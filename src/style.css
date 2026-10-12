@@ -12,9 +12,9 @@
   --border-strong: #39445a;
   --text: #e6e9f0;
   --text-2: #a3abbd;
-  --text-3: #6f788d;
-  --accent: #3b6cff;
-  --accent-hover: #5582ff;
+  --text-3: #8f98ad;
+  --accent: #3462f5;
+  --accent-hover: #2b55dd;
   --accent-text: #8fa9ff;
   --accent-soft: rgba(59, 108, 255, 0.16);
   --on-accent: #ffffff;
@@ -47,16 +47,16 @@
   --border-strong: #c3cad8;
   --text: #182031;
   --text-2: #4f5a70;
-  --text-3: #808aa0;
+  --text-3: #626c82;
   --accent: #2f5bea;
   --accent-hover: #2149cf;
   --accent-text: #2a52d6;
   --accent-soft: rgba(47, 91, 234, 0.1);
-  --good: #0d8a7c;
+  --good: #0a7569;
   --good-soft: rgba(13, 138, 124, 0.1);
-  --bad: #d93a36;
+  --bad: #c42e2a;
   --bad-soft: rgba(217, 58, 54, 0.09);
-  --warn: #b26a00;
+  --warn: #975a00;
   --warn-soft: rgba(230, 150, 20, 0.12);
   --shadow: 0 12px 32px rgba(23, 32, 52, 0.16);
   --shadow-sm: 0 2px 8px rgba(23, 32, 52, 0.08);
@@ -295,6 +295,16 @@ body.resizing #left { transition: none; }
 #main > .row-splitter { margin: -8px 0; }
 #chart-panel { flex: 1; min-height: 0; }
 #chart { flex: 1; min-height: 240px; position: relative; outline: none; }
+#chart-panel { position: relative; }
+#chart-panel.loading::after {
+  content: 'Loading prices…'; position: absolute; left: 50%; top: 55%; transform: translate(-50%, -50%); z-index: 5;
+  padding: 8px 16px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-sm);
+  color: var(--text-2); font-weight: 550; font-size: 0.86rem;
+}
+#chart-panel.loading::before {
+  content: ''; position: absolute; left: 50%; top: calc(55% - 44px); z-index: 6; width: 22px; height: 22px; margin-left: -11px;
+  border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite;
+}
 #results-panel { flex: none; height: var(--results-height, 300px); min-height: 0; }
 .results-body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 
@@ -354,6 +364,7 @@ body[data-full='results'] #stats { height: auto; flex: 1; }
 
 /* Left pane: tabs Blocks | Pine code */
 .tabs { display: flex; align-items: center; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--border); flex: none; }
+.tablist { display: flex; align-items: center; gap: 2px; }
 .tabs [role='tab'] { display: inline-flex; align-items: center; gap: 6px; border: none; background: transparent; color: var(--text-2); padding: 5px 12px; border-radius: 999px; font-weight: 550; }
 .tabs [role='tab']:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
 .tabs [role='tab'][aria-selected='true'] { background: var(--accent-soft); color: var(--accent-text); }
@@ -365,6 +376,23 @@ body[data-full='results'] #stats { height: auto; flex: 1; }
 .blocklyToolboxCategory:hover { background: var(--surface-3) !important; }
 .blocklyToolboxCategoryLabel { font: 600 0.86rem var(--font) !important; padding-right: 10px; }
 .blocklyToolboxDiv { padding-top: 6px !important; }
+
+/* Blockly's own popups: block tooltips, right-click menu, dropdowns */
+.blocklyTooltipDiv {
+  background: #0b0e14 !important; color: #eef0f5 !important; border: 1px solid #2e3647 !important; border-radius: 8px !important;
+  box-shadow: var(--shadow) !important; padding: 8px 11px !important; font: 0.82rem/1.45 var(--font) !important; max-width: 340px; opacity: 1 !important;
+}
+:root[data-theme='light'] .blocklyTooltipDiv { background: #1d2433 !important; border-color: #1d2433 !important; }
+.blocklyWidgetDiv .blocklyMenu, .blocklyDropDownDiv .blocklyMenu, .blocklyContextMenu {
+  background: var(--surface) !important; border: 1px solid var(--border) !important; border-radius: var(--radius) !important;
+  box-shadow: var(--shadow) !important; padding: 4px !important; font: 0.86rem var(--font) !important;
+}
+.blocklyMenuItem { color: var(--text) !important; border-radius: var(--radius-sm); padding: 6px 12px !important; }
+.blocklyMenuItemDisabled { color: var(--text-3) !important; opacity: 0.6; }
+.blocklyMenuItemHighlight { background: var(--surface-3) !important; }
+.blocklyDropDownDiv { border-radius: var(--radius) !important; box-shadow: var(--shadow) !important; }
+.blocklyMenuItemCheckbox { filter: invert(var(--invert, 0)); }
+:root[data-theme='dark'] { --invert: 1; }
 
 /* Drag handle between the chart and the results (wide layouts) */
 .row-splitter { flex: none; height: 8px; cursor: row-resize; position: relative; z-index: 4; touch-action: none; }
@@ -473,6 +501,7 @@ body[data-mode='live'] .stale-note { display: none; }
 }
 .sub-head span[data-tip] { cursor: help; }
 .trades { flex: 1; overflow: auto; min-height: 0; }
+.trades:focus-visible { outline-offset: -2px; }
 .trades table { width: 100%; border-collapse: collapse; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .trades th, .trades td { padding: 4px 8px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .trades th { position: sticky; top: 0; background: var(--surface); color: var(--text-3); font-weight: 600; cursor: help; }

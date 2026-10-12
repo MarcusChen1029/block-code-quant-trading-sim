@@ -14,6 +14,8 @@ import { currentTheme, onThemeChange } from './theme';
 
 export const WORKSPACE_STORAGE_KEY = 'quant-sim.blocks.workspace.v1';
 const ISSUE_WARNING_ID = 'compile';
+/** Smallest zoom of the block list (toolbox flyout). */
+const MIN_FLYOUT_SCALE = 0.8;
 
 export interface BlockEditor {
   /** The workspace as Blockly JSON (what the compiler and the worker consume). */
@@ -30,7 +32,7 @@ export interface BlockEditor {
    * (workspace unchanged) when it cannot be loaded.
    */
   loadWorkspace(state: unknown): boolean;
-  /** Zooms and scrolls so the whole strategy is visible (never zoomed in past 100 %). No-op while hidden. */
+  /** Zooms so the whole strategy is visible (between 70 % and 100 %; a bigger one starts at its top-left). No-op while hidden. */
   fit(): void;
   /**
    * Indicator registrations changed (Pine scripts saved / deleted): redefines blocks, rebuilds the toolbox and
@@ -65,12 +67,15 @@ export function createBlockEditor(
     trashcan: true,
     sounds: false,
     grid: { spacing: 24, length: 2, colour: '#2a2e39', snap: true }, // colour: style.css (--bk-grid) per theme
-    zoom: { controls: true, wheel: true, startScale: 0.65, maxScale: 2, minScale: 0.2, scaleSpeed: 1.15 },
+    zoom: { controls: true, wheel: true, startScale: 0.8, maxScale: 2, minScale: 0.2, scaleSpeed: 1.15 },
     move: { scrollbars: true, drag: true, wheel: false },
     maxInstances: { ...HAT_MAX_INSTANCES },
   });
 
   onThemeChange((mode) => ws.setTheme(quantTheme(mode)));
+  // The block list keeps a readable size even when the workspace is zoomed far out to show a big strategy.
+  const flyout = ws.getToolbox()?.getFlyout();
+  if (flyout instanceof Blockly.Flyout) flyout.getFlyoutScale = () => Math.max(MIN_FLYOUT_SCALE, ws.scale);
 
   let loading = false;
   let lastJson = '';
@@ -117,6 +122,8 @@ export function createBlockEditor(
   let pendingFit = false;
   /** Pixels kept free on each side after a fit, so blocks clear the scrollbars (zoomToFit measures under them). */
   const FIT_PAD_PX = 24;
+  /** Fit never zooms out further than this: smaller block text is unreadable (scroll to see the rest). */
+  const MIN_FIT_SCALE = 0.7;
   const fit = () => {
     if (ws.getTopBlocks(false).length === 0) return;
     if (container.clientWidth === 0 || container.clientHeight === 0) {
@@ -129,8 +136,9 @@ export function createBlockEditor(
     ws.zoomToFit();
     const view = ws.getMetricsManager().getViewMetrics();
     const room = Math.min((view.width - 2 * FIT_PAD_PX) / view.width, (view.height - 2 * FIT_PAD_PX) / view.height);
-    const target = Math.min(1, ws.scale * Math.max(0.5, room));
+    const target = Math.max(MIN_FIT_SCALE, Math.min(1, ws.scale * Math.max(0.5, room)));
     ws.zoomCenter(Math.log(target / ws.scale) / Math.log(ws.options.zoomOptions.scaleSpeed));
+    if (target === MIN_FIT_SCALE) showTopLeft(); // too big to fit readably: start reading at its top-left corner
   };
 
   let restored: BlockEditor['restored'] = 'storage';

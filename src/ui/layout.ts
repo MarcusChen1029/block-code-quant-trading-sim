@@ -45,8 +45,8 @@ export function setupLayout(
     requestAnimationFrame(() => onTabShown(tab));
   };
   for (const [id, b] of tabs) b.addEventListener('click', () => showTab(id));
-  leftTabs.setAttribute('role', 'tablist');
-  leftTabs.append(...tabs.map(([, b]) => b));
+  // The tab list holds only the tabs (the Fit button sits next to it, in leftTabs).
+  leftTabs.append(h('div', { class: 'tablist', role: 'tablist', 'aria-label': 'Strategy editor' }, ...tabs.map(([, b]) => b)));
   showTab(initialTab);
   show('left');
 }
@@ -189,6 +189,10 @@ export function setupRowSplitter(
   const apply = () => {
     if (height === null) main.style.removeProperty('--results-height');
     else main.style.setProperty('--results-height', `${clampResultsHeight(height, main.clientHeight)}px`);
+    // A focusable separator reports its position: the results height in pixels.
+    handle.setAttribute('aria-valuemin', '150');
+    handle.setAttribute('aria-valuemax', String(Math.max(150, main.clientHeight - 200)));
+    handle.setAttribute('aria-valuenow', String(Math.round(document.getElementById('results-panel')?.getBoundingClientRect().height ?? 0)));
   };
   let dragging = false;
   let startY = 0;
