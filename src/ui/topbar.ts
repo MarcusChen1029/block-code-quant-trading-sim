@@ -1,6 +1,9 @@
 import { TIMEFRAMES } from '../data/types';
 import { accountSummary } from './accountSummary';
+import { ACCOUNT_TEXT, FIELD_TEXT, MODE_TEXT, timeframeWords } from './descriptions';
 import { h } from './dom';
+import { setExplain } from './explain';
+import { icon } from './icons';
 import { isAccountField, type RawSettings } from './settings';
 import { loadText, saveText } from './storage';
 
@@ -45,18 +48,27 @@ export function createTopBar(
   const symbols = h('datalist', { id: 'symbols' }, ...['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'].map((s) => h('option', { value: s })));
   const timeframe = h('select', { name: 'timeframe' }, ...TIMEFRAMES.map((tf) => h('option', { value: tf }, tf)));
   timeframe.value = initial.timeframe;
+  const explainTimeframe = () => setExplain(timeframe, 'Candle size', `Each candle now covers ${timeframeWords(timeframe.value)}. Smaller candles mean more candles and usually more trades. Press Run to try it.`);
+  explainTimeframe();
+  timeframe.addEventListener('change', explainTimeframe);
   const startDate = input('startDate', 'date', '130px');
   const balance = input('balance', 'number', '90px', { min: '0', step: '100' });
   const leverage = input('leverage', 'number', '55px', { min: '1', max: '125', step: '1' });
   const takerFeePct = input('takerFeePct', 'number', '60px', { min: '0', step: '0.01' });
   const makerFeePct = input('makerFeePct', 'number', '60px', { min: '0', step: '0.01' });
   const slippageBps = input('slippageBps', 'number', '55px', { min: '0', step: '1' });
-  const run = h('button', { type: 'submit', class: 'run backtest-only' }, 'Run');
+  const runLabel = (text: string) => run.replaceChildren(icon('play', 14), text);
+  const run = h('button', { type: 'submit', class: 'run backtest-only', 'data-tour': 'run', 'data-tip': FIELD_TEXT.run }, 'Run');
+  run.style.display = 'inline-flex';
+  run.style.alignItems = 'center';
+  run.style.gap = '7px';
+  runLabel('Run');
 
   const modeButtons: Array<[AppMode, HTMLButtonElement]> = [
-    ['backtest', h('button', { type: 'button', title: 'Simulate the strategy over historical bars' }, 'Backtest')],
-    ['live', h('button', { type: 'button', title: 'Paper-trade on the live Binance stream (fake money)' }, 'Live')],
+    ['backtest', h('button', { type: 'button', 'data-tip': MODE_TEXT.backtest.on }, 'Backtest')],
+    ['live', h('button', { type: 'button', 'data-tip': MODE_TEXT.live.on }, 'Live')],
   ];
+  for (const [id, b] of modeButtons) setExplain(b, MODE_TEXT[id].title, MODE_TEXT[id].on);
   const showMode = (mode: AppMode) => {
     document.body.dataset.mode = mode;
     for (const [id, b] of modeButtons) {
@@ -71,29 +83,33 @@ export function createTopBar(
       onMode(id);
     });
   }
-  const modeToggle = h('div', { class: 'mode-toggle', role: 'group', 'aria-label': 'Mode' }, ...modeButtons.map(([, b]) => b));
+  const modeToggle = h('div', { class: 'mode-toggle', role: 'group', 'aria-label': 'Mode', 'data-tour': 'mode' }, ...modeButtons.map(([, b]) => b));
   showMode(initialMode);
 
-  const field = (label: string, el: HTMLElement, cls?: string, title?: string) => h('label', { class: cls, title }, h('span', {}, label), el);
+  const field = (label: string, el: HTMLElement, cls?: string, tip?: string) =>
+    h('label', { class: cls, 'data-tip': tip }, h('span', { class: tip ? 'field-label' : undefined }, label), el);
 
   // Account settings: closed by default; the toggle carries the summary of the hidden values.
   const summary = h('span', { class: 'account-summary' });
   const accountToggle = h(
-    'button', { type: 'button', class: 'account-toggle', 'aria-expanded': 'false', 'aria-controls': 'account-panel', title: 'Leverage, fees and slippage used by backtests and new live sessions' },
-    h('span', { class: 'account-caret', 'aria-hidden': 'true' }, '▸'), h('span', { class: 'account-title' }, 'Account settings'), summary,
+    'button', { type: 'button', class: 'account-toggle', 'aria-expanded': 'false', 'aria-controls': 'account-panel', 'data-tip': 'Leverage, fees and slippage used by backtests and new live sessions. Click to open or close.' },
+    h('span', { class: 'account-caret', 'aria-hidden': 'true' }, '▸'), h('span', { class: 'account-title' }, 'Money settings'), summary,
   );
+  setExplain(accountToggle, ACCOUNT_TEXT.title, ACCOUNT_TEXT.on, ACCOUNT_TEXT.off);
   const extras = h('div', { class: 'extras' });
   const accountPanel = h(
-    'div', { class: 'account-panel', id: 'account-panel', role: 'group', 'aria-label': 'Account settings' },
-    field('Leverage', leverage, undefined, 'Notional cap = equity x leverage (1-125)'),
-    field('Taker %', takerFeePct, undefined, 'Fee on market and stop fills, in percent'),
-    field('Maker %', makerFeePct, undefined, 'Fee on limit and take-profit fills, in percent'),
-    field('Slip bps', slippageBps, undefined, 'Slippage against you on market / stop fills, in basis points (1 bps = 0.01%)'),
+    'div', { class: 'account-panel', id: 'account-panel', role: 'group', 'aria-label': 'Money settings' },
+    field('Leverage (x)', leverage, undefined, FIELD_TEXT.leverage),
+    field('Market fee %', takerFeePct, undefined, FIELD_TEXT.takerFee),
+    field('Limit fee %', makerFeePct, undefined, FIELD_TEXT.makerFee),
+    field('Slippage (bps)', slippageBps, undefined, FIELD_TEXT.slippage),
     extras,
+    h('p', { class: 'account-note' }, 'These change how the pretend broker charges you. The defaults are close to a real exchange, so you can leave them alone.'),
   );
   const refreshSummary = () => {
     const s = accountSummary({ leverage: leverage.value, takerFeePct: takerFeePct.value, makerFeePct: makerFeePct.value, slippageBps: slippageBps.value }, usesBuiltInStrategy());
     summary.textContent = s.text;
+    accountToggle.setAttribute('data-tip', `Leverage, fees and slippage used by backtests and new live sessions. Click to open or close. Now: ${s.text}.`);
     accountToggle.classList.toggle('non-default', s.nonDefault);
   };
   let accountOpen = false;
@@ -107,14 +123,16 @@ export function createTopBar(
   accountToggle.addEventListener('click', () => setOpen(!accountOpen));
   for (const el of [leverage, takerFeePct, makerFeePct, slippageBps]) el.addEventListener('input', refreshSummary);
 
+  const coinField = field('Coin', symbol, undefined, FIELD_TEXT.symbol);
+  coinField.setAttribute('data-tour', 'market');
   const tools = h('div', { class: 'tools' });
   const form = h(
     'form', { class: 'run-form' },
     h('div', { class: 'field' }, h('span', {}, 'Mode'), modeToggle),
-    field('Product', symbol), symbols,
-    field('TF', timeframe),
-    field('Start', startDate, 'backtest-only'),
-    field('Balance', balance),
+    coinField, symbols,
+    field('Candle size', timeframe, undefined, FIELD_TEXT.timeframe),
+    field('Start date', startDate, 'backtest-only', FIELD_TEXT.startDate),
+    field('Starting money', balance, undefined, FIELD_TEXT.balance),
     run,
     tools,
     accountToggle,
@@ -161,7 +179,7 @@ export function createTopBar(
     }),
     setRunning(running: boolean) {
       run.disabled = running;
-      run.textContent = running ? 'Running…' : 'Run';
+      runLabel(running ? 'Running…' : 'Run');
     },
   };
 }

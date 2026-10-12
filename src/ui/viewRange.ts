@@ -100,3 +100,20 @@ export function parseSavedView(raw: unknown): SavedView | null {
   if (typeof r.following !== 'boolean' || !num(r.fromTime) || !num(r.toTime) || !num(r.width) || !num(r.rightOffset) || r.width <= 0) return null;
   return { following: r.following, fromTime: r.fromTime, toTime: r.toTime, width: r.width, rightOffset: r.rightOffset };
 }
+
+/** Bars of margin around a trade when it is shown on the chart (at least this many on each side). */
+export const TRADE_VIEW_MIN_MARGIN = 20;
+
+/**
+ * The part of the chart to show for a trade that opened at `entryMs` and closed at `exitMs`: the whole trade with a
+ * margin of half its length (at least TRADE_VIEW_MIN_MARGIN bars) on each side. Null when the chart has no bars or the
+ * trade lies outside them. Pure.
+ */
+export function rangeAroundTrade(times: readonly number[], entryMs: number, exitMs: number): LogicalRange | null {
+  const n = times.length;
+  if (n === 0 || exitMs < times[0] || entryMs > times[n - 1]) return null;
+  const from = clampIndex(lowerBound(times, entryMs), n);
+  const to = clampIndex(lowerBound(times, exitMs), n);
+  const margin = Math.max(TRADE_VIEW_MIN_MARGIN, Math.round((to - from) / 2));
+  return { from: from - margin, to: to + margin };
+}

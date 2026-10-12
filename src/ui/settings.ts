@@ -95,3 +95,21 @@ export function parseSettings(raw: RawSettings, nowMs: number): ParseResult {
     },
   };
 }
+
+/** localStorage key of the remembered top-bar values. */
+export const SETTINGS_STORAGE_KEY = 'quant-sim.settings.v1';
+
+/**
+ * The defaults with whatever the browser remembered laid over them. Only known fields holding short text count, so a
+ * damaged or hand-edited entry can never break the form (an invalid value is caught by parseSettings when Run is
+ * pressed, with a message pointing at the field).
+ */
+export function mergeStoredSettings(defaults: RawSettings, stored: unknown): RawSettings {
+  if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) return defaults;
+  const merged = { ...defaults };
+  for (const key of Object.keys(defaults) as Array<keyof RawSettings>) {
+    const value = (stored as Record<string, unknown>)[key];
+    if (typeof value === 'string' && value.length <= 40) merged[key] = value;
+  }
+  return merged;
+}

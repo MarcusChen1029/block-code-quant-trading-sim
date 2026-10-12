@@ -1,3 +1,5 @@
+import { LIVE_TARGET_TEXT } from './descriptions';
+import { setExplain } from './explain';
 import { ServerClient, type ConnectionState } from '../live/serverClient';
 import { h } from './dom';
 import { LiveMode, type LiveModeDeps } from './liveMode';
@@ -47,6 +49,8 @@ export class LiveTargets {
     this.target = saved === 'server' ? 'server' : 'local';
     const button = (t: Target, label: string, title: string) => {
       const b = h('button', { type: 'button', title, class: 'target-button' }, label) as HTMLButtonElement;
+      const text = LIVE_TARGET_TEXT[t === 'local' ? 'browser' : 'server'];
+      setExplain(b, text.title, text.on);
       b.addEventListener('click', () => this.select(t));
       return b;
     };
@@ -73,7 +77,7 @@ export class LiveTargets {
     this.logoutButton.addEventListener('click', () => void this.client?.logout().catch(() => {}));
 
     this.serverBox.append(this.urlRow, h('div', { class: 'live-row' }, this.loginForm, h('div', { class: 'live-status' }, this.connBadge, this.connDetail), this.logoutButton), this.liveBox);
-    container.append(h('div', { class: 'live-row live-targets' }, h('span', { class: 'hint' }, 'Run live sessions on:'), this.buttons.local, this.buttons.server), this.localBox, this.serverBox);
+    container.append(h('div', { class: 'live-row live-targets' }, h('span', { class: 'hint' }, 'Practice runs on:'), this.buttons.local, this.buttons.server), this.localBox, this.serverBox);
     this.local = new LiveMode(this.localBox, deps);
     this.render();
   }
