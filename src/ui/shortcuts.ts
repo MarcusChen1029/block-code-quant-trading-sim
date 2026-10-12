@@ -57,6 +57,7 @@ export function initShortcuts(handlers: Record<ShortcutId, () => void>): void {
     if (ev.defaultPrevented || ev.repeat) return;
     const id = matchShortcut(ev, isTypingTarget(document.activeElement));
     if (!id) return;
+    if (document.querySelector('.tour')) return; // the tour has its own keys
     if (id !== 'run' && document.querySelector('dialog[open]')) return;
     ev.preventDefault();
     handlers[id]();

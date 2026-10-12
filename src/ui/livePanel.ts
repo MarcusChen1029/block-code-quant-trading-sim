@@ -35,7 +35,7 @@ export interface LivePanel {
 export function createLivePanel(container: HTMLElement, handlers: LivePanelHandlers, nowMs: number): LivePanel {
   const name = h('input', { type: 'text', name: 'liveName', placeholder: 'optional', style: 'width:120px', maxlength: '80' });
   const startMode = h('select', { name: 'liveStartMode' }, h('option', { value: 'now' }, 'Now'), h('option', { value: 'past' }, 'Past time (replay, then live)'));
-  const pastStart = h('input', { type: 'datetime-local', name: 'livePastStart', step: '60' });
+  const pastStart = h('input', { type: 'datetime-local', name: 'livePastStart', step: '60', 'aria-label': 'From (UTC)' });
   pastStart.value = toUtcDateTimeValue(nowMs - 3 * 3_600_000);
   const pastField = h('label', { class: 'field', hidden: '' }, pastStart);
   startMode.addEventListener('change', () => { pastField.hidden = startMode.value !== 'past'; });
@@ -43,8 +43,10 @@ export function createLivePanel(container: HTMLElement, handlers: LivePanelHandl
   warmup.value = String(DEFAULT_WARMUP_BARS);
   const start = h('button', { type: 'submit', class: 'run', title: 'Start a practice session: your strategy trades on live prices with pretend money. You can stop it any time.' }, 'Start live session');
 
-  const field = (label: string, el: HTMLElement, help: string) =>
-    h('label', { class: 'field' }, h('span', { class: 'field-label' }, label, infoButton(help, `What is “${label}”?`, label)), el);
+  const field = (label: string, el: HTMLElement, help: string) => {
+    el.setAttribute('aria-label', label); // the label also holds the "?" button, which must not join the name
+    return h('label', { class: 'field' }, h('span', { class: 'field-label' }, label, infoButton(help, `What is “${label}”?`, label)), el);
+  };
   pastField.replaceChildren(h('span', { class: 'field-label' }, 'From (UTC)', infoButton('The moment to start from, in UTC time (London winter time). The robot replays the candles since then quickly, then keeps going live.', 'What is “From (UTC)”?')), pastStart);
   const form = h(
     'form', { class: 'run-form live-form' },

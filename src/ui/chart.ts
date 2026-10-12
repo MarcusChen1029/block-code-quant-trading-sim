@@ -75,7 +75,8 @@ export class ChartPanel {
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: '#131722' }, textColor: '#d1d4dc' },
       grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
-      timeScale: { timeVisible: true, secondsVisible: false, lockVisibleTimeRangeOnResize: true },
+      // minBarSpacing: Fit can zoom out far enough to show a whole test (thousands of candles) at once.
+      timeScale: { timeVisible: true, secondsVisible: false, lockVisibleTimeRangeOnResize: true, minBarSpacing: 0.1 },
     });
     this.candles = this.chart.addSeries(CandlestickSeries, {
       upColor: UP_COLOR,

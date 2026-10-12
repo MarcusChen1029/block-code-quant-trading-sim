@@ -123,7 +123,7 @@ export class StatsPanel {
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: '#131722' }, textColor: '#d1d4dc', attributionLogo: false },
       grid: { vertLines: { visible: false }, horzLines: { color: '#1e222d' } },
-      timeScale: { timeVisible: true, lockVisibleTimeRangeOnResize: true },
+      timeScale: { timeVisible: true, lockVisibleTimeRangeOnResize: true, minBarSpacing: 0.01 }, // the whole run fits
     });
 
     this.equitySeries = this.equityChart.addSeries(LineSeries, { color: '#42a5f5', lineWidth: 2, title: 'Equity' });

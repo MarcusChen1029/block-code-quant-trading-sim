@@ -167,6 +167,7 @@ export function createStrategyPicker(container: HTMLElement, initial: string, on
     h('option', { value: 'smaCross' }, 'Built-in example: SMA cross'),
   );
   select.value = initial;
+  select.setAttribute('aria-label', 'Strategy to test');
   select.addEventListener('change', () => onChange(select.value));
   container.append(h('label', { class: 'field strategy-picker' },
     h('span', { class: 'field-label' }, 'Strategy to test', infoButton('What Run test uses: the blocks in the left panel (normal), or a fixed built-in example that buys when the 10-candle average crosses above the 30-candle average.', 'What is “Strategy to test”?')),

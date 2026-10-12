@@ -99,8 +99,10 @@ export function createTopBar(
   showMode(initialMode);
 
   /** A labelled field with a "?" explaining it. */
-  const field = (label: string, el: HTMLElement, help: string, cls?: string) =>
-    h('label', { class: `field ${cls ?? ''}`.trim() }, h('span', { class: 'field-label' }, label, infoButton(help, `What is “${label}”?`, label)), el);
+  const field = (label: string, el: HTMLElement, help: string, cls?: string) => {
+    el.setAttribute('aria-label', label); // the label also holds the "?" button, which must not join the name
+    return h('label', { class: `field ${cls ?? ''}`.trim() }, h('span', { class: 'field-label' }, label, infoButton(help, `What is “${label}”?`, label)), el);
+  };
 
   // Account settings: closed by default; the toggle carries the summary of the hidden values.
   const summary = h('span', { class: 'account-summary' });
