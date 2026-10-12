@@ -10,10 +10,11 @@
     "test": "vitest run",
     "typecheck": "tsc -p .",
     "server:build": "tsc -p server && vite build --config server/vite.config.ts",
-    "server:start": "node --disable-warning=ExperimentalWarning server/dist/main.js",
+    "server:start": "node --permission --allow-fs-read=. --allow-fs-write=./data --allow-worker --disable-warning=ExperimentalWarning --disable-warning=SecurityWarning server/dist/main.js",
     "server:set-password": "node --disable-warning=ExperimentalWarning server/dist/set-password.js",
     "server:dev": "npm run server:build && npm run server:start",
-    "server:typecheck": "tsc -p server"
+    "server:typecheck": "tsc -p server",
+    "server:start:unrestricted": "node --disable-warning=ExperimentalWarning server/dist/main.js"
   },
   "dependencies": {
     "blockly": "^13.3.0",

@@ -27,6 +27,10 @@ npm run server:set-password       # asks twice (hidden); at least 10 characters
 npm run server:start              # http://127.0.0.1:8787
 ```
 
+`server:start` runs Node with its **permission model** (no child processes or native addons; files readable only in
+the app folder, writable only in `./data`). With `QS_DATA_DIR` outside `./data` it refuses to start with a clear
+message: add `--allow-fs-read=<dir> --allow-fs-write=<dir>` to the command, or use `npm run server:start:unrestricted`.
+
 Open <http://localhost:8787>, go to **Live**, pick **Server (24/7)**, log in, pick product / timeframe / account /
 strategy in the top bar and press **Start live session**. Stop the server with Ctrl+C.
 
@@ -257,9 +261,16 @@ backup over `quant-sim.sqlite` (owner `quant-sim`, mode 600), delete `quant-sim.
   unless the origin is listed in `QS_ALLOWED_ORIGINS`.
 - Request bodies are size-limited (login 4 kB, session 2 MB) and every session definition is re-validated and
   compiled on the server; nothing from the browser is trusted.
-- Strategy code (blocks and Pine) is generated from fixed templates and runs inside a `node:vm` realm with frozen
-  built-ins and no `process`, `require`, network, timers or code generation from strings, inside a worker thread
-  with memory limits, with the browser's per-bar loop and time limits.
+- Strategy code (blocks and Pine) is generated from fixed templates (Pine user identifiers are mangled) and, on the
+  server, must pass an identifier gate (no `constructor`, `this`, `stack`, `Function`, `import`, ... tokens) before it
+  runs inside a `node:vm` realm with frozen built-ins and no `process`, `require`, network, timers or code generation
+  from strings, inside a worker thread with memory limits and the browser's per-bar loop and time limits.
+- **Honest limit:** `node:vm` is not a hard security boundary by itself (V8 edge cases can leak objects from outside
+  the realm; a review of this code demonstrated one). That is why the template-only generator and the identifier gate
+  come first, and why the process runs under Node's permission model (inherited by worker threads: no child
+  processes, no files outside the app and data folders) and under the systemd hardening in the unit file. Node 24's
+  permission model does not restrict network access. The only person who can submit strategies is you (the one
+  password); do not run strategies from untrusted sources.
 - Keep the VPS patched (`unattended-upgrades`), SSH key-only, and the firewall at SSH only (plus 80/443 with Caddy).
 
 ## 13. Troubleshooting

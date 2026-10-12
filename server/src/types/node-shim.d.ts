@@ -16,6 +16,8 @@ declare var process: {
   argv: string[];
   exitCode: number | undefined;
   pid: number;
+  /** Node permission model (undefined when node was started without --permission). */
+  permission?: { has(scope: string, reference?: string): boolean };
   platform: string;
   version: string;
   cwd(): string;

@@ -16,6 +16,11 @@ const log = (message: string) => process.stdout.write(`${new Date().toISOString(
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env, appDir);
+  const permission = process.permission;
+  if (permission && !permission.has('fs.write', config.dataDir)) {
+    throw new Error(`the permission model is on but ${config.dataDir} is not writable: start node with --allow-fs-write=<data dir> (and --allow-fs-read for it)`);
+  }
+  if (!permission) log('NOTE: running without the Node permission model; npm run server:start and the systemd unit enable it.');
   mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
   const db = openDatabase(config.dbPath);
   if (storedPasswordHash(db) === null) log('WARNING: no password is set; nobody can log in. Run `npm run server:set-password`.');

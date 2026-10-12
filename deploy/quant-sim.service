@@ -19,7 +19,9 @@ Environment=QS_DATA_DIR=/var/lib/quant-sim
 # Behind Caddy with HTTPS the cookie is marked Secure automatically (X-Forwarded-Proto from 127.0.0.1).
 # Environment=QS_SECURE_COOKIES=1
 # Environment=QS_MAX_RUNNING=5
-ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning /opt/quant-sim/current/server/dist/main.js
+# Node permission model: no child processes or native addons; files readable only under /opt/quant-sim and the
+# data dir, writable only in the data dir (worker threads inherit it). Network is not restricted by Node 24.
+ExecStart=/usr/bin/node --permission --allow-fs-read=/opt/quant-sim --allow-fs-read=/var/lib/quant-sim --allow-fs-write=/var/lib/quant-sim --allow-worker --disable-warning=ExperimentalWarning --disable-warning=SecurityWarning /opt/quant-sim/current/server/dist/main.js
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM
