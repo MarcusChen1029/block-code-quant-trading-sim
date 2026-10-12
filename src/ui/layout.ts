@@ -41,10 +41,21 @@ export function setupLayout(
     for (const [id, b] of tabs) {
       b.classList.toggle('active', id === tab);
       b.setAttribute('aria-selected', String(id === tab));
+      b.tabIndex = id === tab ? 0 : -1; // one tab stop; arrow keys move between tabs
     }
     requestAnimationFrame(() => onTabShown(tab));
   };
   for (const [id, b] of tabs) b.addEventListener('click', () => showTab(id));
+  for (const [id, b] of tabs) {
+    b.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
+      ev.preventDefault();
+      const at = tabs.findIndex(([t]) => t === id);
+      const [next, nb] = tabs[(at + (ev.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+      showTab(next);
+      nb.focus();
+    });
+  }
   // The tab list holds only the tabs (the Fit button sits next to it, in leftTabs).
   leftTabs.append(h('div', { class: 'tablist', role: 'tablist', 'aria-label': 'Strategy editor' }, ...tabs.map(([, b]) => b)));
   showTab(initialTab);

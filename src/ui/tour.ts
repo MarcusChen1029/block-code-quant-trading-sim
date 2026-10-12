@@ -19,7 +19,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
   { target: '.market-fields', title: 'What to test on', text: 'Choose a coin, how much time each candle covers, the start date and how much pretend money to start with.' },
   { target: 'button.run', title: 'Run the test', text: 'Press this (or Ctrl + Enter) and the robot replays every candle since the start date, buying and selling by your rules.' },
   { target: '#chart-panel', title: '2 · The price chart', text: 'Each candle is one slice of time: green went up, red went down. After a run, arrows show where your robot bought and sold. Scroll to zoom, drag to move.' },
-  { target: '#results-panel', title: '3 · The results', text: 'A one-line summary tells you how it went and whether it beat simply buying and holding. Hover over any number to learn what it means.' },
+  { target: '#results-panel', title: '3 · The results', text: 'A one-line summary tells you how it went and whether it beat simply buying and holding. Hover over (or tap) any number to learn what it means.' },
   { target: '.panel-full', title: 'Make room', text: 'Every panel can be hidden or shown full page with these buttons. Press Esc to come back.' },
   { target: '.mode-toggle', title: 'Backtest or Live', text: 'Backtest tests the past in seconds. Live lets your robot trade in real time on today’s prices, still with pretend money.' },
   { target: '#help-btn', title: 'Help is always here', text: 'Open Help (or press ?) for a word list, answers to common questions and keyboard shortcuts. Have fun experimenting!' },

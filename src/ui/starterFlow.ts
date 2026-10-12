@@ -53,7 +53,7 @@ export function pickStarter(deps: FlowDeps, starter: Pick<StarterDef, 'label' | 
     return false;
   }
   memory.recordLoaded(starter.id, JSON.stringify(editor.save()), starter.label);
-  deps.status(`Loaded starter "${starter.label}": ${starter.description} Press Run to backtest it.`);
+  deps.status(`Loaded "${starter.label}": ${starter.description} Press ▶ Run test to try it.`);
   return true;
 }
 

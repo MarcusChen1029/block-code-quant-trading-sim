@@ -696,6 +696,8 @@ kbd {
   .footer-links { width: 100%; justify-content: center; flex-wrap: wrap; }
   .live-status { width: 100%; }
   .tour-card { left: 12px !important; right: 12px; width: auto; }
+  .help-tabs { flex-wrap: wrap; }
+  .dialog-body { padding: 14px 16px 18px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

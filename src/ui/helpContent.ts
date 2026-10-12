@@ -62,7 +62,7 @@ export const GETTING_STARTED: readonly Step[] = [
   { title: 'Pick a starting strategy', text: 'Open “Start from…” and choose one, or keep the example that is already loaded. Each block is one rule; hover over a block to learn what it does.' },
   { title: 'Choose what to test', text: 'Pick a coin, a candle size and a start date in the bar at the top. Your pretend starting money is under “Starting money”.' },
   { title: 'Press ▶ Run test', text: 'The robot replays every candle from the start date until now, buying and selling by your rules. Arrows on the chart show each trade.' },
-  { title: 'Read the result', text: 'The coloured sentence tells you how it went and whether it beat simply buying and holding. The cards below explain each number; hover over them.' },
+  { title: 'Read the result', text: 'The coloured sentence tells you how it went and whether it beat simply buying and holding. The cards below explain each number: hover over or tap them.' },
   { title: 'Tweak and try again', text: 'Change one number (like the average length), run again and compare. When you like it, switch to Live to practise on real-time prices with pretend money.' },
 ];
 

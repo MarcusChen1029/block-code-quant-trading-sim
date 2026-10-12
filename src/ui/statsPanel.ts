@@ -97,7 +97,7 @@ export class StatsPanel {
     const logView = h('div', { class: 'stats-view', role: 'tabpanel', id: 'stats-view-log', 'aria-labelledby': 'stats-tab-log' }, this.log);
     this.tradesTabCount = h('span', { class: 'tab-count' });
     const tabDefs: Array<[StatsView, Array<Node | string>, string, HTMLElement]> = [
-      ['summary', ['Summary'], 'The key numbers and a chart of your money over time. Hover over a number to learn what it means.', this.summary],
+      ['summary', ['Summary'], 'The key numbers and a chart of your money over time. Hover over (or tap) a number to learn what it means.', this.summary],
       ['trades', ['Trades', this.tradesTabCount], 'Every finished trade: when it started and ended, the prices, and how much it made or lost.', tradesView],
       ['log', ['Robot log'], 'Messages from your strategy (the “log” block) and from the simulator, with the time of each candle.', logView],
     ];

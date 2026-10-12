@@ -639,6 +639,7 @@ async function importStrategy(file: File): Promise<void> {
     location.reload();
     return;
   }
+  setStatus(`Imported your strategy from “${file.name}”. Press ▶ Run test to try it.`);
   fitSoon();
 }
 

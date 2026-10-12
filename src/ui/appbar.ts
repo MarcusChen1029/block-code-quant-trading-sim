@@ -51,7 +51,7 @@ export function createAppBar(container: HTMLElement, handlers: AppBarHandlers): 
     logo(),
     h('div', { class: 'brand-text' }, h('h1', { class: 'brand-name' }, 'Quant Sim'), h('span', { class: 'brand-tag' }, 'Build a trading robot with blocks')),
   );
-  const safe = tip(h('span', { class: 'safe-badge' }, icon('shield', 14), h('span', {}, 'Pretend money')),
+  const safe = tip(h('span', { class: 'safe-badge', tabindex: '0' }, icon('shield', 14), h('span', {}, 'Pretend money')),
     'Nothing here uses real money. Quant Sim only reads public prices and can never place a real order.', 'Safe to experiment');
 
   const help = h('button', { type: 'button', class: 'btn btn-ghost appbar-btn', id: 'help-btn' }, icon('help', 18), h('span', { class: 'btn-label' }, 'Help'));
