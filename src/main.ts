@@ -18,7 +18,7 @@ import { StarterMemory } from './ui/starterMemory';
 import { pickStarter as pickStarterFlow, restorePrevious as restorePreviousFlow, type FlowDeps } from './ui/starterFlow';
 import { createStarterPicker } from './ui/starterPicker';
 import { buildVerdict } from './ui/verdict';
-import { ResultTracker, STALE_NOTE, type RunKey } from './ui/resultFreshness';
+import { ResultTracker, STALE_NOTE, workspaceKey, type RunKey } from './ui/resultFreshness';
 import { VerdictView } from './ui/verdictView';
 import { smaCrossHistoryNeed, strategyHistoryNeed, type HistoryNeed } from './ui/warmup';
 import type { BacktestResult } from './engine/engine';
@@ -275,7 +275,7 @@ function strategySpec(): StrategySpec | null {
 function currentRunKey(): RunKey {
   const strategy = strategyChoice === 'smaCross'
     ? 'smaCross'
-    : `blocks:${JSON.stringify(editor?.save() ?? null)}|pine:${JSON.stringify([pineRecords, pineRetired])}`;
+    : `blocks:${workspaceKey(editor?.save() ?? null)}|pine:${JSON.stringify([pineRecords, pineRetired])}`;
   return { strategy, settings: JSON.stringify(topBar.read()) };
 }
 

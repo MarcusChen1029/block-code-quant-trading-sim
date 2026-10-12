@@ -51,3 +51,18 @@ export class ResultTracker {
     return freshness(this.shown, current);
   }
 }
+
+/**
+ * Comparable text of a Blockly workspace for RunKey.strategy: block positions (`x` / `y` of top-level block states)
+ * are dropped, so dragging blocks around the canvas does not make results stale; every field, input, connection,
+ * variable and block id still counts. (Blockly's JSON holds no scroll / zoom view state.)
+ */
+export function workspaceKey(workspace: unknown): string {
+  return JSON.stringify(workspace, (_key, value: unknown) => {
+    if (value && typeof value === 'object' && !Array.isArray(value) && 'type' in value && 'id' in value && ('x' in value || 'y' in value)) {
+      const { x: _x, y: _y, ...rest } = value as Record<string, unknown>;
+      return rest;
+    }
+    return value;
+  });
+}

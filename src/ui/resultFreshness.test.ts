@@ -59,3 +59,21 @@ describe('ResultTracker', () => {
     expect(STALE_NOTE.settings).toBe('Results are from the previous settings — press Run');
   });
 });
+
+describe('workspaceKey (what a block strategy run depends on)', () => {
+  it('ignores where blocks sit on the canvas (dragging is not an edit), but not what they say', async () => {
+    const { workspaceKey } = await import('./resultFreshness');
+    const { getStarter } = await import('../blocks/starters');
+    const ws = getStarter('smaCross')!.build();
+    const moved = structuredClone(ws);
+    moved.blocks!.blocks![0].x = 400;
+    moved.blocks!.blocks![1].y = 900;
+    expect(JSON.stringify(moved)).not.toBe(JSON.stringify(ws)); // the raw JSON (the old key) changes on a drag
+    expect(workspaceKey(moved)).toBe(workspaceKey(ws));
+    const edited = structuredClone(ws);
+    edited.blocks!.blocks![1].next!.block!.id = 'other';
+    expect(workspaceKey(edited)).not.toBe(workspaceKey(ws));
+    expect(workspaceKey({ blocks: { blocks: [{ type: 'math_number', id: 'n', x: 1, y: 2, fields: { NUM: 5 } }] } }))
+      .toBe('{"blocks":{"blocks":[{"type":"math_number","id":"n","fields":{"NUM":5}}]}}');
+  });
+});
