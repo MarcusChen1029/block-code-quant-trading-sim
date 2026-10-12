@@ -4,7 +4,9 @@
 # Caddy gets and renews the certificate itself and adds X-Forwarded-For / X-Forwarded-Proto, which the server
 # trusts only because Caddy connects from 127.0.0.1 (login rate limit per real client, Secure cookie).
 quant.example.com {
-	encode zstd gzip
+	# No `encode` (compression) here on purpose: compressing text/event-stream can buffer Server-Sent Events.
+	# Whether Caddy's default encode matcher includes text/event-stream was NOT verified for this guide, so it is
+	# left out; the app's assets are small and served with long-lived cache headers anyway.
 	reverse_proxy 127.0.0.1:8787 {
 		# Server-Sent Events: pass every event through immediately.
 		flush_interval -1

@@ -72,13 +72,20 @@ Any small Ubuntu 24.04 machine works; recommended: **Vultr** or **AWS Lightsail*
 
 ## 3. First login, a non-root user, SSH hardening [VPS]
 
+Vultr logs you in as `root`; Lightsail as `ubuntu` (not root). The commands below use `sudo` everywhere, so they
+work for both (as root, `sudo` is harmless). Note `sudo cp` reads the **current** user's key file:
+
 ```bash
-ssh root@SERVER_IP                         # Lightsail: ssh ubuntu@SERVER_IP (then use sudo)
-adduser --gecos "" deploy                  # your login user; choose a password (for sudo)
-usermod -aG sudo deploy
-mkdir -p /home/deploy/.ssh && cp ~/.ssh/authorized_keys /home/deploy/.ssh/
-chown -R deploy:deploy /home/deploy/.ssh && chmod 700 /home/deploy/.ssh && chmod 600 /home/deploy/.ssh/authorized_keys
+ssh root@SERVER_IP                          # Lightsail: ssh -i <your key> ubuntu@SERVER_IP
+sudo adduser --gecos "" deploy              # your login user; choose a password (for sudo)
+sudo usermod -aG sudo deploy
+sudo mkdir -p /home/deploy/.ssh
+sudo cp ~/.ssh/authorized_keys /home/deploy/.ssh/authorized_keys   # ~ = /root on Vultr, /home/ubuntu on Lightsail
+sudo chown -R deploy:deploy /home/deploy/.ssh && sudo chmod 700 /home/deploy/.ssh && sudo chmod 600 /home/deploy/.ssh/authorized_keys
 ```
+
+(On Lightsail you may instead keep using `ubuntu` as your login user and skip creating `deploy`; then read
+`deploy@` as `ubuntu@` in the rest of this guide.)
 
 In a **second** terminal check `ssh deploy@SERVER_IP` works, then switch off password and root logins:
 
@@ -194,6 +201,8 @@ sudo ufw allow 80/tcp && sudo ufw allow 443/tcp      # and open 80/443 in the pr
 sudo systemctl reload caddy
 ```
 
+The example has **no `encode`** directive: compression can hold back Server-Sent Events, and whether Caddy's
+default `encode` skips `text/event-stream` was not verified here — if you add `encode`, exclude that type.
 Point the domain's A record at `SERVER_IP` first. Then <https://YOUR.DOMAIN> serves the app; the login cookie is
 `Secure` automatically (Caddy sends `X-Forwarded-Proto: https` from 127.0.0.1, the only place the server trusts it
 from), and the login rate limit applies per real client address. The quant-sim service itself still listens on
@@ -220,7 +229,8 @@ Update **[local]**: build and copy a new release exactly as in section 6. **[VPS
 REL=<new release name>
 sudo mkdir -p /opt/quant-sim/releases/$REL && sudo tar -xzf /tmp/quant-sim-$REL.tgz -C /opt/quant-sim/releases/$REL
 sudo chown -R root:root /opt/quant-sim/releases/$REL && sudo chmod -R a+rX /opt/quant-sim/releases/$REL
-sudo cp /var/lib/quant-sim/quant-sim.sqlite /var/lib/quant-sim/pre-$REL.sqlite 2>/dev/null; true   # see section 11 for a safe live copy
+# Back up first with SQLite's online backup (never `cp` the live WAL database: the copy can be inconsistent)
+sudo -u quant-sim node --disable-warning=ExperimentalWarning -e "const s=require('node:sqlite');s.backup(new s.DatabaseSync(process.argv[1]),process.argv[2]).then(()=>console.log('backup ok'))" /var/lib/quant-sim/quant-sim.sqlite /var/lib/quant-sim/pre-$REL.sqlite
 sudo ln -sfn /opt/quant-sim/releases/$REL /opt/quant-sim/current && sudo systemctl restart quant-sim
 journalctl -u quant-sim -n 20 --no-pager
 ```
