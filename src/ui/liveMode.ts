@@ -10,6 +10,7 @@ import type { HaltInfo, LiveStatus } from '../live/runner';
 import { MAX_WARMUP_BARS, newSessionRecord, type LiveSessionRecord, type StrategySnapshot } from '../live/session';
 import { browserLocks, claimSession, waitForSession, type SessionLock } from '../live/ownership';
 import { openSessionStore, type SessionStore } from '../live/store';
+import { ServerApiError, type RemoteFeed, type RemoteMessage, type RemoteSnapshot, type ServerClient } from '../live/serverClient';
 import { LiveWorkerSupervisor } from '../live/supervisor';
 import { compilePine } from '../pine/compile';
 import { pineIndicatorDef } from '../pine/library';
@@ -61,11 +62,14 @@ export interface LiveModeDeps {
   now(): number;
 }
 
+/** What a view needs from its session source: a local worker supervisor, or a session streamed from the server. */
+type SessionClient = Pick<LiveWorkerSupervisor, 'stop' | 'resync' | 'debug' | 'terminate'> | RemoteFeed;
+
 /** Page-side state of one session shown or running (its worker is the source of truth). */
 interface SessionView {
   record: LiveSessionRecord;
   mode: 'live' | 'replay';
-  client: LiveWorkerSupervisor | null;
+  client: SessionClient | null;
   candles: Candle[];
   fills: Fill[];
   trades: Trade[];
@@ -129,9 +133,13 @@ export class LiveMode {
   private readonly owned = new Map<string, SessionLock | 'unsupported'>();
   /** Sessions another tab runs that this tab will take over when that tab lets go. */
   private readonly takeovers = new Map<string, () => void>();
-  private readonly channel: BroadcastChannel | null = typeof BroadcastChannel === 'function' ? new BroadcastChannel('quant-sim-live') : null;
+  private readonly channel: BroadcastChannel | null;
+  /** Server mode: sessions live on the server (it runs and stores them); this view only shows and controls them. */
+  private readonly remote: ServerClient | null;
 
-  constructor(container: HTMLElement, private readonly deps: LiveModeDeps) {
+  constructor(container: HTMLElement, private readonly deps: LiveModeDeps, remote: ServerClient | null = null) {
+    this.remote = remote;
+    this.channel = !remote && typeof BroadcastChannel === 'function' ? new BroadcastChannel('quant-sim-live') : null;
     this.panel = createLivePanel(container, {
       onStart: (form) => void this.startOnce(form),
       onOpen: (id) => this.open(id),
@@ -144,7 +152,7 @@ export class LiveMode {
     });
     window.addEventListener('online', resync);
     deps.chart.onVisibleRangeChange(() => this.scheduleViewSave());
-    if (import.meta.env.DEV) {
+    if (import.meta.env.DEV && !remote) {
       // Dev-only checks from the console / browser automation: simulate a worker crash or hang, read the state.
       (window as unknown as { __quantLive?: unknown }).__quantLive = {
         crashWorker: (action: 'throw' | 'hang' = 'throw') => this.running?.client?.debug(action),
@@ -166,6 +174,10 @@ export class LiveMode {
 
   /** Opens the store and resumes a session left running. Returns whether one was resumed. */
   async init(): Promise<boolean> {
+    if (this.remote) {
+      this.remote.onSessions((list) => this.onRemoteList(list));
+      return false; // the server runs its sessions; nothing to resume here
+    }
     const { store, notice } = await openSessionStore();
     this.store = store;
     this.panel.setNotice(notice ?? null);
@@ -345,6 +357,14 @@ export class LiveMode {
       const bars = Math.floor((now - startMs) / timeframeToMs(base.timeframe)) + warmupBars;
       if (bars > MAX_BARS) return this.deps.setStatus(`replay too long: ${bars} bars (max ${MAX_BARS}); pick a later start or a larger timeframe`, true);
     }
+    if (this.remote) {
+      await this.startRemote(form, base, form.startMode === 'past' ? startMs : undefined, warmupBars);
+      return;
+    }
+    if (this.remote) {
+      await this.startRemote(form, base, form.startMode === 'past' ? startMs : undefined, warmupBars);
+      return;
+    }
     const other = this.running?.record ?? this.sessions.find((s) => s.status === 'running');
     if (other) {
       const where = this.running ? '' : ' in another tab';
@@ -368,6 +388,11 @@ export class LiveMode {
   private open(id: string): void {
     const record = this.sessions.find((s) => s.id === id);
     if (!record) return;
+    if (this.remote) {
+      if (this.viewed?.record.id === id) this.show(this.viewed);
+      else this.openView(record, record.status === 'running' ? 'live' : 'replay');
+      return;
+    }
     if (this.running?.record.id === id) this.show(this.running);
     else if (record.status === 'running') void this.resume(record); // runs here only if no other tab runs it
     else this.openView(record, 'replay');
@@ -375,6 +400,11 @@ export class LiveMode {
 
   /** Stops the running session `id`; resolves once it is finalised (worker confirmed, or timed out). */
   private stop(id: string): Promise<void> {
+    if (this.remote) {
+      return this.remote.stop(id).then((record) => { this.adoptRemote(record); }, (err: unknown) => {
+        this.deps.setStatus(`Could not stop the session on the server: ${err instanceof Error ? err.message : String(err)}`, true);
+      });
+    }
     const view = this.running?.record.id === id ? this.running : null;
     if (!view || !view.client) {
       const record = this.sessions.find((s) => s.id === id);
@@ -414,7 +444,8 @@ export class LiveMode {
     this.takeovers.get(id)?.();
     this.takeovers.delete(id);
     try {
-      await this.store?.delete(id);
+      if (this.remote) await this.remote.remove(id);
+      else await this.store?.delete(id);
     } catch (err) {
       this.panel.setNotice(`Could not delete the saved session: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -431,12 +462,14 @@ export class LiveMode {
       drawn: { candles: 0, fills: 0, trades: 0, equity: 0, log: 0, chartTime: -Infinity, startMarked: false }, closedTicked: new Set(),
       pendingView: parseSavedView(loadSavedViews()[record.id]), notice: null, position: null, activity: null, benchmark: null,
     };
-    view.client = new LiveWorkerSupervisor(record, mode, {
-      event: (event) => this.onEvent(view, event),
-      restarting: (message) => this.onWorkerRestart(view, message),
-      fatal: (message) => this.onWorkerFatal(view, message),
-    });
-    if (mode === 'live') this.running = view;
+    view.client = this.remote
+      ? this.remote.watch(record.id, { message: (m) => this.onRemoteMessage(view, m) })
+      : new LiveWorkerSupervisor(record, mode, {
+        event: (event) => this.onEvent(view, event),
+        restarting: (message) => this.onWorkerRestart(view, message),
+        fatal: (message) => this.onWorkerFatal(view, message),
+      });
+    if (mode === 'live' && !this.remote) this.running = view;
     this.show(view);
   }
 
@@ -503,7 +536,7 @@ export class LiveMode {
         if (view.mode === 'live') {
           view.record.lastBarTime = d.lastBarTime;
           view.record.summary = { equity: d.stats.finalEquity, returnPct: d.stats.totalReturnPct, tradeCount: d.stats.tradeCount, bars: d.barsProcessed };
-          this.schedulePersist();
+          if (!this.remote) this.schedulePersist(); // the server stores its own sessions
         }
         this.queueRender();
         break;
@@ -537,6 +570,24 @@ export class LiveMode {
     if (view.halt) return;
     view.halt = halt;
     view.notice = null;
+    if (this.remote) {
+      // The server finalises and stores the stop; its record update follows on the stream.
+      if (halt.reason === 'error') {
+        if (halt.blockId) this.deps.highlightBlock(halt.blockId, halt.message ?? 'error');
+        this.deps.setStatus(`Server session "${view.record.name}" stopped: ${halt.message}`, true);
+      } else if (halt.reason === 'wiped') {
+        this.deps.setStatus(`Server session "${view.record.name}": ACCOUNT WIPED (equity <= 0). The session is stopped.`, true);
+      } else if (halt.reason === 'stopped') {
+        this.deps.setStatus(`Server session "${view.record.name}" stopped. It is read-only history now.`);
+      }
+      for (const done of view.stopWaiters.splice(0)) done();
+      if (view === this.viewed) {
+        this.queueRender();
+        this.updateBadge();
+      }
+      this.renderList();
+      return;
+    }
     view.client?.terminate();
     view.client = null;
     const record = view.record;
@@ -782,7 +833,93 @@ export class LiveMode {
 
   private renderList(): void {
     const here = this.running?.record.id;
-    this.panel.setSessions(this.sessions.map((r) => sessionRow(r, r.status === 'running' && r.id !== here)), this.viewed?.record.id ?? null);
+    this.panel.setSessions(this.sessions.map((r) => sessionRow(r, !this.remote && r.status === 'running' && r.id !== here)), this.viewed?.record.id ?? null);
+  }
+
+  /** Server mode: a new session is created (validated and compiled again) on the server, then streamed here. */
+  private async startRemote(form: LiveForm, base: Extract<SessionBase, { ok: true }>, startMs: number | undefined, warmupBars: number): Promise<void> {
+    this.panel.setBusy(true);
+    try {
+      const record = await this.remote!.create({
+        name: form.name.trim(), symbol: base.symbol, timeframe: base.timeframe, startMs, warmupBars, brokerConfig: base.brokerConfig, strategy: base.strategy,
+      });
+      this.sessions = [record, ...this.sessions.filter((s) => s.id !== record.id)];
+      this.openView(record, 'live');
+      this.deps.setStatus(`Server session "${record.name}" started (${record.symbol} ${record.timeframe}); it runs 24/7 on the server. Paper trading: no real orders are sent.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (err instanceof ServerApiError && err.blockId) this.deps.highlightBlock(err.blockId, message);
+      this.deps.setStatus(err instanceof ServerApiError && err.status === 401 ? 'Not logged in to the server: log in above first.' : `Server refused the session: ${message}`, true);
+    } finally {
+      this.panel.setBusy(false);
+    }
+  }
+
+  /** Server mode: the session list from the stream (records keep their identity, so open views follow them). */
+  private onRemoteList(list: LiveSessionRecord[]): void {
+    const fresh = new Map(list.map((r) => [r.id, r]));
+    for (const local of [...this.sessions]) if (!fresh.has(local.id)) this.dropRemote(local.id);
+    this.sessions = list.map((r) => {
+      const local = this.sessions.find((s) => s.id === r.id);
+      return local ? Object.assign(local, r) : r;
+    }).sort((a, b) => b.createdAt - a.createdAt);
+    this.renderList();
+    this.updateBadge();
+  }
+
+  /** Server mode: one message of the watched session's stream. */
+  private onRemoteMessage(view: SessionView, message: RemoteMessage): void {
+    switch (message.type) {
+      case 'snapshot':
+        this.applySnapshot(view, message.snapshot);
+        break;
+      case 'event':
+        if (message.event.type === 'halt') this.onHalt(view, message.event.halt);
+        else this.onEvent(view, message.event);
+        break;
+      case 'restarting':
+        this.onWorkerRestart(view, message.message);
+        break;
+      case 'record':
+        this.adoptRemote(message.record);
+        Object.assign(view.record, message.record);
+        this.updateBadge();
+        break;
+      case 'deleted':
+        this.dropRemote(message.id);
+        break;
+      case 'unavailable':
+        this.deps.setStatus(message.message, true);
+        break;
+    }
+  }
+
+  /** Everything the server has for this session replaces what the view holds (first view, reconnect, restart). */
+  private applySnapshot(view: SessionView, snap: RemoteSnapshot): void {
+    if (view === this.viewed && this.chartShows === view && view.candles.length > 0) {
+      view.pendingView = saveView(this.deps.chart.barTimes(), this.deps.chart.visibleRange()) ?? view.pendingView;
+    }
+    Object.assign(view.record, snap.record);
+    Object.assign(view, {
+      mode: snap.mode === 'replay' || snap.record.status === 'stopped' ? 'replay' : 'live',
+      candles: snap.candles, fills: snap.fills, trades: snap.trades, equity: snap.equity, log: snap.log, stats: snap.stats, wiped: snap.wiped,
+      status: snap.status, forming: snap.forming, markEquity: snap.markEquity, indicators: snap.indicators, overlays: null, halt: snap.halt,
+      notice: snap.notice, position: snap.position, activity: snap.activity, benchmark: null,
+      drawn: { candles: 0, fills: 0, trades: 0, equity: 0, log: 0, chartTime: -Infinity, startMarked: false },
+    });
+    view.closedTicked.clear();
+    if (view === this.viewed && this.active) this.fullRender();
+    else this.updateBadge();
+  }
+
+  /** Server mode: the connection is gone (logged out / switched target): forget what was shown. */
+  resetRemote(): void {
+    if (!this.remote) return;
+    this.viewed?.client?.terminate();
+    this.viewed = null;
+    this.sessions = [];
+    this.renderList();
+    if (this.active) this.fullRender();
   }
 
   private schedulePersist(): void {
