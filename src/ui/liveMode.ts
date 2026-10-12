@@ -732,7 +732,7 @@ export class LiveMode {
       chart.setCandles([]);
       chart.setOverlays([], []);
       chart.setMarkers([]);
-      stats.clear('Live mode: start a paper-trading session above, or open one from the list.');
+      stats.clear('Start a live practice session above (pretend money), or open one from the list.');
       this.panel.setVerdict(null);
       this.panel.setBadge(null);
       this.panel.setMark(null);

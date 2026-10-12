@@ -47,7 +47,7 @@ import { setupPanels } from './ui/panels';
 import { savePineRecords } from './ui/pineStore';
 import { initShortcuts } from './ui/shortcuts';
 import { initTheme, toggleTheme } from './ui/theme';
-import { initTooltips, tip } from './ui/tooltip';
+import { infoButton, initTooltips, tip } from './ui/tooltip';
 import { startTour, tourDone } from './ui/tour';
 import { CANDLE_DB_NAME } from './data/candleCache';
 import { DB_NAME as LIVE_DB_NAME } from './live/store';
@@ -481,7 +481,38 @@ function sessionBase(): SessionBase {
   return { ok: true, symbol, timeframe, brokerConfig: broker, strategy: blocksSnapshot(spec.workspace, spec.pineScripts ?? [], spec.pineRetired ?? []) };
 }
 
-const liveSessions = new LiveTargets(document.getElementById('live')!, {
+// The Live strip folds down to its header like the panels (remembered).
+const LIVE_OPEN_STORAGE_KEY = 'quant-sim.live-open';
+{
+  const liveEl = document.getElementById('live')!;
+  const body = h('div', { class: 'live-body', id: 'live-body' });
+  const toggle = h('button', { type: 'button', class: 'icon-btn', 'aria-controls': 'live-body' });
+  const paint = (open: boolean) => {
+    liveEl.classList.toggle('folded', !open);
+    body.hidden = !open;
+    toggle.replaceChildren(icon(open ? 'chevronUp' : 'chevronDown'));
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.setAttribute('aria-label', open ? 'Hide the live controls' : 'Show the live controls');
+    tip(toggle, open ? 'Hide the live controls to make more room for the chart. Your sessions keep running.' : 'Show the live controls again.');
+    saveText(LIVE_OPEN_STORAGE_KEY, open ? '1' : '0');
+  };
+  toggle.addEventListener('click', (ev) => {
+    ev.stopPropagation(); // the icon is swapped, so the header's own handler could not tell the click was on this button
+    paint(liveEl.classList.contains('folded'));
+  });
+  const head = h('div', { class: 'live-head' },
+    h('span', { class: 'panel-icon', 'aria-hidden': 'true' }, icon('live')),
+    h('h2', { class: 'panel-title' }, 'Live practice'),
+    infoButton('Let your strategy trade on prices as they happen right now, with pretend money. Start a session below; you can stop it, look back at old sessions, or delete them.', 'What is live practice?', 'Live practice'),
+    h('div', { class: 'panel-spacer' }), toggle);
+  head.addEventListener('click', (ev) => {
+    if (liveEl.classList.contains('folded') && !(ev.target as Element).closest('button')) paint(true);
+  });
+  liveEl.append(head, body);
+  paint(loadText(LIVE_OPEN_STORAGE_KEY) !== '0');
+}
+
+const liveSessions = new LiveTargets(document.getElementById('live-body')!, {
   chart,
   stats,
   setStatus,

@@ -547,6 +547,9 @@ body[data-mode='live'] .backtest-only { display: none !important; }
 body:not([data-mode='live']) #live { display: none; }
 .live-panel { padding: 8px 14px 10px; border-bottom: 1px solid var(--border); background: var(--surface); flex: none; max-height: 45vh; overflow: auto; }
 .live-panel [hidden] { display: none !important; }
+.live-head { display: flex; align-items: center; gap: 6px; margin: -2px 0 4px; }
+.live-panel.folded { padding-bottom: 6px; }
+.live-panel.folded .live-head { margin-bottom: 0; cursor: pointer; }
 .live-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: flex-end; }
 .live-row + .live-row, .live-row + div { margin-top: 6px; }
 .live-honesty { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--good); background: var(--good-soft); padding: 3px 10px; border-radius: 999px; font-weight: 550; }
