@@ -12,14 +12,15 @@ import { compilePine, runPine } from '../../../src/pine/compile';
 import { syncPineIndicators } from '../../../src/pine/library';
 import { DOUBLE_EMA_SOURCE, PINE_TEMPLATES } from '../../../src/pine/templates';
 import { setFactoryLoader } from '../../../src/sandbox/codeLoader';
-import { createVmLoader } from './vmLoader';
+import { createVmLoader, createVmRealm, vmForbiddenReferences } from './vmLoader';
 
 afterEach(() => {
   setFactoryLoader(null);
   syncPineIndicators([]);
 });
 
-const load = createVmLoader();
+/** The realm layer alone (the identifier gate in front of it is tested separately). */
+const load = createVmLoader(createVmRealm(), { gate: false });
 const run = (body: string, ...args: unknown[]) => load(['h'], body)(...args);
 
 class HostFailure extends Error {
@@ -132,7 +133,7 @@ const CANDLES = syntheticCandles(500);
 
 describe('vm sandbox: generated code paths', () => {
   it('a block program cannot reach process/require/the host realm through rt, ctx or this', () => {
-    setFactoryLoader(createVmLoader());
+    setFactoryLoader(createVmLoader(createVmRealm(), { gate: false }));
     const probes = [
       'typeof process', 'typeof require', 'typeof fetch', 'String(this && this.process)',
       'typeof rt.constructor', 'typeof rt.indicator.constructor', 'typeof ctx.candle.constructor', 'typeof ctx.buy.constructor',
@@ -150,7 +151,7 @@ describe('vm sandbox: generated code paths', () => {
   });
 
   it('an escape attempt through generated code fails as a strategy error naming the block', () => {
-    setFactoryLoader(createVmLoader());
+    setFactoryLoader(createVmLoader(createVmRealm(), { gate: false }));
     const program = {
       source: 'return { init: function () {}, onBar: function (ctx) { rt.at(0); return this.constructor.constructor("return process")(); } };',
       blockIds: ['evil-block'], maxOffset: 0, indicators: [], warnings: [],
@@ -168,7 +169,7 @@ describe('vm sandbox: generated code paths', () => {
   });
 
   it('per-bar iteration limits still stop runaway loops inside the sandbox', () => {
-    setFactoryLoader(createVmLoader());
+    setFactoryLoader(createVmLoader(createVmRealm(), { gate: false }));
     const program = {
       source: 'return { init: function () {}, onBar: function (ctx) { rt.beginBar(ctx); while (true) { rt.loop(0); } } };',
       blockIds: ['loop-block'], maxOffset: 0, indicators: [], warnings: [],
@@ -188,7 +189,7 @@ describe('vm sandbox: results identical to the browser loader', () => {
   it('every starter strategy backtests identically', () => {
     for (const starter of STARTERS) {
       const plain = runBacktest(CANDLES, createBlockStrategy(starter.build()), CONFIG);
-      setFactoryLoader(createVmLoader());
+      setFactoryLoader(createVmLoader()); // gated: every real template passes the gate
       const sandboxed = runBacktest(CANDLES, createBlockStrategy(starter.build()), CONFIG);
       setFactoryLoader(null);
       expect(JSON.stringify(sandboxed), starter.id).toBe(JSON.stringify(plain));
@@ -202,7 +203,7 @@ describe('vm sandbox: results identical to the browser loader', () => {
     syncPineIndicators(records);
     const plain = runBacktest(CANDLES, createBlockStrategy(ws), CONFIG);
     const plainPine = PINE_TEMPLATES.map((t) => { const c = compilePine(t.source); return c.ok ? runPine(c.script, CANDLES) : c.errors; });
-    setFactoryLoader(createVmLoader());
+    setFactoryLoader(createVmLoader()); // gated: every real template passes the gate
     syncPineIndicators(records);
     const sandboxed = runBacktest(CANDLES, createBlockStrategy(ws), CONFIG);
     const sandboxedPine = PINE_TEMPLATES.map((t) => { const c = compilePine(t.source); return c.ok ? runPine(c.script, CANDLES) : c.errors; });

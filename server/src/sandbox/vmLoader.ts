@@ -266,9 +266,39 @@ export function createVmRealm(): VmRealm {
   return { context, membrane };
 }
 
-/** A FactoryLoader compiling generated code in `realm` (default: one realm shared by every call of this loader). */
-export function createVmLoader(realm: VmRealm = createVmRealm()): FactoryLoader {
+/**
+ * node:vm is defence in depth, not a hard boundary on its own (V8 edge cases can surface objects from outside the
+ * realm). So generated code must also pass this static gate: identifier tokens (string literals skipped) that no
+ * block or Pine template ever emits, and that every known way out of a realm needs, are refused before compiling.
+ */
+export const VM_FORBIDDEN_IDENTIFIERS: ReadonlySet<string> = new Set([
+  'constructor', '__proto__', 'prototype', 'stack', 'prepareStackTrace', 'captureStackTrace', 'caller', 'callee', 'arguments',
+  'this', 'eval', 'Function', 'import', 'require', 'process', 'globalThis', 'global', 'self', 'Reflect', 'Proxy', 'Symbol',
+  'WebAssembly', 'with', 'fetch', 'async', 'await', 'Atomics', 'SharedArrayBuffer', 'getPrototypeOf', 'defineProperty',
+  'getOwnPropertyDescriptor', '__defineGetter__', '__lookupGetter__',
+]);
+
+/** Forbidden identifier tokens of `js` (string literals are data and skipped; template literals are refused outright). */
+export function vmForbiddenReferences(js: string): string[] {
+  const found = new Set<string>();
+  const token = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`|[A-Za-z_$][\w$]*/g;
+  for (const m of js.matchAll(token)) {
+    const t = m[0];
+    if (t === '`') found.add('template literal');
+    else if (t[0] !== '"' && t[0] !== "'" && VM_FORBIDDEN_IDENTIFIERS.has(t)) found.add(t);
+  }
+  return [...found];
+}
+
+/**
+ * A FactoryLoader compiling generated code in `realm` (default: one realm shared by every call of this loader).
+ * `gate: false` is for tests that probe the realm layer itself.
+ */
+export function createVmLoader(realm: VmRealm = createVmRealm(), options: { gate?: boolean } = {}): FactoryLoader {
+  const gate = options.gate ?? true;
   return (params, body) => {
+    const forbidden = gate ? vmForbiddenReferences(body) : [];
+    if (forbidden.length > 0) throw new Error(`internal compiler error: generated code mentions ${forbidden.join(', ')}`);
     const fn = vm.compileFunction(body, [...params], { parsingContext: realm.context, filename: 'generated-strategy.js' });
     return realm.membrane.toHost(fn) as (...args: unknown[]) => unknown;
   };
