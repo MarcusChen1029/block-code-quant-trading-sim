@@ -149,6 +149,7 @@ body[data-mode='live'] #verdict { display: none; }
 
 /* Shown in the block pane until the lazily loaded Blockly chunk is in. */
 .blocks-loading { padding: 16px; color: #787b86; font-size: 13px; }
+.blocks-retry { margin-left: 6px; }
 
 /* Results of an earlier strategy / settings: dimmed until the next Run (resultFreshness.ts). */
 .stale-note { border-top: 1px solid #2a2e39; padding: 4px 10px; font-size: 12px; color: #ffb74d; background: #1e1a10; }

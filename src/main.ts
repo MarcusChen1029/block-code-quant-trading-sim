@@ -6,8 +6,9 @@ import type { CandleSubscription } from './data/adapter';
 import { BinanceFuturesAdapter } from './data/binance';
 import type { Candle } from './data/types';
 import { DEFAULT_SMA_CROSS } from './engine/strategies/smaCross';
-// Blockly (~800 kB) is loaded on demand (see editorReady) so the chart and top bar render first.
+// Blockly (~800 kB) is loaded on demand (see editorLoader) so the chart and top bar render first.
 import type { BlockEditor } from './ui/blockEditor';
+import { LazyLoader, LoadFailedError } from './ui/lazyLoader';
 import { blockIndicatorOverlays, defaultIndicatorUse, zoneToggleOverlays } from './ui/blockOverlays';
 import { ChartPanel } from './ui/chart';
 import { h } from './ui/dom';
@@ -156,10 +157,11 @@ const blocklyEl = document.getElementById('blockly')!;
 const blocksLoading = h('div', { class: 'blocks-loading', role: 'status' }, 'Loading blocks…');
 blocklyEl.append(blocksLoading);
 /**
- * Resolves with the editor once Blockly is loaded and the saved workspace restored. Everything that needs the
- * blocks (Run with the block strategy, "Start from…", a live session start) waits for it or says it is loading.
+ * The editor, once Blockly is loaded and the saved workspace restored. Everything that needs the blocks (Run with
+ * the block strategy, "Start from…", a live session start) waits for get() or reads current (loading vs failed).
+ * After a failed load, get() imports again: Run and the Retry button in the Blocks pane both retry.
  */
-const editorReady: Promise<BlockEditor> = import('./ui/blockEditor').then(({ createBlockEditor }) => {
+const editorLoader = new LazyLoader<BlockEditor>(() => import('./ui/blockEditor').then(({ createBlockEditor }) => {
   blocksLoading.remove();
   const ed = createBlockEditor(blocklyEl, onWorkspaceChange, (message) => setStatus(message, true));
   editor = ed;
@@ -174,12 +176,17 @@ const editorReady: Promise<BlockEditor> = import('./ui/blockEditor').then(({ cre
   }
   refreshFreshness();
   return ed;
+}), (error) => {
+  const retry = h('button', { type: 'button', class: 'blocks-retry' }, 'Retry');
+  retry.addEventListener('click', () => {
+    blocksLoading.textContent = 'Loading blocks…';
+    setStatus('Retrying the block editor load…');
+    editorLoader.get().catch(() => {}); // a new failure is reported by this same handler
+  });
+  blocksLoading.replaceChildren(`${error} `, retry);
+  setStatus(`${error} Press Retry in the Blocks pane, or Run to try again.`, true);
 });
-editorReady.catch((err: unknown) => {
-  const message = `The block editor could not be loaded (${err instanceof Error ? err.message : String(err)}). Reload the page to try again.`;
-  blocksLoading.textContent = message;
-  setStatus(message, true);
-});
+editorLoader.get().catch(() => {}); // start loading now; failures are reported by the handler above
 if (pineStartup.length > 0) setStatus(`${pineStartup.length} saved Pine script${pineStartup.length > 1 ? 's do' : ' does'} not compile; open the Pine tab to fix ${pineStartup.length > 1 ? 'them' : 'it'}.`, true);
 
 const pineEditor = createPineEditor(document.getElementById('pine')!, {
@@ -330,12 +337,15 @@ function verdictFor(result: BacktestResult, barsLoaded: number, warmup: HistoryN
 /** Waits for the block editor when the block strategy is selected (a Run clicked while Blockly loads). */
 async function blocksReady(): Promise<boolean> {
   if (strategyChoice !== 'blocks' || editor) return true;
-  setStatus('Loading the block editor before running…');
+  const last = editorLoader.current;
+  setStatus(last.status === 'failed' ? 'Retrying the block editor load before running…' : 'Loading the block editor before running…');
   try {
-    await editorReady;
+    await editorLoader.get(); // after a failed load this is a new attempt
     return true;
-  } catch {
-    return false; // editorReady's own handler already reported it
+  } catch (err) {
+    // Keep the real error in the status (the loader's handler wrote it; say why the run did not happen).
+    setStatus(`Cannot run: ${err instanceof Error ? err.message : String(err)} Press Run or Retry to try again.`, true);
+    return false;
   }
 }
 
@@ -482,7 +492,7 @@ const flowDeps = (ed: BlockEditor): FlowDeps => ({
 async function pickStarter(id: StarterId): Promise<void> {
   const starter = getStarter(id);
   if (!starter) return;
-  const ed = await editorReady; // picked while Blockly loads: applied once it is in
+  const ed = await editorLoader.get(); // picked while Blockly loads: applied once it is in
   if (!pickStarterFlow(flowDeps(ed), starter)) return;
   clearResults(); // the previous run's verdict and stats describe a strategy that is gone
   if (strategyChoice !== 'blocks') setStrategyChoice('blocks'); // Run must test the strategy just loaded
@@ -491,7 +501,7 @@ async function pickStarter(id: StarterId): Promise<void> {
 
 /** Brings previous workspace `id` back; the blocks it replaces take its place in the list. */
 async function restorePrevious(id: string): Promise<void> {
-  if (!restorePreviousFlow(flowDeps(await editorReady), id)) return;
+  if (!restorePreviousFlow(flowDeps(await editorLoader.get()), id)) return;
   clearResults();
   if (strategyChoice !== 'blocks') setStrategyChoice('blocks');
   fitSoon();
