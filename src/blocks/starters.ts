@@ -159,14 +159,14 @@ function buyHold(): WorkspaceState {
 }
 
 export const STARTERS: readonly StarterDef[] = [
-  { id: 'smaCross', label: 'SMA 10/30 cross', description: 'Always in the market: long when SMA 10 crosses above SMA 30, short when it crosses below.', build: defaultWorkspace },
-  { id: 'rsiReversion', label: 'RSI oversold/overbought (mean reversion)', description: 'Buys when RSI 14 drops below 30, sells the position when RSI rises above 70.', build: rsiReversion },
-  { id: 'bbBreakout', label: 'Bollinger breakout', description: 'Buys when the close breaks above the upper band, exits when it falls back below the middle band.', build: bbBreakout },
-  { id: 'supertrend', label: 'Supertrend flip', description: "Follows the built-in Supertrend 10/3 Buy and Sell signals: long after a Buy, short after a Sell.", build: supertrendFlip },
-  { id: 'macdCross', label: 'MACD cross', description: 'Buys when the MACD line crosses above its signal line, exits on the opposite cross.', build: macdCross },
-  { id: 'zones', label: 'Zone example (order block + fair value gap)', description: 'Buys inside a bullish order block while a bullish fair value gap is active; exits when the order block breaks.', build: zoneExampleWorkspace },
-  { id: 'martingale', label: 'Martingale (doubles after a loss)', description: 'Re-enters long whenever flat with a 2% stop and 2% target; the stake doubles after each loss (capped at 50% of equity) and resets after a win.', build: martingale },
-  { id: 'buyHold', label: 'Buy & hold (baseline)', description: 'Buys once with all equity on the first bar and holds to the end: the baseline to beat.', build: buyHold },
+  { id: 'smaCross', label: 'SMA 10/30 cross', description: 'Follows the trend: buys when the 10-candle average climbs above the 30-candle average, and bets on a fall (short) when it drops below. Always in a trade.', build: defaultWorkspace },
+  { id: 'rsiReversion', label: 'RSI oversold/overbought (mean reversion)', description: 'Buys after a sharp fall (RSI 14 below 30) and sells after a sharp rise (RSI above 70), betting that the price bounces back.', build: rsiReversion },
+  { id: 'bbBreakout', label: 'Bollinger breakout', description: 'Buys when the price jumps above the top Bollinger Band, and gets out when it falls back below the middle line.', build: bbBreakout },
+  { id: 'supertrend', label: 'Supertrend flip', description: 'Follows the Supertrend 10/3 indicator: buys on its Buy signal and bets on a fall (short) on its Sell signal.', build: supertrendFlip },
+  { id: 'macdCross', label: 'MACD cross', description: 'Buys when the MACD line crosses above its signal line (the trend may be turning up) and gets out on the opposite cross.', build: macdCross },
+  { id: 'zones', label: 'Zone example (order block + fair value gap)', description: 'Buys when the price is back inside a bullish order block (a support box) while a bullish fair value gap is open; gets out if the box breaks.', build: zoneExampleWorkspace },
+  { id: 'martingale', label: 'Martingale (doubles after a loss)', description: 'Buys again and again with a 2% stop-loss and 2% target. After a loss it doubles the bet (up to half the account), after a win it starts small. Shows why doubling up is risky!', build: martingale },
+  { id: 'buyHold', label: 'Buy & hold (baseline)', description: 'Buys once at the start with all the money and holds to the end: the simple plan every strategy should try to beat.', build: buyHold },
 ];
 
 export function getStarter(id: string): StarterDef | undefined {

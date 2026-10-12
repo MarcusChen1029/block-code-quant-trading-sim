@@ -12,20 +12,20 @@ const v = (patch: Partial<VerdictInput>) => buildVerdict({ ...BASE, ...patch });
 
 describe('buildVerdict', () => {
   it('profit that beat buy & hold', () => {
-    expect(v({})).toEqual({ tone: 'good', text: '76 trades · +7.48% return · worst drop 15.0%. Buy & hold: +3.10% — your strategy beat it by 4.38 points.' });
+    expect(v({})).toEqual({ tone: 'good', text: '76 trades · +7.48% return · worst drop 15.0%. Buy & hold: +3.10% — your strategy beat it by 4.38 percentage points.' });
   });
 
   it('a wiped leveraged buy & hold: named as wiped with its time, compared at -100% (never below)', () => {
     const benchmark = { returnPct: -150.3, maxDrawdownPct: 150.3, label: 'Buy & hold (5x)', wipedTime: Date.UTC(2026, 6, 28, 15) };
     expect(v({ benchmark }).text).toBe(
-      '76 trades · +7.48% return · worst drop 15.0%. Buy & hold (5x): account wiped at 2026-07-28 15:00 (-100.00%) — your strategy beat it by 107.48 points.');
+      '76 trades · +7.48% return · worst drop 15.0%. Buy & hold (5x): account wiped at 2026-07-28 15:00 (-100.00%) — your strategy beat it by 107.48 percentage points.');
     expect(v({ benchmark, fillCount: 0, tradeCount: 0, activity: activity(2000, 0) }).text).toBe(
       'No trades. Buy & hold (5x): account wiped at 2026-07-28 15:00 (-100.00%) over the same bars.');
   });
 
   it('loss that lagged buy & hold', () => {
     expect(v({ totalReturnPct: -3.2, benchmark: { returnPct: 12.5, maxDrawdownPct: 9 } })).toEqual({
-      tone: 'bad', text: '76 trades · -3.20% return (a loss) · worst drop 15.0%. Buy & hold: +12.50% — your strategy lagged it by 15.70 points.',
+      tone: 'bad', text: '76 trades · -3.20% return (a loss) · worst drop 15.0%. Buy & hold: +12.50% — your strategy fell behind it by 15.70 percentage points.',
     });
   });
 
@@ -44,7 +44,7 @@ describe('buildVerdict', () => {
 
   it('one position still open at the end (buy & hold strategy)', () => {
     expect(v({ tradeCount: 0, openPosition: true, fillCount: 1, totalReturnPct: 3.05 }).text).toBe(
-      '1 trade (still open at the end) · +3.05% return · worst drop 15.0%. Buy & hold: +3.10% — your strategy lagged it by 0.05 points.');
+      '1 trade (still open at the end) · +3.05% return · worst drop 15.0%. Buy & hold: +3.10% — your strategy fell behind it by 0.05 percentage points.');
     expect(v({ openPosition: true }).text.startsWith('76 trades (+1 still open at the end) · ')).toBe(true);
   });
 
@@ -122,7 +122,7 @@ describe('buildVerdict', () => {
   it('decides tie / beat / lag on the displayed (rounded) values', () => {
     expect(v({ totalReturnPct: 5.0149, benchmark: { returnPct: 5.0051, maxDrawdownPct: 1 } }).text).toBe(
       '76 trades · +5.01% return · worst drop 15.0%. Buy & hold: +5.01% — your strategy matched it.');
-    expect(v({ totalReturnPct: 5.0151, benchmark: { returnPct: 5.0049, maxDrawdownPct: 1 } }).text).toMatch(/\+5\.02% return .* Buy & hold: \+5\.00% — your strategy beat it by 0\.02 points\.$/);
+    expect(v({ totalReturnPct: 5.0151, benchmark: { returnPct: 5.0049, maxDrawdownPct: 1 } }).text).toMatch(/\+5\.02% return .* Buy & hold: \+5\.00% — your strategy beat it by 0\.02 percentage points\.$/);
   });
 
   it('never prints -0.00% or +0.00%', () => {

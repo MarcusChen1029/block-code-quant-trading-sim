@@ -46,6 +46,7 @@ export const GLOSSARY: readonly GlossaryEntry[] = [
   { term: 'Profit factor', text: 'Money won on winning trades divided by money lost on losing trades. Above 1 means the winners beat the losers.' },
   { term: 'Sharpe ratio', aka: ['sharpe'], text: 'Return compared with how bumpy the ride was. Higher is better: above 1 is good, above 2 is very good. Negative means it lost money.' },
   { term: 'Exposure', aka: ['time in market'], text: 'How much of the time the strategy was holding a trade, in percent.' },
+  { term: 'Percentage points', aka: ['points', 'pp'], text: 'The plain difference between two percentages. If your strategy made +12% and buy & hold made +5%, your strategy beat it by 7 percentage points.' },
   { term: 'Buy & hold', aka: ['benchmark'], text: 'The simplest plan: buy at the start and do nothing until the end. A good strategy should beat it, or at least lose less on the way down.' },
   { term: 'Warm-up', text: 'Indicators need some past candles before they have a value (an SMA 50 needs 50 candles). Until then they say “na” (not available) and no trades happen.' },
   { term: 'Account wiped', aka: ['liquidation'], text: 'The account lost all its money, usually from too much leverage. The test stops there.' },

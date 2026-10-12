@@ -111,7 +111,7 @@ function versus(input: VerdictInput, compare: boolean): string {
   // Compare what the reader sees: two returns that both display as +5.01% are a tie.
   const diff = shownPct(shownPct(input.totalReturnPct) - shownPct(bRet));
   if (diff === 0) return `${head} — your strategy matched it.`;
-  return `${head} — your strategy ${diff > 0 ? 'beat' : 'lagged'} it by ${fmtNum(Math.abs(diff))} points.`;
+  return `${head} — your strategy ${diff > 0 ? 'beat it' : 'fell behind it'} by ${fmtNum(Math.abs(diff))} percentage points.`;
 }
 
 function tradesText(input: VerdictInput): string {
@@ -161,7 +161,7 @@ function noTrades(input: VerdictInput): Verdict {
 
 /**
  * The plain-language result of a backtest, e.g. "76 trades · +7.48% return · worst drop 15.0%. Buy & hold: +3.10% —
- * your strategy beat it by 4.38 points." Pure: same input -> same text.
+ * your strategy beat it by 4.38 percentage points." Pure: same input -> same text.
  */
 export function buildVerdict(input: VerdictInput): Verdict {
   if (input.barsLoaded < 2) {
