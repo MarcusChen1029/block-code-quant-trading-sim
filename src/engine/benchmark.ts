@@ -18,6 +18,8 @@ export interface Benchmark {
   leverage: number;
   /** True when the leveraged hold's equity reached <= 0 and it was closed (the curve is flat from there on). */
   wiped: boolean;
+  /** Time of the bar on whose close the leveraged hold was wiped (null when not wiped). */
+  wipedTime: number | null;
 }
 
 /** "2x", "2.5x" (at most 2 decimals, no trailing zeros). */
@@ -67,6 +69,7 @@ export function buyAndHold(candles: readonly Candle[], broker: BrokerConfig): Be
 
   let wiped = false;
   let wipedEquity = 0;
+  let wipedTime: number | null = null;
   const equityCurve: EquityPoint[] = candles.map((c, i) => {
     if (i === 0) return { time: c.time, equity: initialEquity };
     if (wiped) return { time: c.time, equity: wipedEquity };
@@ -74,6 +77,7 @@ export function buyAndHold(candles: readonly Candle[], broker: BrokerConfig): Be
     const equity = cash + qty * (c.close - entryPrice);
     if (equity <= 0) {
       wiped = true;
+      wipedTime = c.time;
       wipedEquity = equity - qty * c.close * broker.takerFee; // force-closed at the close with the taker fee
       return { time: c.time, equity: wipedEquity };
     }
@@ -97,5 +101,6 @@ export function buyAndHold(candles: readonly Candle[], broker: BrokerConfig): Be
     entryFee,
     leverage,
     wiped,
+    wipedTime,
   };
 }

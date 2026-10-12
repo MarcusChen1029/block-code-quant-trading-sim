@@ -4,20 +4,13 @@ import type { BacktestResult } from '../engine/engine';
 import type { EquityPoint, Stats } from '../engine/stats';
 import type { LogEntry, Trade } from '../engine/types';
 import { toChartTime } from './chartData';
+import { benchmarkCardRows } from './verdict';
 import { h } from './dom';
-import { fmtNum, fmtPct, fmtTime, statsRows, type StatRow } from './format';
+import { fmtNum, fmtTime, statsRows, type StatRow } from './format';
 import { loadText, saveText } from './storage';
 
 export const BENCHMARK_LINE_STORAGE_KEY = 'quant-sim.benchmark-line';
 
-/** Buy & hold cards, shown right after the strategy's max drawdown. */
-export function benchmarkRows(b: Pick<Benchmark, 'returnPct' | 'maxDrawdownPct'> & { leverage?: number }): StatRow[] {
-  const name = benchmarkLabel(b.leverage ?? 1);
-  return [
-    { label: `${name} return`, value: fmtPct(b.returnPct), tone: b.returnPct > 0 ? 'pos' : b.returnPct < 0 ? 'neg' : 'neutral' },
-    { label: `${name} max DD`, value: fmtPct(b.maxDrawdownPct), tone: b.maxDrawdownPct > 0 ? 'neg' : 'neutral' },
-  ];
-}
 
 const MAX_TRADE_ROWS = 500;
 
@@ -91,7 +84,8 @@ export class StatsPanel {
     if (benchmark) {
       const at = rows.findIndex((r) => r.label === 'Max drawdown') + 1;
       const info = benchmarkDefinition(benchmark.leverage ?? 1);
-      cards.splice(at, 0, ...benchmarkRows(benchmark).map((row) => card(row, ' bench', info)));
+      // Buy & hold cards right after the strategy's max drawdown (a wiped leveraged hold says so: verdict.ts).
+      cards.splice(at, 0, ...benchmarkCardRows({ ...benchmark, wipedTime: benchmark.wipedTime ?? null }).map((row) => card(row, ' bench', info)));
     }
     this.cards.replaceChildren(...cards);
     if (wiped) this.cards.append(h('div', { class: 'card neg wiped' }, 'ACCOUNT WIPED'));

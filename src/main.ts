@@ -327,7 +327,7 @@ function verdictFor(result: BacktestResult, barsLoaded: number, warmup: HistoryN
     barsProcessed: result.barsProcessed,
     barsLoaded,
     benchmark: result.benchmark
-      ? { returnPct: result.benchmark.returnPct, maxDrawdownPct: result.benchmark.maxDrawdownPct, label: benchmarkLabel(result.benchmark.leverage) }
+      ? { returnPct: result.benchmark.returnPct, maxDrawdownPct: result.benchmark.maxDrawdownPct, label: benchmarkLabel(result.benchmark.leverage), wipedTime: result.benchmark.wipedTime ?? null }
       : null,
     activity: result.activity ?? null,
     warmup,

@@ -46,6 +46,7 @@ describe('buyAndHold', () => {
     expect(b).toEqual(a);
     expect(a.leverage).toBe(1);
     expect(a.wiped).toBe(false);
+    expect(a.wipedTime).toBeNull();
   });
 
   it('is sized at the account leverage like a 100% of equity order: qty = balance / (entry x (1/L + fee))', () => {
@@ -67,6 +68,7 @@ describe('buyAndHold', () => {
     expect(b.wiped).toBe(true);
     expect(b.equityCurve[1].equity).toBeCloseTo(-23.9473063, 6);
     expect(b.equityCurve[2].equity).toBe(b.equityCurve[1].equity); // the rally after the wipe does not count
+    expect(b.wipedTime).toBe(HOUR); // bar 1's time
     expect(b.maxDrawdownPct).toBeCloseTo(100.239473063, 6);
   });
 

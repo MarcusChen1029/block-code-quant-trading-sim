@@ -15,6 +15,14 @@ describe('buildVerdict', () => {
     expect(v({})).toEqual({ tone: 'good', text: '76 trades · +7.48% return · worst drop 15.0%. Buy & hold: +3.10% — your strategy beat it by 4.38 points.' });
   });
 
+  it('a wiped leveraged buy & hold: named as wiped with its time, compared at -100% (never below)', () => {
+    const benchmark = { returnPct: -150.3, maxDrawdownPct: 150.3, label: 'Buy & hold (5x)', wipedTime: Date.UTC(2026, 6, 28, 15) };
+    expect(v({ benchmark }).text).toBe(
+      '76 trades · +7.48% return · worst drop 15.0%. Buy & hold (5x): account wiped at 2026-07-28 15:00 (-100.00%) — your strategy beat it by 107.48 points.');
+    expect(v({ benchmark, fillCount: 0, tradeCount: 0, activity: activity(2000, 0) }).text).toBe(
+      'No trades. Buy & hold (5x): account wiped at 2026-07-28 15:00 (-100.00%) over the same bars.');
+  });
+
   it('loss that lagged buy & hold', () => {
     expect(v({ totalReturnPct: -3.2, benchmark: { returnPct: 12.5, maxDrawdownPct: 9 } })).toEqual({
       tone: 'bad', text: '76 trades · -3.20% return (a loss) · worst drop 15.0%. Buy & hold: +12.50% — your strategy lagged it by 15.70 points.',
@@ -142,5 +150,20 @@ describe('buildVerdict', () => {
   it('topReason picks the most frequent', () => {
     expect(topReason(activity(1, 5, 1, 3))).toBe('nothing to reduce');
     expect(topReason(activity(1, 5))).toBeNull();
+  });
+});
+
+describe('benchmark cards', () => {
+  it('a wiped hold: return shown clamped at -100% and flagged, plus when it was wiped', async () => {
+    const { benchmarkCardRows } = await import('./verdict');
+    expect(benchmarkCardRows({ returnPct: -150.3, maxDrawdownPct: 150.3, leverage: 5, wipedTime: Date.UTC(2026, 6, 28, 15) })).toEqual([
+      { label: 'Buy & hold (5x) return', value: '-100.00% (wiped)', tone: 'neg' },
+      { label: 'Buy & hold (5x) max DD', value: '100.00%', tone: 'neg' },
+      { label: 'Buy & hold (5x)', value: 'account wiped at 2026-07-28 15:00', tone: 'neg' },
+    ]);
+    expect(benchmarkCardRows({ returnPct: 3.1, maxDrawdownPct: 22, leverage: 1, wipedTime: null })).toEqual([
+      { label: 'Buy & hold return', value: '3.10%', tone: 'pos' },
+      { label: 'Buy & hold max DD', value: '22.00%', tone: 'neg' },
+    ]);
   });
 });
