@@ -18,6 +18,7 @@ declare module 'node:http' {
     statusCode: number;
     headersSent: boolean;
     writableEnded: boolean;
+    writableLength: number;
     setHeader(name: string, value: string | number | readonly string[]): this;
     getHeader(name: string): string | number | string[] | undefined;
     removeHeader(name: string): void;

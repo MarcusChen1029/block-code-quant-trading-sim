@@ -282,6 +282,13 @@ backup over `quant-sim.sqlite` (owner `quant-sim`, mode 600), delete `quant-sim.
   writable+executable memory and the server would crash with it on.
 - **Run it via systemd in production, not `npm run server:start`.** The unit pins the user, the hardening and the
   permission flags, restarts on crash and survives reboots; `npm run server:start` is for local use.
+- **Memory.** Each running session is a worker thread capped at ~240 MB (`maxOldGenerationSizeMb` 192 + young 32 +
+  code 16). With `QS_MAX_RUNNING=5` that is ~1.2 GB; plus the main thread (~150 MB) the unit's `MemoryMax=1800M`
+  leaves headroom. Raise both together if you raise `QS_MAX_RUNNING`. The main thread keeps only a bounded window of
+  each session's history for snapshots (20k candles, a downsampled equity curve, capped trades/log — a few MB each);
+  connected browsers still receive every bar and trade live, and a reconnecting browser gets a fresh windowed
+  snapshot. A viewer that cannot keep up has its stream dropped (it reconnects) rather than buffering without bound.
+  A 1 GB VPS can comfortably run a couple of sessions; use 2 GB for five.
 - The only person who can submit strategies is you (the one password); do not run strategies from untrusted sources.
 - Keep the VPS patched (`unattended-upgrades`), SSH key-only, and the firewall at SSH only (plus 80/443 with Caddy).
 

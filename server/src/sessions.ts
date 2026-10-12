@@ -9,6 +9,39 @@ import { newSessionRecord, type LiveSessionRecord, type NewSessionInput } from '
 import type { SessionStore } from '../../src/live/store';
 import { LiveWorkerSupervisor, type ClientFactory } from '../../src/live/supervisor';
 
+/**
+ * Caps on the per-session history the server keeps in memory for snapshots. A 24/7 session processes unbounded
+ * bars, but a viewer only ever needs a recent window, so the arrays are bounded here (connected viewers still get
+ * every bar/trade live as incremental SSE deltas). Rough memory per full session: candles ~0.9 MB, equity ~0.5 MB,
+ * trades up to ~6 MB, log ~1 MB — a few MB, so QS_MAX_RUNNING sessions stay well under the worker heap caps.
+ */
+export const HISTORY_CAPS = { candles: 20_000, equity: 20_000, trades: 50_000, fills: 50_000, log: 5_000 } as const;
+
+/** Keeps the last `max` of `arr` in place (drops oldest). Returns how many were dropped. */
+function capTail<T>(arr: T[], max: number): number {
+  if (arr.length <= max) return 0;
+  const drop = arr.length - max;
+  arr.splice(0, drop);
+  return drop;
+}
+
+/**
+ * Downsamples `points` in place to at most `max`, keeping the newest `max/2` at full resolution and decimating the
+ * older part (so the equity curve keeps its recent detail and its overall shape without growing without bound).
+ */
+function downsampleHead<T>(arr: T[], max: number): void {
+  if (arr.length <= max) return;
+  const keepTail = Math.floor(max / 2);
+  const tail = arr.slice(arr.length - keepTail);
+  const headCount = max - keepTail;
+  const head = arr.slice(0, arr.length - keepTail);
+  const step = head.length / headCount;
+  const kept: T[] = [];
+  for (let i = 0; i < headCount; i++) kept.push(head[Math.floor(i * step)]);
+  arr.length = 0;
+  arr.push(...kept, ...tail);
+}
+
 /** Everything a viewer needs to draw a session from scratch (the browser's SessionView data). */
 export interface SessionSnapshot {
   record: LiveSessionRecord;
@@ -29,6 +62,8 @@ export interface SessionSnapshot {
   halt: HaltInfo | null;
   /** Worker crashed and is replaying (shown instead of the status until live again). */
   notice: string | null;
+  /** Older trades were dropped from this snapshot (the history cap was reached). */
+  historyTrimmed: boolean;
 }
 
 /** What a watcher of one session receives after its snapshot. */
@@ -84,7 +119,7 @@ interface Run {
 
 const emptyView = (): Run['view'] => ({
   indicators: null, candles: [], fills: [], trades: [], equity: [], log: [], stats: null, wiped: false, position: null,
-  activity: null, status: null, forming: null, markEquity: null, halt: null, notice: null,
+  activity: null, status: null, forming: null, markEquity: null, halt: null, notice: null, historyTrimmed: false,
 });
 
 /**
@@ -277,6 +312,13 @@ export class SessionManager {
         v.trades.push(...d.trades);
         v.equity.push(...d.equity);
         v.log.push(...d.log);
+        // Bound the in-memory history so a 24/7 session never grows without limit (viewers still got every item
+        // live as a delta; a fresh snapshot shows the recent window).
+        capTail(v.candles, HISTORY_CAPS.candles);
+        capTail(v.fills, HISTORY_CAPS.fills);
+        if (capTail(v.trades, HISTORY_CAPS.trades) > 0 && !v.historyTrimmed) v.historyTrimmed = true;
+        capTail(v.log, HISTORY_CAPS.log);
+        downsampleHead(v.equity, HISTORY_CAPS.equity);
         v.stats = d.stats;
         v.wiped = d.wiped;
         v.position = d.position;

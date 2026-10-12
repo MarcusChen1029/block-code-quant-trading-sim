@@ -18,6 +18,8 @@ export const SERVER_HEADER = 'X-Quant-Sim-Server';
 const LOGIN_BODY_LIMIT = 4 * 1024;
 const SESSION_BODY_LIMIT = 2 * 1024 * 1024;
 const MAX_STREAMS = 20;
+/** A stream buffering more than this (a client that cannot keep up) is dropped; it reconnects with backoff. */
+const MAX_STREAM_BACKLOG = 4 * 1024 * 1024;
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 export interface AppOptions {
@@ -142,33 +144,39 @@ export async function createApp(options: AppOptions): Promise<App> {
     const sessionId = url.searchParams.get('session');
     if (sessionId !== null && !ID.test(sessionId)) throw new HttpError(400, 'bad session id');
     res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      streams.delete(stream);
+      clearInterval(beat);
+      offList?.();
+      offSession?.();
+      if (!res.writableEnded) res.end();
+    };
     const write = (event: string, data: unknown) => {
-      if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      if (closed || res.writableEnded) return;
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      // Backpressure: a client that cannot keep up makes the kernel/socket buffer grow. Past a bound, drop the
+      // stream (the browser reconnects with backoff and gets a fresh, windowed snapshot) rather than buffer forever.
+      if ((res.writableLength ?? 0) > MAX_STREAM_BACKLOG) close();
     };
     res.write('retry: 3000\n\n');
     const offList = manager.onList((sessions) => write('sessions', { sessions }));
-    write('sessions', { sessions: manager.list() });
     let offSession: (() => void) | null = null;
+    const beat = setInterval(() => {
+      if (auth.get(token) === null) return close(); // login expired or the password was changed: end the stream
+      if (!res.writableEnded && (res.writableLength ?? 0) > MAX_STREAM_BACKLOG) return close();
+      if (!res.writableEnded) res.write(': ping\n\n');
+    }, options.sseHeartbeatMs ?? 15_000);
+    const stream: Stream = { res, token, close };
+    streams.add(stream);
+    req.on('close', close);
+    write('sessions', { sessions: manager.list() });
     if (sessionId !== null) {
       offSession = manager.watch(sessionId, (message: SessionMessage) => write('session', message));
       if (offSession === null) write('session', { type: 'deleted', id: sessionId } satisfies SessionMessage);
     }
-    const beat = setInterval(() => {
-      if (!res.writableEnded) res.write(': ping\n\n');
-    }, options.sseHeartbeatMs ?? 15_000);
-    const stream: Stream = {
-      res,
-      token,
-      close: () => {
-        if (!streams.delete(stream)) return;
-        clearInterval(beat);
-        offList();
-        offSession?.();
-        if (!res.writableEnded) res.end();
-      },
-    };
-    streams.add(stream);
-    req.on('close', () => stream.close());
   };
 
   const api = async (req: IncomingMessage, res: ServerResponse, url: URL) => {

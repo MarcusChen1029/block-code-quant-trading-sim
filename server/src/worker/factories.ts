@@ -6,7 +6,9 @@ import type { ClientFactory } from '../../../src/live/supervisor';
 import { createWorkerRuntime, type WorkerConfig } from './runtime';
 
 /** Memory caps of one session worker (MB). A strategy that allocates without bound kills only its own worker. */
-export const WORKER_RESOURCE_LIMITS = { maxOldGenerationSizeMb: 256, maxYoungGenerationSizeMb: 32, codeRangeSizeMb: 32, stackSizeMb: 4 };
+// Per session worker: old-gen 192 + young 32 + code 16 ~= 240 MB. QS_MAX_RUNNING=5 -> ~1.2 GB plus the main
+// thread, under the unit's MemoryMax=1800M with headroom (see docs/server.md section 12).
+export const WORKER_RESOURCE_LIMITS = { maxOldGenerationSizeMb: 192, maxYoungGenerationSizeMb: 32, codeRangeSizeMb: 16, stackSizeMb: 4 };
 
 const errorEvent = (message: string) => ({ message, preventDefault() {} }) as unknown as ErrorEvent;
 

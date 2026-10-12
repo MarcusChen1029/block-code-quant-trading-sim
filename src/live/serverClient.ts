@@ -26,6 +26,7 @@ export interface RemoteSnapshot {
   markEquity: number | null;
   halt: HaltInfo | null;
   notice: string | null;
+  historyTrimmed?: boolean;
 }
 
 export type RemoteMessage =
