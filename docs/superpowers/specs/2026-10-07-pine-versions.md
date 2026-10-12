@@ -94,9 +94,11 @@ as that number before; the docs only show plain numbers (unverified), so it stay
 
 **`int / int`.** The inference (src/pine/v6.ts, `exprTyper(program, version)`) types both operands; codegen emits
 `rt.idiv` (quotient truncated toward zero) only when the division is typed int.
-- v4: integer whenever both operands are int, of any qualifier. [O4]: "If both operands are of type integer, then
-  the result will also have the type integer." So `bar_index / 2` and `input(7, type=input.integer) / 2` are
-  integer too.
+- v4: the same rule as v5 (const / const truncates).
+  - [O4] says "If both operands are of type integer, then the result will also have the type integer". But the v6
+    operators page has the same sentence next to "5/2 = 2.5", so it describes the TYPE, not truncation.
+  - Integer division of series / input ints in v4 (`bar_index / 2`, `input(9, type=input.integer) / 2`) is
+    UNVERIFIED, so it stays fractional like v5, as before 2026-10-08.
 - v5: integer only when BOTH operands are "const". [M6 "Fractional division of constants"]: const/const `5/2 = 2`,
   but with an "input", "simple" or "series" operand `5/2 = 2.5`.
   - Our "const": int literals; arithmetic on them; names with a single plain (not `var`) declaration from such an

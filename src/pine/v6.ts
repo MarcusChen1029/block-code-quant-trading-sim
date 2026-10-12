@@ -262,13 +262,14 @@ class TypeInference {
   }
 
   /**
-   * `int / int` (both operands already known to be int) is integer division in v4 (any int [O4]) and in v5 when
-   * both operands are "const" [M6]; v6 always divides fractionally [M6].
+   * `int / int` (both operands already known to be int) is integer division in v5 only when both operands are
+   * "const" [M6]; v6 always divides fractionally [M6]. v4 follows the v5 rule: its operators page only says the
+   * result TYPE is int (the v6 page says the same next to "5/2 = 2.5"), so truncating series / input ints in v4 is
+   * unverified and they divide fractionally.
    */
   private intDivision(e: Extract<Expr, { k: 'binary' }>): boolean {
-    if (this.version === 4) return true;
-    if (this.version === 5) return this.isConst(e.left) && this.isConst(e.right);
-    return false;
+    if (this.version === 6) return false;
+    return this.isConst(e.left) && this.isConst(e.right);
   }
 
   private callType(e: Extract<Expr, { k: 'call' }>): Inferred {

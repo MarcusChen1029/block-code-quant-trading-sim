@@ -54,12 +54,12 @@ describe('int() / float() / bool() conversions', () => {
 });
 
 describe('int / int division per version', () => {
-  it('v4: int / int is an int (any qualifier) [O4]; truncated toward zero', () => {
-    expect(first(4, 'a = 5\nb = 2\nplot(a / b, "c")\nplot(-7 / 2, "n")\nplot(7 / 2.0, "f")\nplot(5.0 / 2, "g")\nn = input(7, "N", type=input.integer)\nplot(n / 2, "i")'))
-      .toEqual({ c: 2, n: -3, f: 3.5, g: 2.5, i: 3 });
-    // bar_index is a series int: still integer division in v4.
-    const bi = runPine(compileOk(src(4, 'plot(bar_index / 2, "h")')), CANDLES.slice(0, 4)).h;
-    expect(bi).toEqual([0, 0, 1, 1]);
+  it('v4: like v5, integer division only for const / const (series / input int division unverified -> fractional)', () => {
+    expect(first(4, 'a = 5\nb = 2\nplot(a / b, "c")\nplot(-7 / 2, "n")\nplot(7 / 2.0, "f")\nplot(5.0 / 2, "g")\nn = input(9, "N", type=input.integer)\nplot(n / 2, "i")'))
+      .toEqual({ c: 2, n: -3, f: 3.5, g: 2.5, i: 4.5 });
+    // bar_index is a series int: fractional, as on master.
+    expect(runPine(compileOk(src(4, 'plot(bar_index / 2, "h")\nplot(10 / bar_index, "k")')), CANDLES.slice(0, 4)))
+      .toEqual({ h: [0, 0.5, 1, 1.5], k: [Infinity, 10, 5, 10 / 3].map((x) => (x === Infinity ? NaN : x)) });
   });
 
   it('v5: integer division only when BOTH operands are const ints [M6]', () => {
@@ -72,9 +72,9 @@ describe('int / int division per version', () => {
     expect(first(6, 'a = 5\nplot(5 / 2, "c")\nplot(a / 2, "d")\nplot(int(5 / 2), "t")')).toEqual({ c: 2.5, d: 2.5, t: 2 });
   });
 
-  it('compound /= follows the same rule (v4 int, v5 / v6 fractional: a reassigned name is not const)', () => {
+  it('compound /= follows the same rule (fractional in every version: a reassigned name is not const)', () => {
     const body = 'x = 7\nx /= 2\nplot(x, "x")';
-    expect([first(4, body).x, first(5, body).x, first(6, body).x]).toEqual([3, 3.5, 3.5]);
+    expect([first(4, body).x, first(5, body).x, first(6, body).x]).toEqual([3.5, 3.5, 3.5]);
   });
 
   it('unknown operand types divide fractionally (function parameters)', () => {
