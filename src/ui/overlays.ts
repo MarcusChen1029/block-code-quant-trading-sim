@@ -11,6 +11,8 @@ import { toChartTime } from './chartData';
 export interface OverlayLine {
   key: string;
   color: string;
+  /** Legend name when it is not the key (Pine plots: the plot title, e.g. "Up trend"). Plain text. */
+  title?: string;
 }
 
 /** A signal drawn as chart markers: the stepper returns 1 under `key` on bars where it fires. */
@@ -19,6 +21,12 @@ export interface OverlaySignal {
   /** Legend name, e.g. "Supertrend 10 3: Buy (trend flips up)". */
   label: string;
   marker: SignalMarker;
+}
+
+/** The line's name in the chart legend (drawn as text on the canvas, never as HTML). */
+export function lineTitle(def: Pick<OverlayDef, 'label'>, line: OverlayLine): string {
+  if (line.title !== undefined) return line.title;
+  return line.key === 'value' ? def.label : line.key;
 }
 
 /** A chart overlay: which pane it lives in, its lines, and an incremental stepper factory. */

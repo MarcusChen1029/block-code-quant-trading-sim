@@ -205,15 +205,17 @@ describe('block compiler: safety', () => {
     }
   });
 
-  it('stop-loss needs a positive price (NaN halts with the block id instead of silently doing nothing)', () => {
-    const sl = { type: BT.setExit, id: 'sl', fields: { KIND: 'stopLoss' }, inputs: { PRICE: slot(indicator('sma', { LENGTH: 50 })) } };
+  it('stop-loss needs a positive price (0 halts with the block id; na is skipped with a warning: naValues.test.ts)', () => {
+    const sl = { type: BT.setExit, id: 'sl', fields: { KIND: 'stopLoss' }, inputs: { PRICE: slot(num(0)) } };
     try {
       logs(workspace({ onBar: [sl] }));
       throw new Error('should have thrown');
     } catch (err) {
-      expect((err as StrategyError).message).toBe('strategy error on bar 0: stop-loss price must be a positive number, got NaN');
+      expect((err as StrategyError).message).toBe('strategy error on bar 0: stop-loss price must be a positive number, got 0');
       expect((err as StrategyError).blockId).toBe('sl');
     }
+    const na = { ...sl, inputs: { PRICE: slot(indicator('sma', { LENGTH: 50 })) } };
+    expect(() => logs(workspace({ onBar: [na] }))).not.toThrow();
   });
 });
 

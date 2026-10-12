@@ -14,29 +14,75 @@ export interface Benchmark {
   entryPrice: number;
   qty: number;
   entryFee: number;
+  /** The account leverage the hold was sized at (1 = a plain spot-like hold). */
+  leverage: number;
+  /** True when the leveraged hold's equity reached <= 0 and it was closed (the curve is flat from there on). */
+  wiped: boolean;
+  /** Time of the bar on whose close the leveraged hold was wiped (null when not wiped). */
+  wipedTime: number | null;
+}
+
+/** "2x", "2.5x" (at most 2 decimals, no trailing zeros). */
+function leverageText(leverage: number): string {
+  return `${Number(leverage.toFixed(2))}x`;
+}
+
+/** 'Buy & hold' at 1x, 'Buy & hold (3x)' otherwise: the benchmark's name wherever it is shown. */
+export function benchmarkLabel(leverage: number): string {
+  return leverage === 1 ? 'Buy & hold' : `Buy & hold (${leverageText(leverage)})`;
 }
 
 /** Plain-language definition, shown as a tooltip wherever the benchmark appears. */
-export const BENCHMARK_DEFINITION =
-  "Buy & hold: one 1x long with the same starting balance, entered at the first bar a strategy could trade (the next " +
-  "bar's open, with taker fee and slippage), held to the last close, no exit fee.";
+export function benchmarkDefinition(leverage = 1): string {
+  const size = leverage === 1
+    ? 'one 1x long with the same starting balance'
+    : `one ${leverageText(leverage)} long with the same starting balance (all equity as margin, like a 100% of equity order at the account leverage; wiped like the strategy if equity reaches zero)`;
+  return `${benchmarkLabel(leverage)}: ${size}, entered at the first bar a strategy could trade (the next bar's open, with ` +
+    'taker fee and slippage), held to the last close, no exit fee.';
+}
+
+/** The 1x definition (kept for callers that have no leverage at hand). */
+export const BENCHMARK_DEFINITION = benchmarkDefinition(1);
 
 /**
- * Buy & hold with the backtest's starting balance: a 1x long entered at the first bar a strategy could trade, i.e.
- * the open of the SECOND bar (an order placed on bar 0's close fills there), with the taker fee and slippage on
- * entry, all-in (notional + entry fee = starting balance), held to the last close with no exit fee. The curve has
- * one point per bar like the strategy's: flat at the starting balance on bar 0, then qty x close. Leverage and maker
- * fee do not apply. Null with fewer than 2 bars (nothing could be traded) or a non-positive entry open. Pure.
+ * Buy & hold with the backtest's starting balance, sized exactly like a 100 %-of-equity market order at the
+ * ACCOUNT LEVERAGE L (broker percentEquity): qty = balance / (entry x (1/L + taker fee)), entered at the first bar a
+ * strategy could trade, i.e. the open of the SECOND bar (an order placed on bar 0's close fills there), with the
+ * taker fee and slippage on entry, held to the last close with no exit fee. The curve has one point per bar like the
+ * strategy's: flat at the starting balance on bar 0, then (balance - entry fee) + qty x (close - entry); at 1x that
+ * is exactly qty x close. Like the engine, a close at which that equity is <= 0 closes the hold at the close with the
+ * taker fee ("wiped") and the curve stays flat at what is left. Maker fee does not apply. Null with fewer than 2 bars
+ * (nothing could be traded) or a non-positive entry open or leverage. Pure: live mode calls it too.
  */
 export function buyAndHold(candles: readonly Candle[], broker: BrokerConfig): Benchmark | null {
   if (candles.length < 2) return null;
   const initialEquity = broker.initialBalance;
+  const leverage = broker.leverage;
   const entryPrice = candles[1].open * (1 + broker.slippageBps / 10_000);
-  if (!(entryPrice > 0) || !(initialEquity > 0)) return null;
-  const qty = initialEquity / (entryPrice * (1 + broker.takerFee));
+  if (!(entryPrice > 0) || !(initialEquity > 0) || !(leverage > 0)) return null;
+  // At 1x keep the historical formula (bit-identical results); otherwise the broker's percentEquity sizing.
+  const qty = leverage === 1
+    ? initialEquity / (entryPrice * (1 + broker.takerFee))
+    : initialEquity / (entryPrice * (1 / leverage + broker.takerFee));
   const entryFee = qty * entryPrice * broker.takerFee;
+  const cash = initialEquity - entryFee;
 
-  const equityCurve: EquityPoint[] = candles.map((c, i) => ({ time: c.time, equity: i === 0 ? initialEquity : qty * c.close }));
+  let wiped = false;
+  let wipedEquity = 0;
+  let wipedTime: number | null = null;
+  const equityCurve: EquityPoint[] = candles.map((c, i) => {
+    if (i === 0) return { time: c.time, equity: initialEquity };
+    if (wiped) return { time: c.time, equity: wipedEquity };
+    if (leverage === 1) return { time: c.time, equity: qty * c.close };
+    const equity = cash + qty * (c.close - entryPrice);
+    if (equity <= 0) {
+      wiped = true;
+      wipedTime = c.time;
+      wipedEquity = equity - qty * c.close * broker.takerFee; // force-closed at the close with the taker fee
+      return { time: c.time, equity: wipedEquity };
+    }
+    return { time: c.time, equity };
+  });
   let peak = initialEquity;
   let maxDd = 0;
   for (const p of equityCurve) {
@@ -53,5 +99,8 @@ export function buyAndHold(candles: readonly Candle[], broker: BrokerConfig): Be
     entryPrice,
     qty,
     entryFee,
+    leverage,
+    wiped,
+    wipedTime,
   };
 }

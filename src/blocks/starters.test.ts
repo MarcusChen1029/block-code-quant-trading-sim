@@ -103,6 +103,42 @@ describe('starter strategies', () => {
     }
   });
 
+  it('at any account leverage the Buy & hold starter matches the benchmark, which is labelled with that leverage', async () => {
+    const { buildVerdict } = await import('../ui/verdict');
+    const { benchmarkLabel } = await import('../engine/benchmark');
+    const candles = walkCandles(500, 3, 0.001, 0.02);
+    for (const leverage of [2, 5, 1]) {
+      const config: EngineConfig = { ...CONFIG, broker: { ...DEFAULT_BROKER_CONFIG, leverage } };
+      const r = runBacktest(candles, createBlockStrategy(getStarter('buyHold')!.build()), config);
+      const b = r.benchmark!;
+      expect(r.wiped).toBe(false);
+      expect(r.fills[0].qty).toBeCloseTo(b.qty, 9); // same notional sizing as percentEquity at this leverage
+      expect(r.stats.finalEquity).toBeCloseTo(b.finalEquity, 6);
+      expect(r.stats.maxDrawdownPct).toBeCloseTo(b.maxDrawdownPct, 8);
+      expect(b.leverage).toBe(leverage);
+      for (let i = 0; i < r.equityCurve.length; i++) expect(r.equityCurve[i].equity).toBeCloseTo(b.equityCurve[i].equity, 6);
+      const v = buildVerdict({
+        tradeCount: r.trades.length, openPosition: true, fillCount: r.fills.length, totalReturnPct: r.stats.totalReturnPct,
+        maxDrawdownPct: r.stats.maxDrawdownPct, wiped: false, barsProcessed: r.barsProcessed, barsLoaded: candles.length,
+        benchmark: { returnPct: b.returnPct, maxDrawdownPct: b.maxDrawdownPct, label: benchmarkLabel(leverage) }, activity: r.activity, warmup: null,
+      });
+      expect(v.text).toMatch(/your strategy matched it\.$/);
+      expect(v.text).toContain(leverage === 1 ? ' Buy & hold: ' : ` Buy & hold (${leverage}x): `);
+    }
+  });
+
+  it('a leveraged buy & hold that is wiped out ends where the wiped Buy & hold starter ends', () => {
+    const crash = candlesFromCloses([100, 100, 98, 95, 90, 70, 72, 120, 130], 0.2);
+    const config: EngineConfig = { ...CONFIG, broker: { ...DEFAULT_BROKER_CONFIG, leverage: 5 } };
+    const r = runBacktest(crash, createBlockStrategy(getStarter('buyHold')!.build()), config);
+    const b = r.benchmark!;
+    expect(r.wiped).toBe(true);
+    expect(b.wiped).toBe(true);
+    expect(b.equityCurve).toHaveLength(crash.length); // flat after the wipe, still one point per bar
+    expect(b.finalEquity).toBeCloseTo(r.stats.finalEquity, 6);
+    expect(b.equityCurve[b.equityCurve.length - 1].equity).toBe(b.equityCurve[r.barsProcessed - 1].equity);
+  });
+
   it('the SMA starter is the default workspace (fresh users get the same strategy)', async () => {
     const { defaultWorkspace } = await import('./defaultWorkspace');
     expect(getStarter('smaCross')!.build()).toEqual(defaultWorkspace());

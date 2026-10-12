@@ -15,6 +15,14 @@ describe('buildVerdict', () => {
     expect(v({})).toEqual({ tone: 'good', text: '76 trades · +7.48% return · worst drop 15.0%. Buy & hold: +3.10% — your strategy beat it by 4.38 points.' });
   });
 
+  it('a wiped leveraged buy & hold: named as wiped with its time, compared at -100% (never below)', () => {
+    const benchmark = { returnPct: -150.3, maxDrawdownPct: 150.3, label: 'Buy & hold (5x)', wipedTime: Date.UTC(2026, 6, 28, 15) };
+    expect(v({ benchmark }).text).toBe(
+      '76 trades · +7.48% return · worst drop 15.0%. Buy & hold (5x): account wiped at 2026-07-28 15:00 (-100.00%) — your strategy beat it by 107.48 points.');
+    expect(v({ benchmark, fillCount: 0, tradeCount: 0, activity: activity(2000, 0) }).text).toBe(
+      'No trades. Buy & hold (5x): account wiped at 2026-07-28 15:00 (-100.00%) over the same bars.');
+  });
+
   it('loss that lagged buy & hold', () => {
     expect(v({ totalReturnPct: -3.2, benchmark: { returnPct: 12.5, maxDrawdownPct: 9 } })).toEqual({
       tone: 'bad', text: '76 trades · -3.20% return (a loss) · worst drop 15.0%. Buy & hold: +12.50% — your strategy lagged it by 15.70 points.',
@@ -58,6 +66,18 @@ describe('buildVerdict', () => {
     });
   });
 
+  it('not enough history for a zone indicator: an "at least" number', () => {
+    const warmup = { known: true as const, label: 'Order block (swing 5)', bars: 13, atLeast: true as const };
+    expect(v({ fillCount: 0, tradeCount: 0, barsProcessed: 10, barsLoaded: 10, activity: activity(10, 0), warmup }).text).toBe(
+      'Not enough history: Order block (swing 5) needs at least 13 bars before the first order can fill, but only 10 bars were loaded — move the start date earlier.');
+  });
+
+  it('zones: enough bars for the minimum but no order: the hint says zones may need more history', () => {
+    const warmup = { known: true as const, label: 'Fair value gap', bars: 4, atLeast: true as const };
+    expect(v({ fillCount: 0, tradeCount: 0, barsProcessed: 50, barsLoaded: 50, activity: activity(50, 0), warmup }).hint).toBe(
+      'Your strategy ran on 50 bars but never placed an order. Zone indicators only have values once the price forms a zone, so 50 bars may not be enough — try an earlier start date; otherwise check your conditions.');
+  });
+
   it('ran but never placed an order', () => {
     expect(v({ fillCount: 0, tradeCount: 0, totalReturnPct: 0, activity: activity(2000, 0) })).toEqual({
       tone: 'warn', text: 'No trades. Buy & hold: +3.10% over the same bars.',
@@ -86,7 +106,12 @@ describe('buildVerdict', () => {
     expect(v({ fillCount: 0, tradeCount: 0, activity: activity(2000, 2) }).hint).toBe(
       'It placed 2 orders but none filled — a limit price was never reached, or the order was placed on the last bar.');
     expect(v({ fillCount: 0, tradeCount: 0, activity: activity(2000, 3, 1) }).hint).toBe(
-      'It placed 3 orders but none filled (rejected: 1 × insufficient margin (the order needed more margin than was free: lower the size or raise the leverage)) — a limit price was never reached, or the order was placed on the last bar.');
+      'It placed 3 orders but none filled: 1 × insufficient margin (the order needed more margin than was free: lower the size or raise the leverage); the other 2 never filled — a limit price was never reached, or the order was placed on the last bar.');
+  });
+
+  it('almost all rejected (seen in the browser: 500% of equity at 1x): the rejection leads, the last-bar order is a footnote', () => {
+    expect(v({ fillCount: 0, tradeCount: 0, activity: activity(2160, 2160, 2159) }).hint).toBe(
+      'It placed 2,160 orders but none filled: 2,159 × insufficient margin (the order needed more margin than was free: lower the size or raise the leverage); the other 1 never filled — a limit price was never reached, or the order was placed on the last bar.');
   });
 
   it('notes rejected orders on a run that did trade', () => {
@@ -125,5 +150,20 @@ describe('buildVerdict', () => {
   it('topReason picks the most frequent', () => {
     expect(topReason(activity(1, 5, 1, 3))).toBe('nothing to reduce');
     expect(topReason(activity(1, 5))).toBeNull();
+  });
+});
+
+describe('benchmark cards', () => {
+  it('a wiped hold: return shown clamped at -100% and flagged, plus when it was wiped', async () => {
+    const { benchmarkCardRows } = await import('./verdict');
+    expect(benchmarkCardRows({ returnPct: -150.3, maxDrawdownPct: 150.3, leverage: 5, wipedTime: Date.UTC(2026, 6, 28, 15) })).toEqual([
+      { label: 'Buy & hold (5x) return', value: '-100.00% (wiped)', tone: 'neg' },
+      { label: 'Buy & hold (5x) max DD', value: '100.00%', tone: 'neg' },
+      { label: 'Buy & hold (5x)', value: 'account wiped at 2026-07-28 15:00', tone: 'neg' },
+    ]);
+    expect(benchmarkCardRows({ returnPct: 3.1, maxDrawdownPct: 22, leverage: 1, wipedTime: null })).toEqual([
+      { label: 'Buy & hold return', value: '3.10%', tone: 'pos' },
+      { label: 'Buy & hold max DD', value: '22.00%', tone: 'neg' },
+    ]);
   });
 });

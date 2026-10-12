@@ -147,6 +147,16 @@ body:not([data-left-tab='pine']) #pine { display: none; }
 .verdict[data-tone='warn'] .verdict-text { color: #ffb74d; }
 body[data-mode='live'] #verdict { display: none; }
 
+/* Shown in the block pane until the lazily loaded Blockly chunk is in. */
+.blocks-loading { padding: 16px; color: #787b86; font-size: 13px; }
+.blocks-retry { margin-left: 6px; }
+
+/* Results of an earlier strategy / settings: dimmed until the next Run (resultFreshness.ts). */
+.stale-note { border-top: 1px solid #2a2e39; padding: 4px 10px; font-size: 12px; color: #ffb74d; background: #1e1a10; }
+.stale-note[hidden] { display: none; }
+body[data-mode='live'] .stale-note { display: none; }
+#verdict.stale, #stats.stale { opacity: 0.45; }
+
 #stats { border-top: 1px solid #2a2e39; display: flex; height: 260px; }
 .stats-left { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .stats-right { width: 50%; display: flex; flex-direction: column; border-left: 1px solid #2a2e39; min-width: 0; }

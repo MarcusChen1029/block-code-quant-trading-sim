@@ -13,7 +13,9 @@ export interface Warmup {
 /**
  * Bars needed by the built-in indicators (TradingView formulas in src/indicators), keyed by registry id. Each
  * number is "first bar index with every numeric output defined + 1"; warmup.test.ts checks every one against the
- * real implementation. Zone indicators and Pine scripts have no fixed warm-up and are left out (no guess).
+ * real implementation. Zone indicators are in ZONE_BARS below (a minimum, not a fixed warm-up). Pine scripts are left
+ * out on purpose: a script is arbitrary code (`var` state, loops, history references with computed offsets, its own
+ * `na` handling), so no number can be derived from its parameters without running it; it keeps the generic hint.
  */
 const BARS: Record<string, (p: Record<string, number>) => number> = {
   sma: (p) => p.length,
@@ -32,6 +34,23 @@ const BARS: Record<string, (p: Record<string, number>) => number> = {
   change: (p) => p.length + 1,
 };
 
+/**
+ * Zone indicators (src/indicators/zones.ts): the STRUCTURAL minimum, i.e. the first bar (+1) on which any of their
+ * values or signals can exist on any data. Whether a zone actually forms is up to the price, so these are "at least"
+ * numbers: with fewer bars no zone can exist, with more it may still take longer. zoneWarmup.test.ts checks every one
+ * on random data (never too high) and on data built to form a zone as early as possible (tight).
+ * - swing: a pivot needs `left` bars before and `right` after it, so the first is confirmed on bar left + right.
+ * - orderblock: its swing (left = right = swing) is confirmed on bar 2 x swing at the earliest, and a LATER close must
+ *   break it (a bar cannot close above its own high), so bar 2 x swing + 1. The lookback adds nothing: the search for
+ *   the last opposite candle uses whatever earlier bars exist.
+ * - fvg: three candles, so bar 2.
+ */
+const ZONE_BARS: Record<string, { bars: (p: Record<string, number>) => number; label: (p: Record<string, number>) => string }> = {
+  swing: { bars: (p) => p.left + p.right + 1, label: (p) => `Swing structure ${p.left}/${p.right}` },
+  orderblock: { bars: (p) => 2 * p.swing + 2, label: (p) => `Order block (swing ${p.swing})` },
+  fvg: { bars: () => 3, label: () => 'Fair value gap' },
+};
+
 /** Warm-up of one indicator use, or null when it is not a built-in with a known formula. */
 export function indicatorWarmup(use: Pick<IndicatorUse, 'indicatorId' | 'params'>): Warmup | null {
   const bars = BARS[use.indicatorId];
@@ -44,10 +63,16 @@ export function indicatorWarmup(use: Pick<IndicatorUse, 'indicatorId' | 'params'
 }
 
 /** Bars a strategy needs loaded before its first order can fill, or unknown (then no number is shown). */
-export type HistoryNeed = { known: true; label: string; bars: number } | { known: false };
+export type HistoryNeed =
+  /** atLeast: a zone indicator is involved, so this is a minimum (a zone may need more bars to form). */
+  | { known: true; label: string; bars: number; atLeast?: true }
+  | { known: false };
 
-/** Bars until a value exists (first defined bar index + 1) and what to call it. null = cannot be determined. */
-type Need = { bars: number; label: string } | null;
+/**
+ * Bars until a value exists (first defined bar index + 1) and what to call it. null = cannot be determined.
+ * atLeast: a minimum only (a zone indicator below); carried through every combination.
+ */
+type Need = { bars: number; label: string; atLeast?: true } | null;
 
 /** Value blocks that need no history at all (constants, account state, product / timeframe / bar time). */
 const NO_HISTORY = new Set(['math_number', 'text', 'logic_boolean', 'logic_null', BT.product, BT.timeframe, BT.barTime]);
@@ -56,7 +81,11 @@ const UNKNOWN = new Set(['variables_get', 'procedures_callreturn', 'procedures_c
 /** Prefixes of blocks that only combine their inputs (logic, math, control flow, actions, hats, setters). */
 const PASS_THROUGH = ['logic_', 'math_', 'controls_', 'text_', 'action_', 'event_', 'account_', 'variables_set', 'procedures_def'];
 
-const larger = (a: Need, b: Need): Need => (a === null || b === null ? null : b.bars > a.bars ? b : a);
+const larger = (a: Need, b: Need): Need => {
+  if (a === null || b === null) return null;
+  const best = b.bars > a.bars ? b : a;
+  return a.atLeast || b.atLeast ? { ...best, atLeast: true } : best;
+};
 
 /**
  * Conservative history requirement of a block (and everything below it), following source chains: an indicator
@@ -80,10 +109,17 @@ function need(block: BlockState | undefined): Need {
     const signal = type.startsWith(SIGNAL_BLOCK_PREFIX);
     const id = type.slice(signal ? SIGNAL_BLOCK_PREFIX.length : INDICATOR_BLOCK_PREFIX.length);
     const def = getIndicator(id);
+    const zone = ZONE_BARS[id];
     const formula = BARS[id];
-    if (!def || !formula) return null;
+    if (!def || !(formula || zone)) return null;
     const params: Record<string, number> = {};
     for (const p of def.params) params[p.name] = Number(f[paramFieldName(p)] ?? p.default);
+    if (zone) {
+      // OHLC only (no SOURCE). Signals are this bar's events (no comparison with the previous value): no extra bar.
+      const zb = zone.bars(params);
+      if (!Number.isFinite(zb) || zb < 1) return null;
+      return combineRest(block, { bars: zb, label: zone.label(params), atLeast: true }, []);
+    }
     const bars = formula(params);
     if (!Number.isFinite(bars) || bars < 1) return null;
     const label = [def.label, ...blockParams(def, 'ind').map((p) => String(params[p.name]))].join(' ');
@@ -119,8 +155,8 @@ function combineRest(block: BlockState, own: Need, skip: string[]): Need {
 
 /**
  * Bars that must be loaded before the strategy's first order can fill: the slowest value it reads (following
- * source chains and `bars ago`) + 1 for the next-bar fill. Unknown (no number) when it uses blocks whose history
- * cannot be determined (zones, Pine scripts, variables used as data, bar index, functions): never a number that is
+ * source chains and `bars ago`) + 1 for the next-bar fill; only a minimum (atLeast) when zones are read. Unknown
+ * (no number) when it uses blocks whose history cannot be determined (Pine scripts, variables used as data, bar index, functions): never a number that is
  * too low.
  */
 export function strategyHistoryNeed(workspace: unknown): HistoryNeed {
@@ -131,7 +167,8 @@ export function strategyHistoryNeed(workspace: unknown): HistoryNeed {
     best = larger(best, need(block));
     if (best === null) return { known: false };
   }
-  return { known: true, bars: Math.max(best.bars, 1) + 1, label: best.label || 'the strategy' };
+  const known = { known: true as const, bars: Math.max(best.bars, 1) + 1, label: best.label || 'the strategy' };
+  return best.atLeast ? { ...known, atLeast: true } : known;
 }
 
 /** The built-in SMA cross (not blocks): a cross of SMA `slow` -> slow + 1 bars for the value, + 1 to fill. */

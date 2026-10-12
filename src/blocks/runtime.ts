@@ -1,5 +1,5 @@
 import type { Candle } from '../data/types';
-import { StrategyError, type StrategyContext } from '../engine/strategy';
+import { StrategyError, type EntryRequest, type StrategyContext } from '../engine/strategy';
 import { CrossOver, CrossUnder } from '../indicators/primitives';
 import { MAX_LOOP_ITERATIONS_PER_BAR } from './blockTypes';
 import { priceOf, type PriceSource } from './priceSource';
@@ -52,6 +52,8 @@ export class BlockRuntime {
   private barStart = 0;
   private lastBar = -1;
   private readonly history: CandleHistory;
+  /** Per block index: actions skipped so far because a value was na (see skipNa). */
+  private readonly naSkips = new Map<number, number>();
 
   constructor(private readonly blockIds: readonly string[], maxOffset: number, private readonly limits: RuntimeLimits = DEFAULT_LIMITS) {
     this.history = new CandleHistory(maxOffset + 1);
@@ -112,12 +114,54 @@ export class BlockRuntime {
     return kind === 'over' ? new CrossOver() : new CrossUnder();
   }
 
+  /**
+   * A market / limit order block. `na` (NaN) as the size or the limit price (e.g. "nearest zone bottom" with no zone)
+   * skips THIS order with a warning and the run goes on; every other value goes to the broker unchanged, so finite
+   * invalid ones (<= 0, Infinity) still halt the run with this block's id. Returns the order id, or -1 when skipped.
+   */
+  order(ctx: StrategyContext, side: 'buy' | 'sell', request: EntryRequest): number {
+    const kind = request.type === 'limit' ? 'limit order' : 'market order';
+    if (isNa(request.size)) return this.skipNa(ctx, kind, kind, 'size');
+    if (request.type === 'limit' && isNa(request.price)) return this.skipNa(ctx, kind, kind, 'limit price');
+    return side === 'sell' ? ctx.sell(request) : ctx.buy(request);
+  }
+
+  /** Stop-loss / take-profit block: na skips it with a warning (see order); any other non-positive price halts. */
   setExit(ctx: StrategyContext, kind: 'stopLoss' | 'takeProfit', price: unknown): void {
-    const p = Number(price);
     const label = kind === 'stopLoss' ? 'stop-loss' : 'take-profit';
+    if (isNa(price)) {
+      // Deliberately NOT cleared: a previous stop / target stays in place (safer than silently removing protection
+      // because one bar had no value). The warning says which: the price that stays, or that none is set.
+      const previous = kind === 'stopLoss' ? ctx.position.stopLoss : ctx.position.takeProfit;
+      const first = previous === null ? `no ${label} is set` : `the previous ${label} (${previous}) stays in place`;
+      this.skipNa(ctx, `set ${label}`, 'set stop-loss / take-profit', 'price', { first, later: `any previous ${label} stays in place` });
+      return;
+    }
+    const p = Number(price);
     if (!(Number.isFinite(p) && p > 0)) throw new Error(`${label} price must be a positive number, got ${String(price)}`);
     if (kind === 'stopLoss') ctx.setStopLoss(p);
     else ctx.setTakeProfit(p);
+  }
+
+  /**
+   * Logs that the current block's action was skipped because its `what` was na: the first time with the whole story,
+   * then only at the 10th, 100th, 1000th... skip with the count (a strategy that is na on most bars must not flood the
+   * log). Warm-up bars (live) drop warnings: those skips are not counted, so the first trading bar still warns.
+   */
+  private skipNa(
+    ctx: StrategyContext, action: string, blockLabel: string, what: string,
+    /** What the skip leaves in place (stop-loss / take-profit): for the first warning and for the counts. */
+    effect?: { first: string; later: string },
+  ): -1 {
+    const i = this.current;
+    const n = (this.naSkips.get(i) ?? 0) + 1;
+    const block = `block '${blockLabel}' (id ${this.blockIds[i]})`;
+    let message: string | null = null;
+    if (n === 1) message = `${action} skipped: its ${what} is na (no value)${effect ? `, so ${effect.first}` : ''} — ${block}. Further skips by this block are only counted.`;
+    else if (isPowerOf10(n)) message = `${action} skipped ${n.toLocaleString('en-US')} times so far: its ${what} is na${effect ? ` (${effect.later})` : ''} — ${block}.`;
+    if (message !== null && !warn(ctx, message)) return -1;
+    this.naSkips.set(i, n);
+    return -1;
   }
 
   /** Text for log messages: numbers print as JS does, NaN as Pine's "na". */
@@ -141,4 +185,21 @@ export class BlockRuntime {
       throw new StrategyError(`one bar took longer than ${this.limits.maxBarMs} ms`, this.blockIds[i]);
     }
   }
+}
+
+/** Pine's na: only a real NaN number (other bad values keep their hard errors). */
+function isNa(value: unknown): boolean {
+  return typeof value === 'number' && Number.isNaN(value);
+}
+
+function isPowerOf10(n: number): boolean {
+  for (let p = 10; p <= n; p *= 10) if (p === n) return true;
+  return false;
+}
+
+/** A warning in the run log; contexts without warn() get it as a plain log line. False when dropped (warm-up). */
+function warn(ctx: StrategyContext, message: string): boolean {
+  if (ctx.warn) return ctx.warn(message);
+  ctx.log(`warning: ${message}`);
+  return true;
 }

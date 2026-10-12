@@ -6,7 +6,9 @@ import type { CandleSubscription } from './data/adapter';
 import { BinanceFuturesAdapter } from './data/binance';
 import type { Candle } from './data/types';
 import { DEFAULT_SMA_CROSS } from './engine/strategies/smaCross';
-import { createBlockEditor } from './ui/blockEditor';
+// Blockly (~800 kB) is loaded on demand (see editorLoader) so the chart and top bar render first.
+import type { BlockEditor } from './ui/blockEditor';
+import { describeFlowError, LazyLoader, notReadyMessage } from './ui/lazyLoader';
 import { blockIndicatorOverlays, defaultIndicatorUse, zoneToggleOverlays } from './ui/blockOverlays';
 import { ChartPanel } from './ui/chart';
 import { h } from './ui/dom';
@@ -17,9 +19,11 @@ import { StarterMemory } from './ui/starterMemory';
 import { pickStarter as pickStarterFlow, restorePrevious as restorePreviousFlow, type FlowDeps } from './ui/starterFlow';
 import { createStarterPicker } from './ui/starterPicker';
 import { buildVerdict } from './ui/verdict';
+import { ResultTracker, STALE_NOTE, workspaceKey, type RunKey } from './ui/resultFreshness';
 import { VerdictView } from './ui/verdictView';
 import { smaCrossHistoryNeed, strategyHistoryNeed, type HistoryNeed } from './ui/warmup';
 import type { BacktestResult } from './engine/engine';
+import { benchmarkDefinition, benchmarkLabel } from './engine/benchmark';
 import { syncPineIndicators } from './pine/library';
 import { createPineEditor } from './ui/pineEditor';
 import { loadPineRecords, loadPineRetired, loadPineShown, savePineShown } from './ui/pineStore';
@@ -74,6 +78,11 @@ const chart = new ChartPanel(document.getElementById('chart')!);
 const stats = new StatsPanel(document.getElementById('stats')!);
 const verdict = new VerdictView(document.getElementById('verdict')!);
 const starterMemory = new StarterMemory({ get: loadJson, set: saveJson });
+/** Which strategy + settings the results on screen were run with (stale / cleared handling). */
+const results = new ResultTracker();
+const staleNote = h('div', { class: 'stale-note', role: 'status' });
+staleNote.hidden = true;
+document.getElementById('verdict')!.before(staleNote);
 let candles: Candle[] = [];
 let live: CandleSubscription | null = null;
 let pickedOverlayIds: string[] = loadPickedOverlays();
@@ -112,15 +121,16 @@ function applyOverlays(): void {
   chart.setOverlays([...strategyOverlays(), ...PICKER_OVERLAYS.filter((d) => pickedOverlayIds.includes(d.id))], candles);
 }
 
-const problems = createProblemsView(document.getElementById('problems')!, (blockId, message) => editor.highlightError(blockId, message));
+const problems = createProblemsView(document.getElementById('problems')!, (blockId, message) => editor?.highlightError(blockId, message));
 
 /** Recompiles on every workspace edit: problems list, warning icons, status line, auto-drawn indicators. */
 function onWorkspaceChange(json: unknown): void {
+  refreshFreshness(); // an edit makes the shown results stale (an undo back to what ran makes them fresh again)
   const result = compileBlocks(json);
   const hadErrors = compileState.errors.length > 0;
   compileState = result.ok ? { errors: [], warnings: result.warnings } : { errors: result.errors, warnings: result.warnings };
   problems.show(compileState.errors, compileState.warnings);
-  editor.showIssues([...compileState.errors, ...compileState.warnings]);
+  editor?.showIssues([...compileState.errors, ...compileState.warnings]);
   if (!result.ok) {
     // Keep drawing the last good indicators, except ones whose definition is gone (a deleted Pine script).
     const still = blockIndicators.filter((use) => getIndicator(use.indicatorId) !== undefined);
@@ -141,13 +151,42 @@ function onWorkspaceChange(json: unknown): void {
   }
 }
 
-const editor = createBlockEditor(document.getElementById('blockly')!, onWorkspaceChange, (message) => setStatus(message, true));
-if (editor.restored === 'default-after-error') {
-  setStatus(`The saved block workspace could not be loaded (${editor.loadError}). It is kept unchanged in browser storage; ` +
-    "the SMA cross example is shown and edits are not saved until you pick a starter from 'Start from…'.", true);
-}
-// A fresh user starts on the SMA cross: remember it as an untouched starter (replacing it later needs no confirm).
-if (editor.restored === 'default') starterMemory.recordLoaded('smaCross', JSON.stringify(editor.save()), getStarter('smaCross')!.label);
+/** The block editor, once its lazily loaded chunk (Blockly) is in; null until then. */
+let editor: BlockEditor | null = null;
+const blocklyEl = document.getElementById('blockly')!;
+const blocksLoading = h('div', { class: 'blocks-loading', role: 'status' }, 'Loading blocks…');
+blocklyEl.append(blocksLoading);
+/**
+ * The editor, once Blockly is loaded and the saved workspace restored. Everything that needs the blocks (Run with
+ * the block strategy, "Start from…", a live session start) waits for get() or reads current (loading vs failed).
+ * After a failed load, get() imports again: Run and the Retry button in the Blocks pane both retry.
+ */
+const editorLoader = new LazyLoader<BlockEditor>(() => import('./ui/blockEditor').then(({ createBlockEditor }) => {
+  blocksLoading.remove();
+  const ed = createBlockEditor(blocklyEl, onWorkspaceChange, (message) => setStatus(message, true));
+  editor = ed;
+  if (ed.restored === 'default-after-error') {
+    setStatus(`The saved block workspace could not be loaded (${ed.loadError}). It is kept unchanged in browser storage; ` +
+      "the SMA cross example is shown and edits are not saved until you pick a starter from 'Start from…'.", true);
+  }
+  // A fresh user starts on the SMA cross: remember it as an untouched starter (replacing it later needs no confirm).
+  if (ed.restored === 'default') {
+    starterMemory.recordLoaded('smaCross', JSON.stringify(ed.save()), getStarter('smaCross')!.label);
+    fitSoon(); // a fresh user sees the whole starter strategy
+  }
+  refreshFreshness();
+  return ed;
+}), (error) => {
+  const retry = h('button', { type: 'button', class: 'blocks-retry' }, 'Retry');
+  retry.addEventListener('click', () => {
+    blocksLoading.textContent = 'Loading blocks…';
+    setStatus('Retrying the block editor load…');
+    editorLoader.get().catch(() => {}); // a new failure is reported by this same handler
+  });
+  blocksLoading.replaceChildren(`${error} `, retry);
+  setStatus(`${error} Press Retry in the Blocks pane, or Run to try again.`, true);
+});
+editorLoader.get().catch(() => {}); // start loading now; failures are reported by the handler above
 if (pineStartup.length > 0) setStatus(`${pineStartup.length} saved Pine script${pineStartup.length > 1 ? 's do' : ' does'} not compile; open the Pine tab to fix ${pineStartup.length > 1 ? 'them' : 'it'}.`, true);
 
 const pineEditor = createPineEditor(document.getElementById('pine')!, {
@@ -158,8 +197,9 @@ const pineEditor = createPineEditor(document.getElementById('pine')!, {
     pineRetired = retired;
     const results = syncPineIndicators(records, retired);
     blockOverlayKey = ''; // same parameters may now mean different code: redraw
-    editor.refreshIndicators();
+    editor?.refreshIndicators(); // not loaded yet: it will load with the new registrations
     applyOverlays(); // shown scripts may have changed code
+    refreshFreshness();
     return results;
   },
   shown: pineShown,
@@ -172,26 +212,27 @@ const pineEditor = createPineEditor(document.getElementById('pine')!, {
 
 const initialTab: LeftTab = loadText(LEFT_TAB_STORAGE_KEY) === 'pine' ? 'pine' : 'blocks';
 setupLayout(document.getElementById('pane-switch')!, document.getElementById('left-tabs')!, (pane) => {
-  if (pane === 'left') editor.resize();
+  if (pane === 'left') editor?.resize();
 }, initialTab, (tab) => {
   saveText(LEFT_TAB_STORAGE_KEY, tab);
-  if (tab === 'blocks') editor.resize();
+  if (tab === 'blocks') editor?.resize();
   else pineEditor.refresh();
 });
-new ResizeObserver(() => editor.resize()).observe(document.getElementById('blockly')!);
+new ResizeObserver(() => editor?.resize()).observe(blocklyEl);
 const fitButton = h('button', { type: 'button', class: 'fit-blocks', title: 'Zoom and scroll so the whole strategy is visible' }, 'Fit');
-fitButton.addEventListener('click', () => editor.fit());
+fitButton.addEventListener('click', () => editor?.fit());
 document.getElementById('left-tabs')!.append(fitButton);
 /** Fit after Blockly has laid the new blocks out (animation frames may stall in a hidden window: use a timer). */
-const fitSoon = () => setTimeout(() => editor.fit(), 60);
-if (editor.restored === 'default') fitSoon(); // a fresh user sees the whole starter strategy
+function fitSoon(): void {
+  setTimeout(() => editor?.fit(), 60);
+}
 
 setupSplitter(
   document.getElementById('layout')!,
   document.getElementById('splitter')!,
   parseStoredFraction(loadText(SPLIT_STORAGE_KEY)),
   (fraction) => saveText(SPLIT_STORAGE_KEY, String(fraction)),
-  () => editor.resize(),
+  () => editor?.resize(),
 );
 
 /** Loads history from `settings.startMs` to now, redraws the chart and restarts the live stream. */
@@ -220,6 +261,10 @@ async function loadMarket(settings: RunSettings): Promise<void> {
 /** The spec for the selected strategy, or null (with the problems shown) when the blocks do not compile. */
 function strategySpec(): StrategySpec | null {
   if (strategyChoice === 'smaCross') return { id: 'smaCross', params: DEFAULT_SMA_CROSS };
+  if (!editor) {
+    setStatus('Cannot run yet: the block editor is still loading.', true);
+    return null;
+  }
   const workspace = editor.save();
   const result = compileBlocks(workspace);
   if (!result.ok) {
@@ -231,6 +276,33 @@ function strategySpec(): StrategySpec | null {
     return null;
   }
   return { id: 'blocks', workspace, pineScripts: pineRecords, pineRetired };
+}
+
+/** What the next Run would depend on, as comparable strings (see resultFreshness.ts). */
+function currentRunKey(): RunKey {
+  const strategy = strategyChoice === 'smaCross'
+    ? 'smaCross'
+    : `blocks:${workspaceKey(editor?.save() ?? null)}|pine:${JSON.stringify([pineRecords, pineRetired])}`;
+  return { strategy, settings: JSON.stringify(topBar.read()) };
+}
+
+/** Dims the shown results (with a note) once the strategy or settings differ from what produced them. */
+function refreshFreshness(): void {
+  // Nothing shown (also during startup, before the top bar exists): nothing can be stale.
+  const f = mode === 'backtest' && results.showing ? results.check(currentRunKey()) : null;
+  const note = f?.status === 'stale' ? STALE_NOTE[f.reason] : '';
+  for (const id of ['verdict', 'stats']) document.getElementById(id)!.classList.toggle('stale', note !== '');
+  staleNote.textContent = note;
+  staleNote.hidden = note === '';
+}
+
+/** Removes the previous run's verdict, benchmark, stats and trade markers (another strategy was loaded). */
+function clearResults(): void {
+  stats.clear();
+  verdict.clear();
+  chart.setMarkers([]);
+  results.discard();
+  refreshFreshness();
 }
 
 const EMPTY_VERDICT_INPUT = {
@@ -254,26 +326,55 @@ function verdictFor(result: BacktestResult, barsLoaded: number, warmup: HistoryN
     wiped: result.wiped,
     barsProcessed: result.barsProcessed,
     barsLoaded,
-    benchmark: result.benchmark ? { returnPct: result.benchmark.returnPct, maxDrawdownPct: result.benchmark.maxDrawdownPct } : null,
+    benchmark: result.benchmark
+      ? { returnPct: result.benchmark.returnPct, maxDrawdownPct: result.benchmark.maxDrawdownPct, label: benchmarkLabel(result.benchmark.leverage), wipedTime: result.benchmark.wipedTime ?? null }
+      : null,
     activity: result.activity ?? null,
     warmup,
   });
 }
 
+/** Waits for the block editor when the block strategy is selected (a Run clicked while Blockly loads). */
+async function blocksReady(): Promise<boolean> {
+  if (strategyChoice !== 'blocks' || editor) return true;
+  const last = editorLoader.current;
+  setStatus(last.status === 'failed' ? 'Retrying the block editor load before running…' : 'Loading the block editor before running…');
+  try {
+    await editorLoader.get(); // after a failed load this is a new attempt
+    return true;
+  } catch (err) {
+    // Keep the real error in the status (the loader's handler wrote it; say why the run did not happen).
+    setStatus(`Cannot run: ${err instanceof Error ? err.message : String(err)} Press Run or Retry to try again.`, true);
+    return false;
+  }
+}
+
+let running = false;
+
 async function run(): Promise<void> {
-  if (mode !== 'backtest') return; // Enter in the top-bar form while in Live mode
+  if (mode !== 'backtest' || running) return; // Enter in the top-bar form while in Live mode / a run in progress
   const parsed = parseSettings(topBar.read(), Date.now());
   if (!parsed.ok) {
     setStatus(`Cannot run: ${parsed.error}.`, true);
     topBar.showInvalid(parsed.field);
     return;
   }
+  running = true;
+  topBar.setRunning(true);
+  try {
+    if (!(await blocksReady())) return;
+    await runWith(parsed.settings);
+  } finally {
+    running = false;
+    topBar.setRunning(false);
+  }
+}
+
+async function runWith(settings: RunSettings): Promise<void> {
   const spec = strategySpec();
   if (!spec) return;
-  const settings = parsed.settings;
-  topBar.setRunning(true);
-  stats.clear();
-  verdict.clear();
+  const runKey = currentRunKey();
+  clearResults();
   try {
     await loadMarket(settings);
     if (candles.length < 2) {
@@ -289,22 +390,22 @@ async function run(): Promise<void> {
     });
     chart.setMarkers(fillsToMarkers(result.fills));
     stats.render(result);
-    verdict.show(verdictFor(result, candles.length, strategyWarmup(spec)));
+    results.ranWith(runKey);
+    verdict.show(verdictFor(result, candles.length, strategyWarmup(spec)), benchmarkDefinition(result.benchmark?.leverage ?? 1));
     setStatus(
       `Backtest done (${spec.id === 'blocks' ? 'block strategy' : 'built-in SMA cross'}): ${result.barsProcessed} bars, ${result.trades.length} trades` +
         (result.wiped ? ' (ACCOUNT WIPED)' : '') +
         '. Indicator warm-up bars may differ slightly from TradingView.',
     );
+    refreshFreshness(); // edits made while it ran already make it stale
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (err instanceof BacktestError && err.blockId) {
-      editor.highlightError(err.blockId, message);
+      editor?.highlightError(err.blockId, message);
       setStatus(`Run halted by a block: ${message}`, true);
     } else {
       setStatus(message, true);
     }
-  } finally {
-    topBar.setRunning(false);
   }
 }
 
@@ -321,6 +422,7 @@ function sessionBase(): SessionBase {
   }
   const { symbol, timeframe, broker } = parsed.settings;
   if (strategyChoice === 'smaCross') return { ok: true, symbol, timeframe, brokerConfig: broker, strategy: smaCrossSnapshot(DEFAULT_SMA_CROSS) };
+  if (!editor) return { ok: false, error: notReadyMessage(editorLoader.current, 'start a live session') };
   const spec = strategySpec();
   if (!spec || spec.id !== 'blocks') return { ok: false, error: 'Cannot start a live session: fix the block problems first (listed under the workspace).' };
   return { ok: true, symbol, timeframe, brokerConfig: broker, strategy: blocksSnapshot(spec.workspace, spec.pineScripts ?? [], spec.pineRetired ?? []) };
@@ -330,7 +432,7 @@ const liveSessions = new LiveMode(document.getElementById('live')!, {
   chart,
   stats,
   setStatus,
-  highlightBlock: (blockId, message) => editor.highlightError(blockId, message),
+  highlightBlock: (blockId, message) => editor?.highlightError(blockId, message),
   sessionBase,
   extraOverlays: () => [...blockIndicatorOverlays(shownUses()), ...PICKER_OVERLAYS.filter((d) => pickedOverlayIds.includes(d.id))],
   confirm: (message) => window.confirm(message),
@@ -343,6 +445,8 @@ function switchMode(next: AppMode): void {
   topBar.setMode(next);
   saveText(MODE_STORAGE_KEY, next);
   verdict.clear(); // backtest-only (live sessions keep their own stats; no benchmark there)
+  results.discard();
+  refreshFreshness();
   if (next === 'live') {
     live?.close(); // the backtest chart's own stream
     live = null;
@@ -370,32 +474,50 @@ function setStrategyChoice(choice: StrategyChoice): void {
   saveText(STRATEGY_STORAGE_KEY, choice);
   topBar.refreshSummary();
   applyOverlays();
+  refreshFreshness();
 }
+// Any top-bar field (product, timeframe, dates, account settings) edited after a run makes its results stale.
+for (const type of ['input', 'change']) document.getElementById('topbar')!.addEventListener(type, () => refreshFreshness());
 
-const flowDeps: FlowDeps = {
-  editor,
+/** Starter flows run only once the editor exists (pickStarter / restorePrevious wait for it). */
+const flowDeps = (ed: BlockEditor): FlowDeps => ({
+  editor: ed,
   memory: starterMemory,
   confirm: (message) => window.confirm(message),
   status: (message, isError = false) => setStatus(message, isError),
   now: () => Date.now(),
-};
+});
+
+/** An editor that could not load is explained in the status; any other error is a bug: status + console. */
+function reportFlowError(err: unknown, action: string): void {
+  const { message, bug } = describeFlowError(err, action);
+  if (bug) console.error(err);
+  setStatus(message, true);
+}
 
 /** Loads a starter (starterFlow.ts: edits are confirmed and kept among the last 3 previous workspaces). */
-function pickStarter(id: StarterId): void {
+async function pickStarter(id: StarterId): Promise<void> {
   const starter = getStarter(id);
-  if (!starter || !pickStarterFlow(flowDeps, starter)) return;
+  if (!starter) return;
+  const ed = await editorLoader.get(); // picked while Blockly loads: applied once it is in
+  if (!pickStarterFlow(flowDeps(ed), starter)) return;
+  clearResults(); // the previous run's verdict and stats describe a strategy that is gone
   if (strategyChoice !== 'blocks') setStrategyChoice('blocks'); // Run must test the strategy just loaded
   fitSoon();
 }
 
 /** Brings previous workspace `id` back; the blocks it replaces take its place in the list. */
-function restorePrevious(id: string): void {
-  if (!restorePreviousFlow(flowDeps, id)) return;
+async function restorePrevious(id: string): Promise<void> {
+  if (!restorePreviousFlow(flowDeps(await editorLoader.get()), id)) return;
+  clearResults();
   if (strategyChoice !== 'blocks') setStrategyChoice('blocks');
   fitSoon();
 }
 
-createStarterPicker(topBar.tools, STARTERS, { onPick: pickStarter, onRestore: restorePrevious, previousList: () => starterMemory.previousList });
+createStarterPicker(topBar.tools, STARTERS, {
+  onPick: (id) => void pickStarter(id).catch((err: unknown) => reportFlowError(err, 'load the starter')),
+  onRestore: (id) => void restorePrevious(id).catch((err: unknown) => reportFlowError(err, 'restore that workspace')),
+  previousList: () => starterMemory.previousList });
 renderOverlayPicker(topBar.tools, PICKER_OVERLAYS, pickedOverlayIds, (ids) => {
   pickedOverlayIds = ids;
   saveJson(OVERLAYS_STORAGE_KEY, ids);

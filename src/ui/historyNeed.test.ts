@@ -53,8 +53,8 @@ describe('strategyHistoryNeed (bars before the first order can fill)', () => {
     expect(fills(defaultWorkspace(), 31)).toBe(0);
   });
 
-  it('is unknown (no number) for zone indicators, Pine scripts, variables used as data and bar index', () => {
-    expect(strategyHistoryNeed(getStarter('zones')!.build())).toEqual({ known: false });
+  // Zone indicators now get an "at least" number: zoneWarmup.test.ts.
+  it('is unknown (no number) for Pine scripts, variables used as data and bar index', () => {
     const pine: BlockState = { type: 'ind_pine_abc', id: 'p', fields: { OUT: 'value' } };
     expect(strategyHistoryNeed(whenever(compare('GT', pine, num(0))))).toEqual({ known: false });
     const ws = workspace({
