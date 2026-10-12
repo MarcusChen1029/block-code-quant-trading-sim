@@ -8,7 +8,7 @@ import type { Candle } from './data/types';
 import { DEFAULT_SMA_CROSS } from './engine/strategies/smaCross';
 // Blockly (~800 kB) is loaded on demand (see editorLoader) so the chart and top bar render first.
 import type { BlockEditor } from './ui/blockEditor';
-import { LazyLoader, LoadFailedError, notReadyMessage } from './ui/lazyLoader';
+import { describeFlowError, LazyLoader, notReadyMessage } from './ui/lazyLoader';
 import { blockIndicatorOverlays, defaultIndicatorUse, zoneToggleOverlays } from './ui/blockOverlays';
 import { ChartPanel } from './ui/chart';
 import { h } from './ui/dom';
@@ -488,6 +488,13 @@ const flowDeps = (ed: BlockEditor): FlowDeps => ({
   now: () => Date.now(),
 });
 
+/** An editor that could not load is explained in the status; any other error is a bug: status + console. */
+function reportFlowError(err: unknown, action: string): void {
+  const { message, bug } = describeFlowError(err, action);
+  if (bug) console.error(err);
+  setStatus(message, true);
+}
+
 /** Loads a starter (starterFlow.ts: edits are confirmed and kept among the last 3 previous workspaces). */
 async function pickStarter(id: StarterId): Promise<void> {
   const starter = getStarter(id);
@@ -508,9 +515,8 @@ async function restorePrevious(id: string): Promise<void> {
 }
 
 createStarterPicker(topBar.tools, STARTERS, {
-  // A failed editor load is already reported by editorReady's handler.
-  onPick: (id) => void pickStarter(id).catch(() => {}),
-  onRestore: (id) => void restorePrevious(id).catch(() => {}),
+  onPick: (id) => void pickStarter(id).catch((err: unknown) => reportFlowError(err, 'load the starter')),
+  onRestore: (id) => void restorePrevious(id).catch((err: unknown) => reportFlowError(err, 'restore that workspace')),
   previousList: () => starterMemory.previousList });
 renderOverlayPicker(topBar.tools, PICKER_OVERLAYS, pickedOverlayIds, (ids) => {
   pickedOverlayIds = ids;

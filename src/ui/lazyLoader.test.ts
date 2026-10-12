@@ -55,3 +55,13 @@ describe('notReadyMessage', () => {
       .toBe('Cannot start a live session: The block editor could not be loaded (x). Press Retry in the Blocks pane, or reload the page.');
   });
 });
+
+describe('describeFlowError ("Start from…" / restore failures)', () => {
+  it('an editor that could not load is expected: status only; anything else is a bug: status + console', async () => {
+    const { describeFlowError } = await import('./lazyLoader');
+    expect(describeFlowError(new LoadFailedError('The block editor could not be loaded (x).'), 'load the starter'))
+      .toEqual({ message: 'Cannot load the starter: The block editor could not be loaded (x). Press Retry in the Blocks pane, or reload the page.', bug: false });
+    expect(describeFlowError(new TypeError('boom'), 'load the starter'))
+      .toEqual({ message: 'Could not load the starter: boom (an unexpected error; details in the browser console).', bug: true });
+  });
+});

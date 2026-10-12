@@ -51,3 +51,15 @@ export function notReadyMessage(state: LoadState<unknown>, action: string): stri
   if (state.status === 'failed') return `Cannot ${action}: ${state.error} Press Retry in the Blocks pane, or reload the page.`;
   return `Cannot ${action} yet: the block editor is still loading — try again in a moment.`;
 }
+
+/**
+ * A failed "Start from…" / restore: the editor failing to load is an expected, already explained state (status
+ * only); any other error is a bug that must not be swallowed (status + console.error by the caller when `bug`).
+ */
+export function describeFlowError(err: unknown, action: string): { message: string; bug: boolean } {
+  if (err instanceof LoadFailedError) {
+    return { message: `Cannot ${action}: ${err.message} Press Retry in the Blocks pane, or reload the page.`, bug: false };
+  }
+  const text = err instanceof Error ? err.message : String(err);
+  return { message: `Could not ${action}: ${text} (an unexpected error; details in the browser console).`, bug: true };
+}
