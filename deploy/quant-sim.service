@@ -1,0 +1,46 @@
+# /etc/systemd/system/quant-sim.service — quant-sim server (24/7 live paper trading).
+# Install: see docs/server.md. Paths assume the layout used there:
+#   app:  /opt/quant-sim/current  (a symlink to the release in use)
+#   data: /var/lib/quant-sim      (SQLite file; created by systemd, owned by the service user)
+[Unit]
+Description=quant-sim server (live paper trading on Binance public market data)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=quant-sim
+Group=quant-sim
+WorkingDirectory=/opt/quant-sim/current
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=8787
+Environment=QS_DATA_DIR=/var/lib/quant-sim
+# Behind Caddy with HTTPS the cookie is marked Secure automatically (X-Forwarded-Proto from 127.0.0.1).
+# Environment=QS_SECURE_COOKIES=1
+# Environment=QS_MAX_RUNNING=5
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning /opt/quant-sim/current/server/dist/main.js
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=20
+StateDirectory=quant-sim
+StateDirectoryMode=0700
+# Hardening (no MemoryDenyWriteExecute: V8's JIT needs writable+executable memory).
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/quant-sim
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=800M
+
+[Install]
+WantedBy=multi-user.target

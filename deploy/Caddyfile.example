@@ -1,0 +1,15 @@
+# /etc/caddy/Caddyfile — optional HTTPS front for quant-sim (only if you own a domain).
+# Point an A record for quant.example.com at the VPS, open ports 80 and 443, then:
+#   sudo cp Caddyfile.example /etc/caddy/Caddyfile && sudo systemctl reload caddy
+# Caddy gets and renews the certificate itself and adds X-Forwarded-For / X-Forwarded-Proto, which the server
+# trusts only because Caddy connects from 127.0.0.1 (login rate limit per real client, Secure cookie).
+quant.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8787 {
+		# Server-Sent Events: pass every event through immediately.
+		flush_interval -1
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+	}
+}
