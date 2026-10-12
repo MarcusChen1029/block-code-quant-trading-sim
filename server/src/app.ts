@@ -2,7 +2,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { DatabaseSync } from 'node:sqlite';
 import type { ClientFactory } from '../../src/live/supervisor';
 import { setFactoryLoader } from '../../src/sandbox/codeLoader';
-import { AuthSessions, LoginLimiter, MAX_PASSWORD_LENGTH, sameSecret, storedPasswordHash, verifyPassword, type AuthSession } from './auth';
+import { AuthSessions, MAX_PASSWORD_LENGTH, sameSecret, storedPasswordHash, verifyPassword, type AuthSession } from './auth';
+import { LoginBusyError, LoginThrottle } from './loginThrottle';
 import { SqliteSessionStore } from './db';
 import { clientAddress, HttpError, parseCookies, readJson, requestIsHttps, sendError, sendJson, setSecurityHeaders } from './http';
 import { createVmLoader } from './sandbox/vmLoader';
@@ -33,6 +34,8 @@ export interface AppOptions {
   sseHeartbeatMs?: number;
   loginMaxFailures?: number;
   loginWindowMs?: number;
+  /** Password verifications allowed to queue before new logins get 503. */
+  loginQueue?: number;
 }
 
 export interface App {
@@ -54,8 +57,7 @@ export async function createApp(options: AppOptions): Promise<App> {
   const now = options.now ?? (() => Date.now());
   const db = options.db;
   const auth = new AuthSessions(db, now);
-  const perAddress = new LoginLimiter(options.loginMaxFailures ?? 5, options.loginWindowMs ?? 15 * 60_000, now);
-  const overall = new LoginLimiter((options.loginMaxFailures ?? 5) * 6, options.loginWindowMs ?? 15 * 60_000, now);
+  const throttle = new LoginThrottle({ maxPerAddress: options.loginMaxFailures ?? 5, windowMs: options.loginWindowMs ?? 15 * 60_000, maxQueue: options.loginQueue ?? 20, now });
   const manager = new SessionManager({ ...options.manager, store: new SqliteSessionStore(db), createClient: options.createClient, now });
   await manager.init();
   const allowed = new Set(options.allowedOrigins ?? []);
@@ -92,23 +94,45 @@ export async function createApp(options: AppOptions): Promise<App> {
 
   const login = async (req: IncomingMessage, res: ServerResponse) => {
     const who = clientAddress(req);
-    const wait = Math.max(perAddress.retryAfter(who), overall.retryAfter('*'));
-    if (wait > 0) {
-      sendError(res, 429, 'too many failed logins; try again later', { retryAfterMs: wait }, { 'Retry-After': String(Math.ceil(wait / 1000)) });
+    const gate = throttle.begin(who); // counts the attempt now, before the async password check
+    if (!gate.ok || !gate.attempt) {
+      sendError(res, gate.status ?? 429, gate.message ?? 'too many failed logins; try again later', { retryAfterMs: gate.retryAfterMs }, { 'Retry-After': String(Math.ceil((gate.retryAfterMs ?? 1000) / 1000)) });
       return;
     }
-    const body = await readJson(req, LOGIN_BODY_LIMIT);
+    const attempt = gate.attempt;
+    let body: unknown;
+    try {
+      body = await readJson(req, LOGIN_BODY_LIMIT);
+    } catch (err) {
+      attempt.refund(); // a malformed body is not a password guess
+      throw err;
+    }
     const password = (body as { password?: unknown } | null)?.password;
-    if (typeof password !== 'string' || password.length === 0 || password.length > MAX_PASSWORD_LENGTH) throw new HttpError(400, 'password is required');
+    if (typeof password !== 'string' || password.length === 0 || password.length > MAX_PASSWORD_LENGTH) {
+      attempt.refund();
+      throw new HttpError(400, 'password is required');
+    }
     const hash = storedPasswordHash(db);
-    if (hash === null) throw new HttpError(503, 'no password is set on the server; run `npm run server:set-password` there');
-    if (!(await verifyPassword(password, hash))) {
-      perAddress.fail(who);
-      overall.fail('*');
-      sendError(res, 401, 'wrong password');
+    if (hash === null) {
+      attempt.refund();
+      throw new HttpError(503, 'no password is set on the server; run `npm run server:set-password` there');
+    }
+    let ok: boolean;
+    try {
+      ok = await attempt.verify(() => verifyPassword(password, hash));
+    } catch (err) {
+      if (err instanceof LoginBusyError) {
+        attempt.refund(); // server busy, not a guess
+        sendError(res, 503, err.message, { retryAfterMs: 2000 }, { 'Retry-After': '2' });
+        return;
+      }
+      throw err;
+    }
+    if (!ok) {
+      sendError(res, 401, 'wrong password'); // the attempt stays counted against this address
       return;
     }
-    perAddress.succeed(who);
+    attempt.success();
     const created = auth.create();
     sendJson(res, 200, { csrf: created.csrf, expiresAt: created.expiresAt }, { 'Set-Cookie': cookie(req, created.token, Math.floor((created.expiresAt - now()) / 1000)) });
   };

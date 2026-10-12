@@ -47,6 +47,18 @@ describe('server auth', () => {
     expect(Number(limited.headers.get('retry-after'))).toBeGreaterThan(0);
   });
 
+  it('40 concurrent wrong logins do not all slip through: the cap reaches verification, the rest are 429/503', async () => {
+    const attempt = () => fetch(`${h.base}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'wrong password!' }) });
+    const results = await Promise.all(Array.from({ length: 40 }, attempt));
+    const codes = results.map((r) => r.status);
+    await Promise.all(results.map((r) => r.text()));
+    const got401 = codes.filter((c) => c === 401).length;
+    const refused = codes.filter((c) => c === 429 || c === 503).length;
+    expect(got401).toBeLessThanOrEqual(3); // loginMaxFailures is 3 in this suite
+    expect(got401 + refused).toBe(40);
+    expect(refused).toBeGreaterThanOrEqual(37);
+  });
+
   it('login sets an HttpOnly SameSite=Strict cookie (Secure only behind HTTPS); logout ends it', async () => {
     const res = await fetch(`${h.base}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: PASSWORD }) });
     const cookie = res.headers.get('set-cookie')!;

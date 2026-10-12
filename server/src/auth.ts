@@ -87,36 +87,3 @@ export function sameSecret(a: string, b: string): boolean {
   const y = Buffer.from(b);
   return x.length === y.length && timingSafeEqual(x, y);
 }
-
-/**
- * Failed logins per client address: after `max` failures within `windowMs` the address is locked out until the
- * window passes. A success clears the address. Bounded memory (oldest entries are dropped).
- */
-export class LoginLimiter {
-  private readonly failures = new Map<string, number[]>();
-
-  constructor(private readonly max = 5, private readonly windowMs = 15 * 60_000, private readonly now: () => number = () => Date.now(), private readonly maxKeys = 10_000) {}
-
-  /** ms until `key` may try again (0 = allowed now). */
-  retryAfter(key: string): number {
-    const recent = this.recent(key);
-    return recent.length >= this.max ? recent[0] + this.windowMs - this.now() : 0;
-  }
-
-  fail(key: string): void {
-    const recent = this.recent(key);
-    recent.push(this.now());
-    this.failures.delete(key);
-    this.failures.set(key, recent);
-    if (this.failures.size > this.maxKeys) this.failures.delete(this.failures.keys().next().value!);
-  }
-
-  succeed(key: string): void {
-    this.failures.delete(key);
-  }
-
-  private recent(key: string): number[] {
-    const cutoff = this.now() - this.windowMs;
-    return (this.failures.get(key) ?? []).filter((t) => t > cutoff);
-  }
-}
