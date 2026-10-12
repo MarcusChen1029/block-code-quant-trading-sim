@@ -60,7 +60,7 @@ async function harness(serverNow: number, dbPath?: string): Promise<Harness> {
 /** The session's current state (a snapshot through the manager), once `ready` holds. */
 function snapshotWhen(h: Harness, id: string, ready: (s: SessionSnapshot) => boolean, what: string): Promise<SessionSnapshot> {
   return waitFor(() => {
-    let snap: SessionSnapshot | null = null;
+    let snap = null as SessionSnapshot | null;
     const off = h.app.manager.watch(id, (m) => {
       if (m.type === 'snapshot') snap = m.snapshot;
     });
