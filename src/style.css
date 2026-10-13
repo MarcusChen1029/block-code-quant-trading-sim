@@ -687,7 +687,7 @@ kbd {
   #topbar { padding: 6px 10px 8px; }
   .run-form { gap: 8px 10px; }
   .market-fields { gap: 8px; width: 100%; }
-  .market-fields .field { flex: 1 1 calc(50% - 8px); }
+  .market-fields .field { flex: 1 1 calc(25% - 8px); min-width: 0; }
   .market-fields .field input, .market-fields .field select { width: 100% !important; }
   .account-toggle { flex: 1 1 100%; }
   .starter-picker, .settings-menu { width: calc(100vw - 24px); }
@@ -735,6 +735,10 @@ kbd {
 @keyframes confetti-fall {
   0% { opacity: 1; transform: translate(0, 0) rotate(0); }
   100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); }
+}
+
+@media (max-width: 599px) {
+  .market-fields .field { flex: 1 1 calc(50% - 8px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
