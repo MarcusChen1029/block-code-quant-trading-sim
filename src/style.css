@@ -727,6 +727,16 @@ kbd {
   .dialog-body { padding: 14px 16px 18px; }
 }
 
+.confetti { position: fixed; inset: 0; pointer-events: none; z-index: 450; overflow: hidden; }
+.confetti span {
+  position: fixed; width: 8px; height: 12px; border-radius: 2px; opacity: 0;
+  animation: confetti-fall 1.4s cubic-bezier(0.2, 0.6, 0.4, 1) forwards;
+}
+@keyframes confetti-fall {
+  0% { opacity: 1; transform: translate(0, 0) rotate(0); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

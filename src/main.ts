@@ -47,6 +47,7 @@ import { setupPanels } from './ui/panels';
 import { savePineRecords } from './ui/pineStore';
 import { initShortcuts } from './ui/shortcuts';
 import { initTheme, toggleTheme } from './ui/theme';
+import { confetti } from './ui/confetti';
 import { addRun, parseRunHistory, RUN_HISTORY_STORAGE_KEY, type RunRecord } from './ui/runHistory';
 import { infoButton, initTooltips, tip } from './ui/tooltip';
 import { startTour, tourDone } from './ui/tour';
@@ -486,6 +487,11 @@ async function runWith(settings: RunSettings): Promise<void> {
     stats.render(result);
     results.ranWith(runKey);
     verdict.show(verdictFor(result, candles.length, strategyWarmup(spec)), benchmarkDefinition(result.benchmark?.leverage ?? 1));
+    // Beat buy & hold (and made money): a little celebration over the results.
+    const bench = result.benchmark?.returnPct;
+    if (bench !== undefined && result.stats.totalReturnPct > 0 && result.stats.totalReturnPct > bench && !result.wiped) {
+      confetti(document.getElementById('results-panel')!);
+    }
     runHistory = addRun(runHistory, {
       at: Date.now(), strategy: spec.id === 'blocks' ? 'Your blocks' : 'Built-in SMA cross', symbol: settings.symbol, timeframe: settings.timeframe,
       startDate: new Date(settings.startMs).toISOString().slice(0, 10), returnPct: result.stats.totalReturnPct,
