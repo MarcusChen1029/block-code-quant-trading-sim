@@ -41,7 +41,7 @@ import { BacktestError, runBacktestInWorker } from './worker/client';
 import type { StrategySpec } from './worker/protocol';
 import { createAppBar } from './ui/appbar';
 import { buildStrategyFile, datedFileName, downloadFile, newPineScripts, parseStrategyFile } from './ui/exportFiles';
-import { createHelpWindow } from './ui/help';
+import type { HelpTab, HelpWindow } from './ui/help';
 import { icon } from './ui/icons';
 import { setupPanels } from './ui/panels';
 import { savePineRecords } from './ui/pineStore';
@@ -50,7 +50,7 @@ import { initTheme, toggleTheme } from './ui/theme';
 import { confetti } from './ui/confetti';
 import { addRun, parseRunHistory, RUN_HISTORY_STORAGE_KEY, type RunRecord } from './ui/runHistory';
 import { infoButton, initTooltips, tip } from './ui/tooltip';
-import { startTour, tourDone } from './ui/tour';
+import { tourDone } from './ui/tourState';
 import { CANDLE_DB_NAME } from './data/candleCache';
 import { DB_NAME as LIVE_DB_NAME } from './live/store';
 
@@ -663,7 +663,18 @@ renderOverlayPicker(topBar.tools, PICKER_OVERLAYS, pickedOverlayIds, (ids) => {
   applyOverlays();
 });
 
-const help = createHelpWindow(() => startTour());
+// Help (with its word list) and the tour load on first use: they are not needed to draw the app.
+const startTour = () => void import('./ui/tour').then((m) => m.startTour()).catch(reportCrash);
+let helpWindow: Promise<HelpWindow> | null = null;
+const help = {
+  open(tab?: HelpTab) {
+    helpWindow ??= import('./ui/help').then((m) => m.createHelpWindow(startTour));
+    helpWindow.then((w) => w.open(tab)).catch((err: unknown) => {
+      helpWindow = null; // try again next time
+      reportCrash(err);
+    });
+  },
+};
 
 /** Saves the blocks and the Pine scripts as a file. */
 async function exportStrategy(): Promise<void> {
@@ -716,7 +727,7 @@ function resetEverything(): void {
 }
 
 // Footer: quick links into Help.
-const footerLink = (label: string, tab: Parameters<typeof help.open>[0]) => {
+const footerLink = (label: string, tab: HelpTab) => {
   const b = h('button', { type: 'button', class: 'footer-link' }, label);
   b.addEventListener('click', () => help.open(tab));
   return b;

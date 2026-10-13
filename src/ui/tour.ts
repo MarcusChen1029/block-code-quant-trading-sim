@@ -1,9 +1,9 @@
 import { h } from './dom';
 import { icon } from './icons';
-import { loadText, saveText } from './storage';
+import { saveText } from './storage';
+import { TOUR_DONE_STORAGE_KEY } from './tourState';
 import { placeTip } from './tooltip';
 
-export const TOUR_DONE_STORAGE_KEY = 'quant-sim.tour-done.v1';
 
 export interface TourStep {
   /** CSS selector of what to highlight; none (or not visible) = a centred card. */
@@ -25,9 +25,6 @@ export const TOUR_STEPS: readonly TourStep[] = [
   { target: '#help-btn', title: 'Help is always here', text: 'Open Help (or press ?) for a word list, answers to common questions and keyboard shortcuts. Have fun experimenting!' },
 ];
 
-export function tourDone(): boolean {
-  return loadText(TOUR_DONE_STORAGE_KEY) === '1';
-}
 
 /** A step-by-step spotlight tour over the real interface. Escape or "Skip" ends it; it is remembered as done. */
 export function startTour(steps: readonly TourStep[] = TOUR_STEPS, onEnd: () => void = () => {}): void {
