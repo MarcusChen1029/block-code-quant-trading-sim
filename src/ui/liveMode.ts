@@ -382,7 +382,7 @@ export class LiveMode {
     await this.persist(record, true);
     this.announce(record.id);
     this.openView(record, 'live');
-    this.deps.setStatus(`Live session "${record.name}" started (${record.symbol} ${record.timeframe}). Paper trading: no real orders are sent.`);
+    this.deps.setStatus(`Live session "${record.name}" started (${record.symbol} ${record.timeframe}). Pretend money only: no real orders are sent.`);
   }
 
   private open(id: string): void {
@@ -845,7 +845,7 @@ export class LiveMode {
       });
       this.sessions = [record, ...this.sessions.filter((s) => s.id !== record.id)];
       this.openView(record, 'live');
-      this.deps.setStatus(`Server session "${record.name}" started (${record.symbol} ${record.timeframe}); it runs 24/7 on the server. Paper trading: no real orders are sent.`);
+      this.deps.setStatus(`Server session "${record.name}" started (${record.symbol} ${record.timeframe}); it runs 24/7 on the server. Pretend money only: no real orders are sent.`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (err instanceof ServerApiError && err.blockId) this.deps.highlightBlock(err.blockId, message);

@@ -590,7 +590,7 @@ function switchMode(next: AppMode): void {
     live?.close(); // the backtest chart's own stream
     live = null;
     liveSessions.activate();
-    if (!liveSessions.hasRunning) setStatus('Live mode: paper trading on real Binance prices. No real orders are ever sent.');
+    if (!liveSessions.hasRunning) setStatus('Live mode: practise on real prices as they happen, with pretend money. No real orders are ever sent.');
     return;
   }
   liveSessions.deactivate();
