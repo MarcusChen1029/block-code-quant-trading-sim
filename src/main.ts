@@ -4,7 +4,8 @@ import { getIndicator } from './blocks/registry';
 import type { CompileIssue, IndicatorUse } from './blocks/generator';
 import type { CandleSubscription } from './data/adapter';
 import { BinanceFuturesAdapter } from './data/binance';
-import type { Candle } from './data/types';
+import { timeframeToMs, type Candle } from './data/types';
+import { laterStartNote } from './ui/historyStart';
 import { DEFAULT_SMA_CROSS } from './engine/strategies/smaCross';
 // Blockly (~800 kB) is loaded on demand (see editorLoader) so the chart and top bar render first.
 import type { BlockEditor } from './ui/blockEditor';
@@ -486,7 +487,10 @@ async function runWith(settings: RunSettings): Promise<void> {
     chart.setMarkers(fillsToMarkers(result.fills));
     stats.render(result);
     results.ranWith(runKey);
-    verdict.show(verdictFor(result, candles.length, strategyWarmup(spec)), benchmarkDefinition(result.benchmark?.leverage ?? 1));
+    // Prices that begin after the chosen start date make earlier dates give the same result: say so.
+    const startNote = laterStartNote(settings.startMs, candles[0]?.time, timeframeToMs(settings.timeframe));
+    const v = verdictFor(result, candles.length, strategyWarmup(spec));
+    verdict.show(startNote ? { ...v, hint: [startNote, v.hint].filter(Boolean).join(' ') } : v, benchmarkDefinition(result.benchmark?.leverage ?? 1));
     // Beat buy & hold (and made money): a little celebration over the results.
     const bench = result.benchmark?.returnPct;
     if (bench !== undefined && result.stats.totalReturnPct > 0 && result.stats.totalReturnPct > bench && !result.wiped) {
@@ -502,7 +506,7 @@ async function runWith(settings: RunSettings): Promise<void> {
     setStatus(
       `Backtest done (${spec.id === 'blocks' ? 'your blocks' : 'built-in SMA cross'}): ${result.barsProcessed.toLocaleString('en-US')} candles, ${result.trades.length} trade${result.trades.length === 1 ? '' : 's'}` +
         (result.wiped ? ' (ACCOUNT WIPED)' : '') +
-        '. See the Results panel below the chart.',
+        `. See the Results panel below the chart.${startNote ? ` ${startNote}` : ''}`,
     );
     refreshFreshness(); // edits made while it ran already make it stale
   } catch (err) {
